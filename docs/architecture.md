@@ -43,8 +43,9 @@ nothing but the glass.
 | `internal/sources`  | The `Source` contract, the registry that runs them, one package per source.  |
 | `internal/state`    | Aggregated latest-value store plus fan-out of change notifications.          |
 | `internal/server`   | HTTP routing, auth middleware, WebSocket hub, embedded static files.         |
-| `internal/tray`     | System tray icon and menu.                                                   |
-| `cmd/spotdash`      | Wiring and lifecycle. Nothing else.                                          |
+| `internal/app`      | The lifecycle: start, reload, stop. Drivable without a desktop.              |
+| `internal/tray`     | System tray icon and menu. A thin caller of `internal/app`.                  |
+| `cmd/spotdash`      | Wiring. Nothing else.                                                        |
 
 ### Configuration
 
@@ -399,6 +400,30 @@ Mitigations that are in scope now:
 Explicitly out of scope for phase 1: TLS, per-client credentials, token rotation,
 rate limiting, and any write path from the UI back to the agent. There are no
 command endpoints, so a leaked token reads data and can do nothing else.
+
+## Lifecycle
+
+Start, reload and stop live in `internal/app`, apart from the tray. A tray needs
+a desktop session, which a test does not have, so putting the lifecycle behind
+it would make the whole thing unverifiable. Every tray menu item is one call
+into that package, and `-no-tray` runs the same agent as a plain console
+process.
+
+A reload replaces one running configuration wholesale, because `listen`, `token`
+and the source set can all change. It is fail closed in the same way startup is,
+and then some: the new config is loaded and its sources are built before
+anything running is touched, so an invalid config leaves the agent exactly as it
+was. Someone mistyping a key while the agent is running should be told, not have
+the panel go dark.
+
+If the new config validates but cannot be served, most likely because something
+took the port in between, the previous configuration is restored rather than
+leaving the agent down.
+
+Shutdown stops accepting requests and closes open connections first, then stops
+the sources that were feeding them, then waits for their goroutines. Ctrl+C and
+tray Quit converge on that single path, and a signal also takes the tray down so
+the process is not left alive with nothing to serve.
 
 ## Logging
 

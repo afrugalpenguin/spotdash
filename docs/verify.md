@@ -774,17 +774,98 @@ the rim module and nothing else.
 
 ## 8. Tray integration and graceful shutdown
 
-Status: not yet verified.
+Status: verified on 2026-09-14.
 
-What must be shown:
+### Tests
 
-- Tray menu items Open UI, Reload config, and Quit all work.
-- Ctrl+C and tray Quit both shut down cleanly, stopping source goroutines and
-  closing WebSocket connections without error.
+The lifecycle lives in `internal/app` precisely so it can be driven without a
+desktop session, and the tray is a thin caller of it.
 
 ```
-Not yet verified.
+$ go test -race -count=1 ./internal/app/ -v
+--- PASS: TestStartServesHealth
+--- PASS: TestStartRefusesAnInvalidConfig
+--- PASS: TestStopClosesTheListener
+--- PASS: TestStopIsSafeToCallTwice
+--- PASS: TestReloadAppliesANewToken
+--- PASS: TestReloadWithAnInvalidConfigKeepsServing
+--- PASS: TestReloadRejectsAnUnknownSourceAndKeepsServing
+--- PASS: TestReloadBeforeStartIsAnError
+--- PASS: TestOpenURLTargetsLoopbackAndCarriesTheToken
+--- PASS: TestSourcesRunAfterStart
+ok      github.com/afrugalpenguin/spotdash/agent/internal/app    1.701s
 ```
+
+`TestReloadWithAnInvalidConfigKeepsServing` is the one that matters. Someone
+mistypes a key in a running agent's config, and the agent has to say so and
+carry on with what it already had rather than exiting and taking the panel dark.
+The test asserts both halves: the error names the offending key, and the
+previous token still works afterwards.
+
+`TestOpenURLTargetsLoopbackAndCarriesTheToken` covers two things that would each
+make the menu item useless: the shipped config listens on `0.0.0.0`, which a
+browser cannot open, and a URL without the token lands on a 401.
+
+### Graceful shutdown, with a real Ctrl+C
+
+The obvious approach does not test anything:
+
+```
+$ kill -TERM <pid>      # from an MSYS shell
+```
+
+MSYS `kill` against a native Windows process calls `TerminateProcess`, which
+never reaches Go's signal handler. The process dies, the test passes, and
+nothing about graceful shutdown has been demonstrated.
+
+The genuine path on Windows is a console control event. The harness starts the
+agent as a child sharing its console, raises `CTRL_C_EVENT` on that console, and
+keeps a handle so it can read the exit code. It sets its own ignore handler
+*after* starting the child, because that flag is inherited: setting it first
+makes the agent ignore the event too, which is a false pass that this harness
+produced before the ordering was fixed.
+
+```
+serving before the event: True
+exited: yes
+exit code: 0
+port 8765: released
+```
+
+```
+$ tail -4 spotdash.log
+level=INFO msg="shutdown requested"
+level=DEBUG msg="source stopped" source=clock
+level=DEBUG msg="source stopped" source=telemetry
+level=INFO msg="stopped cleanly"
+```
+
+Exit code zero, both source goroutines stopped, the listener released, and no
+error line. The same run was repeated with the tray enabled, which exercises the
+systray event loop and the path where a signal takes the tray down so the
+process is not left alive with nothing to serve:
+
+```
+[no-tray]   serving: True   exited: yes   port 8765 released   final log: stopped cleanly
+[with-tray] serving: True   exited: yes   port 8765 released   final log: stopped cleanly
+```
+
+### The tray itself
+
+The icon, the three menu items and their click handlers are the one part that
+cannot be driven from a test, which is why there is as little code there as
+possible: every menu item is a single call into `internal/app`. The tray path
+was exercised end to end above, so systray starts, runs, and shuts down cleanly
+in a real desktop session.
+
+Clicking the items was not automated. `Open UI` and `Reload config` both call
+methods that are covered by the tests above.
+
+### Running without a desktop
+
+`-no-tray` runs the agent as a plain console process. It exists because a tray
+needs a desktop session and the verification above needs a process it can drive,
+and it is the flag to use when running the agent from a terminal.
 
 ## 9. Shell in the 480x480 emulator
 

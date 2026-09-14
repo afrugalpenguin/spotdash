@@ -1,24 +1,25 @@
 // Command spotdash is the desk dashboard agent: it collects data from a set of
 // pluggable sources and serves a web UI and a live feed over the LAN.
+//
+// Everything about the lifecycle lives in the app package, which is drivable
+// without a desktop session. This file is wiring: resolve the config path, set
+// up logging, and hand over to either the tray or a signal wait.
 package main
 
 import (
-	"context"
 	"errors"
 	"flag"
 	"fmt"
-	"net/http"
+	"log/slog"
 	"os"
 	"os/signal"
 	"path/filepath"
 	"syscall"
-	"time"
 
+	"github.com/afrugalpenguin/spotdash/agent/internal/app"
 	"github.com/afrugalpenguin/spotdash/agent/internal/config"
 	"github.com/afrugalpenguin/spotdash/agent/internal/logging"
-	"github.com/afrugalpenguin/spotdash/agent/internal/server"
-	"github.com/afrugalpenguin/spotdash/agent/internal/sources"
-	"github.com/afrugalpenguin/spotdash/agent/internal/state"
+	"github.com/afrugalpenguin/spotdash/agent/internal/tray"
 )
 
 // version is overridden at build time with -ldflags "-X main.version=...".
@@ -27,7 +28,6 @@ var version = "dev"
 const (
 	configFileName = "config.json"
 	logFileName    = "spotdash.log"
-	shutdownGrace  = 5 * time.Second
 )
 
 func main() {
@@ -39,6 +39,7 @@ func main() {
 
 func run() error {
 	configPath := flag.String("config", "", "path to config.json (default: next to the binary, then the working directory)")
+	noTray := flag.Bool("no-tray", false, "run without the tray icon, for a console or a machine with no desktop session")
 	showVersion := flag.Bool("version", false, "print the version and exit")
 	flag.Parse()
 
@@ -52,15 +53,17 @@ func run() error {
 		return err
 	}
 
+	// Read once here only to configure logging. The app reads the file itself
+	// and owns it from then on, including on reload.
 	cfg, err := config.Load(resolved)
 	if err != nil {
 		return err
 	}
-
 	level, err := logging.ParseLevel(cfg.LogLevel)
 	if err != nil {
 		return err
 	}
+
 	logPath := filepath.Join(filepath.Dir(resolved), logFileName)
 	log, closeLog, err := logging.New(logging.Options{Level: level, FilePath: logPath})
 	if err != nil {
@@ -72,89 +75,46 @@ func run() error {
 		}
 	}()
 
-	log.Info("starting",
-		"version", version,
-		"config", resolved,
-		"log_file", logPath,
-		"listen", cfg.Listen,
-		"log_level", cfg.LogLevel,
-	)
+	log.Info("starting", "version", version, "config", resolved, "log_file", logPath)
 
-	// Built before anything starts listening, so a source that cannot be
-	// constructed stops the agent rather than producing a face that never
-	// populates.
-	built, err := sources.Build(cfg)
-	if err != nil {
+	agent := app.New(resolved, version, log)
+	if err := agent.Start(); err != nil {
 		return err
 	}
 
-	store := state.New()
-	for _, name := range cfg.SourceNames() {
-		if cfg.Sources[name].Enabled {
-			// Enabled but not yet producing data. The runner flips this to ok
-			// on the first successful poll.
-			store.Register(name, state.StatusDegraded, "awaiting first poll")
-		} else {
-			store.Register(name, state.StatusDisabled, "")
-		}
-		log.Debug("registered source", "source", name, "enabled", cfg.Sources[name].Enabled)
+	signals := make(chan os.Signal, 1)
+	signal.Notify(signals, os.Interrupt, syscall.SIGTERM)
+
+	if *noTray {
+		<-signals
+		log.Info("shutdown requested")
+		return finish(agent, log)
 	}
 
-	srv := server.New(server.Options{
-		Token:   cfg.Token,
-		Version: version,
-		Started: time.Now(),
-		Store:   store,
-		Logger:  log,
-	})
-
-	srv.HandleWebSocket()
-	srv.HandleStatic()
-
-	httpServer := &http.Server{
-		Addr:              cfg.Listen,
-		Handler:           srv.Handler(),
-		ReadHeaderTimeout: 10 * time.Second,
-	}
-
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
-
-	runner := sources.NewRunner(store, log)
-	runner.Start(ctx, built)
-	log.Info("sources started", "count", len(built))
-
-	errCh := make(chan error, 1)
+	// Ctrl+C and tray Quit converge on the same path. A signal has to take the
+	// tray down too, or systray keeps the process alive with nothing left to
+	// serve.
 	go func() {
-		log.Info("listening", "addr", cfg.Listen)
-		if err := httpServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			errCh <- fmt.Errorf("http server: %w", err)
-			return
-		}
-		errCh <- nil
+		<-signals
+		log.Info("shutdown requested")
+		tray.Stop()
 	}()
 
-	select {
-	case err := <-errCh:
-		// The listener failed, so the sources have nothing to feed. Stop them
-		// before returning.
-		stop()
-		runner.Wait()
+	// systray takes over this goroutine and expects to be on the main one, so
+	// it goes last.
+	tray.Run(tray.Options{
+		Controller: agent,
+		Version:    version,
+		Log:        log,
+	})
+
+	return finish(agent, log)
+}
+
+func finish(agent *app.App, log *slog.Logger) error {
+	if err := agent.Stop(); err != nil {
 		return err
-	case <-ctx.Done():
-		log.Info("shutdown requested")
 	}
-
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownGrace)
-	defer cancel()
-	if err := httpServer.Shutdown(shutdownCtx); err != nil {
-		return fmt.Errorf("shutting down http server: %w", err)
-	}
-
-	// The context is already cancelled here, so every source goroutine is on
-	// its way out. Wait for them so shutdown is actually complete when this
-	// returns.
-	runner.Wait()
 	log.Info("stopped cleanly")
 	return nil
 }
