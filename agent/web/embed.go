@@ -7,7 +7,8 @@ package web
 
 import "embed"
 
-// Files is the panel UI: one page, one stylesheet, and the face modules.
+// Files is the panel UI: the panel page, the settings page, one stylesheet,
+// and the face modules.
 //
-//go:embed index.html dev.html style.css app.js faces/*.js
+//go:embed index.html dev.html settings.html style.css app.js settings.js faces/*.js
 var Files embed.FS

@@ -1,6 +1,7 @@
 package app
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
@@ -10,6 +11,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/afrugalpenguin/spotdash/agent/internal/config"
 )
 
 func discardLogger() *slog.Logger {
@@ -250,4 +254,109 @@ func healthBody(t *testing.T, base string) string {
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(resp.Body)
 	return string(body)
+}
+
+func postJSON(t *testing.T, url, token string, body string) (int, string) {
+	t.Helper()
+	req, err := http.NewRequest(http.MethodPost, url, strings.NewReader(body))
+	if err != nil {
+		t.Fatalf("building request: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return 0, ""
+	}
+	defer resp.Body.Close()
+	respBody, _ := io.ReadAll(resp.Body)
+	return resp.StatusCode, string(respBody)
+}
+
+func TestAccentSettingsGetReportsTheConfiguredColour(t *testing.T) {
+	port := freePort(t)
+	agent, _ := startApp(t, configFor(port, "first-token"))
+
+	req, _ := http.NewRequest(http.MethodGet, agent.baseURL()+"/settings/accent", nil)
+	req.Header.Set("Authorization", "Bearer first-token")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("GET /settings/accent: %v", err)
+	}
+	defer resp.Body.Close()
+	respBody, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200: %s", resp.StatusCode, respBody)
+	}
+	var decoded struct {
+		AccentColor string `json:"accent_color"`
+	}
+	if err := json.Unmarshal(respBody, &decoded); err != nil {
+		t.Fatalf("decoding response: %v\nbody: %s", err, respBody)
+	}
+	if decoded.AccentColor != "" {
+		t.Errorf("AccentColor = %q, want empty for a config with none set", decoded.AccentColor)
+	}
+}
+
+func TestAccentSettingsRequiresTheToken(t *testing.T) {
+	port := freePort(t)
+	agent, _ := startApp(t, configFor(port, "first-token"))
+
+	if got := get(t, agent.baseURL()+"/settings/accent", ""); got != http.StatusUnauthorized {
+		t.Errorf("GET /settings/accent with no token = %d, want 401", got)
+	}
+}
+
+func TestAccentSettingsPostSavesAndReloads(t *testing.T) {
+	port := freePort(t)
+	agent, path := startApp(t, configFor(port, "first-token"))
+
+	status, respBody := postJSON(t, agent.baseURL()+"/settings/accent", "first-token", `{"accent_color":"#7c83fd"}`)
+	if status != http.StatusOK {
+		t.Fatalf("POST /settings/accent = %d, want 200: %s", status, respBody)
+	}
+
+	// Written to config.json...
+	saved, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("reloading config.json from disk: %v", err)
+	}
+	if saved.AccentColor != "#7c83fd" {
+		t.Errorf("config.json accent_color = %q, want %q", saved.AccentColor, "#7c83fd")
+	}
+
+	// ...and applied live, without restarting the process. The reload that
+	// picks it up is scheduled slightly after the response above, so this
+	// polls briefly rather than assuming it has already happened.
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		if strings.Contains(healthBody(t, agent.baseURL()), `"accent_color":"#7c83fd"`) {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("/health never reported the new accent_color after saving")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+func TestAccentSettingsPostRejectsAnInvalidColour(t *testing.T) {
+	port := freePort(t)
+	agent, path := startApp(t, configFor(port, "first-token"))
+
+	status, _ := postJSON(t, agent.baseURL()+"/settings/accent", "first-token", `{"accent_color":"not-a-colour"}`)
+	if status != http.StatusBadRequest {
+		t.Errorf("POST with an invalid colour = %d, want 400", status)
+	}
+
+	saved, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("reloading config.json: %v", err)
+	}
+	if saved.AccentColor != "" {
+		t.Errorf("config.json accent_color = %q, want unchanged (empty) after a rejected save", saved.AccentColor)
+	}
 }

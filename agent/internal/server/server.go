@@ -23,6 +23,13 @@ type Options struct {
 	Started time.Time
 	Store   *state.Store
 	Logger  *slog.Logger
+	// AccentColor is the configured accent_color, "#rrggbb", or empty to
+	// leave the panel's built-in default from the stylesheet in place.
+	// Carried on /health rather than requiring the token, the same
+	// reasoning uptime and version already get: it is cosmetic, not
+	// sensitive, and the panel needs it before it necessarily has anything
+	// else confirming the agent is reachable.
+	AccentColor string
 }
 
 // Server routes HTTP requests for the agent.
@@ -108,6 +115,7 @@ type healthSource struct {
 type healthResponse struct {
 	Version       string                  `json:"version"`
 	UptimeSeconds float64                 `json:"uptime_seconds"`
+	AccentColor   string                  `json:"accent_color,omitempty"`
 	Sources       map[string]healthSource `json:"sources"`
 }
 
@@ -115,6 +123,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	resp := healthResponse{
 		Version:       s.opts.Version,
 		UptimeSeconds: time.Since(s.opts.Started).Seconds(),
+		AccentColor:   s.opts.AccentColor,
 		Sources:       map[string]healthSource{},
 	}
 	for _, entry := range s.opts.Store.Snapshot() {

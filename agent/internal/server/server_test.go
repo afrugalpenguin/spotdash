@@ -101,6 +101,39 @@ func TestHealthReportsEverySourceStatus(t *testing.T) {
 	}
 }
 
+func TestHealthReportsTheConfiguredAccentColor(t *testing.T) {
+	store := state.New()
+	srv := New(Options{
+		Token:       testToken,
+		Version:     "test-version",
+		Started:     time.Now(),
+		Store:       store,
+		AccentColor: "#7c83fd",
+	})
+
+	rec := do(t, srv, http.MethodGet, "/health", "")
+
+	var body struct {
+		AccentColor string `json:"accent_color"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decoding /health body: %v\nbody: %s", err, rec.Body.String())
+	}
+	if body.AccentColor != "#7c83fd" {
+		t.Errorf("accent_color = %q, want %q", body.AccentColor, "#7c83fd")
+	}
+}
+
+func TestHealthOmitsAccentColorWhenUnconfigured(t *testing.T) {
+	srv, _ := newTestServer(t)
+
+	rec := do(t, srv, http.MethodGet, "/health", "")
+
+	if strings.Contains(rec.Body.String(), "accent_color") {
+		t.Errorf("expected no accent_color key when unconfigured, got:\n%s", rec.Body.String())
+	}
+}
+
 func TestHealthNeverLeaksTokenOrSourceData(t *testing.T) {
 	srv, store := newTestServer(t)
 	store.Register("clock", state.StatusOK, "")

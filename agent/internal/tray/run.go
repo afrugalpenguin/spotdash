@@ -35,6 +35,7 @@ func onReady(opts Options, log *slog.Logger) {
 	systray.SetTooltip("spotdash " + opts.Version)
 
 	openItem := systray.AddMenuItem("Open UI", "Open the dashboard in your browser")
+	optionsItem := systray.AddMenuItem("Options", "Change panel settings, such as the accent colour")
 	reloadItem := systray.AddMenuItem("Reload config", "Re-read config.json")
 	systray.AddSeparator()
 	quitItem := systray.AddMenuItem("Quit", "Stop the agent")
@@ -46,6 +47,16 @@ func onReady(opts Options, log *slog.Logger) {
 				target := opts.Controller.OpenURL()
 				if target == "" {
 					log.Warn("cannot open the UI, the agent is not serving")
+					continue
+				}
+				if err := openInBrowser(target); err != nil {
+					log.Error("could not open the browser", "error", err)
+				}
+
+			case <-optionsItem.ClickedCh:
+				target := opts.Controller.SettingsURL()
+				if target == "" {
+					log.Warn("cannot open settings, the agent is not serving")
 					continue
 				}
 				if err := openInBrowser(target); err != nil {

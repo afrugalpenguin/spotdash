@@ -26,6 +26,7 @@ function resetState() {
   state.sources = {};
   state.uptimeSeconds = 0;
   state.version = "";
+  state.accentColor = "";
   state.connection = "connecting";
   state.lastError = "";
 }
@@ -143,6 +144,22 @@ test("applyHealth keeps the reading a source already had", () => {
   assert.equal(state.sources.clock.status, "ok");
   assert.equal(state.uptimeSeconds, 42);
   assert.equal(state.version, "1.2.3");
+});
+
+test("applyHealth carries the configured accent colour", () => {
+  resetState();
+
+  applyHealth({ version: "1.2.3", uptime_seconds: 1, accent_color: "#7c83fd" });
+
+  assert.equal(state.accentColor, "#7c83fd");
+});
+
+test("applyHealth leaves accentColor empty when unconfigured", () => {
+  resetState();
+
+  applyHealth({ version: "1.2.3", uptime_seconds: 1 });
+
+  assert.equal(state.accentColor, "");
 });
 
 test("applyHealth carries the last error through", () => {

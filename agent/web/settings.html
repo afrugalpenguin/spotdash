@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="dark" />
+    <title>spotdash settings</title>
+    <link rel="stylesheet" href="style.css" />
+    <style>
+      /* This page is opened on a desktop browser from the tray, not the
+       * circular panel, so it is laid out as an ordinary page rather than
+       * fitted to #panel's 480px circle. */
+      body {
+        display: flex;
+        justify-content: center;
+        padding: 48px 16px;
+      }
+
+      .settings {
+        width: 100%;
+        max-width: 360px;
+      }
+
+      .settings h1 {
+        font-size: 19px;
+        font-weight: 500;
+        margin: 0 0 24px;
+      }
+
+      .field {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        margin: 0 0 20px;
+      }
+
+      .field label {
+        font-size: 15px;
+      }
+
+      .field p {
+        font-size: 13px;
+        color: var(--muted);
+        margin: -14px 0 20px;
+      }
+
+      input[type="color"] {
+        width: 44px;
+        height: 32px;
+        padding: 0;
+        border: 1px solid #2a3138;
+        border-radius: 4px;
+        background: none;
+        cursor: pointer;
+      }
+
+      button {
+        font: inherit;
+        font-size: 14px;
+        color: var(--black);
+        background: var(--live);
+        border: 0;
+        border-radius: 4px;
+        padding: 9px 18px;
+        cursor: pointer;
+      }
+
+      button:disabled {
+        opacity: 0.5;
+        cursor: default;
+      }
+
+      #status {
+        font-size: 13px;
+        margin-top: 14px;
+        min-height: 1.2em;
+      }
+
+      #status[data-state="ok"] {
+        color: var(--live);
+      }
+
+      #status[data-state="error"] {
+        color: var(--alert);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="settings">
+      <h1>Settings</h1>
+
+      <div class="field">
+        <label for="accent">Accent colour</label>
+        <input type="color" id="accent" />
+      </div>
+      <p>Used across every face: the rim, the connection dot, gauges, the
+        calendar card border.</p>
+
+      <button id="save" type="button">Save</button>
+      <p id="status" role="status"></p>
+    </div>
+
+    <script type="module">
+      import { start } from "./settings.js";
+      start();
+    </script>
+  </body>
+</html>

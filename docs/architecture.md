@@ -53,10 +53,11 @@ nothing but the glass.
 
 | Key         | Type   | Notes                                                         |
 | ----------- | ------ | ------------------------------------------------------------- |
-| `listen`    | string | `host:port`. Default `0.0.0.0:8765`.                           |
-| `token`     | string | Shared secret. Required. An empty token is a startup failure.  |
-| `log_level` | string | `debug`, `info`, `warn`, or `error`.                           |
-| `sources`   | object | Source name to settings. Every source has `enabled` and `interval_ms`; sources may add their own keys. |
+| `listen`       | string | `host:port`. Default `0.0.0.0:8765`.                           |
+| `token`        | string | Shared secret. Required. An empty token is a startup failure.  |
+| `log_level`    | string | `debug`, `info`, `warn`, or `error`.                           |
+| `accent_color` | string | `"#rrggbb"`. Optional; absent keeps the stylesheet's own default. Normally set from the tray's Options page rather than hand-edited; see "Settings" below. |
+| `sources`      | object | Source name to settings. Every source has `enabled` and `interval_ms`; sources may add their own keys. |
 
 Validation is strict and total. A missing file, invalid JSON, an unknown
 top-level key, an empty token, an unparseable `listen`, an unknown `log_level`,
@@ -392,14 +393,43 @@ for free.
 
 ### Colour
 
-The resting signal is a cool teal and the alert colours are warm, amber above 80
-percent and red above 95, or above 83C for GPU temperature. The cool resting
-state is chosen so that a warning is unmistakable at a glance rather than a hue
-judgement.
+The resting signal is a cool colour (`--live`, blue by default) and the alert
+colours are warm, amber above 80 percent and red above 95, or above 83C for GPU
+temperature. The cool resting state is chosen so that a warning is unmistakable
+at a glance rather than a hue judgement.
+
+`--live` is the panel's one accent colour token; every face's rim, connection
+dot, gauge and border derives from it, so changing it is a single-source
+change. Configurable via `accent_color` in `config.json`, normally set from
+the settings page (tray: Options) rather than hand-edited. Applied live: the
+value rides on the existing `/health` poll, so a saved change reaches an
+already-open panel within one poll interval, no reload needed. See
+"Settings" below.
 
 A missing reading is a third state, not zero. An unavailable GPU renders as
 absent, with the reason stated, because a calm empty gauge and a red alarm are
 both wrong in different directions.
+
+### Settings
+
+`GET/POST /settings/accent`, authenticated the same as everything else that
+is not `/health` or an OAuth callback. GET reports the currently configured
+`accent_color` (empty if unset); POST validates a `"#rrggbb"` value, writes it
+to `config.json` (`config.Save`, atomic, mirrors the pattern spotify's
+`state_file` uses), and reloads.
+
+The reload is deliberately not synchronous inside the POST handler: `Reload`
+tears down and rebuilds the whole session, including the listener the POST
+request itself arrived on. Calling it inline would have `Shutdown` wait for
+this handler to return while the handler waits for `Reload` to return, a real
+deadlock resolved only by the shutdown grace period force-closing the
+connection before the response goes out. `time.AfterFunc` schedules the
+reload a short beat after the response is sent instead.
+
+The page itself (`settings.html`/`settings.js`) is an ordinary static file
+under `agent/web`, served the same way the panel is. One field today, but the
+route and the write-back mechanism are generic enough that a second setting
+is an added field, not a restructure.
 
 ### Layout
 

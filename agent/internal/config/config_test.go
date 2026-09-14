@@ -220,3 +220,105 @@ func TestSourceNamesAreSorted(t *testing.T) {
 		}
 	}
 }
+
+func TestLoadAcceptsAValidAccentColor(t *testing.T) {
+	cfg, err := Load(writeConfig(t, `{
+  "listen": "127.0.0.1:9000",
+  "token": "s3cret",
+  "accent_color": "#4e9eea",
+  "sources": {}
+}`))
+	if err != nil {
+		t.Fatalf("Load returned an error for a valid accent_color: %v", err)
+	}
+	if cfg.AccentColor != "#4e9eea" {
+		t.Errorf("AccentColor = %q, want %q", cfg.AccentColor, "#4e9eea")
+	}
+}
+
+func TestLoadAllowsAnAbsentAccentColor(t *testing.T) {
+	cfg, err := Load(writeConfig(t, validConfig))
+	if err != nil {
+		t.Fatalf("Load returned an error: %v", err)
+	}
+	if cfg.AccentColor != "" {
+		t.Errorf("AccentColor = %q, want empty when unset", cfg.AccentColor)
+	}
+}
+
+func TestLoadRejectsAMalformedAccentColor(t *testing.T) {
+	cases := []string{"blue", "#fff", "#gggggg", "4e9eea"}
+	for _, bad := range cases {
+		_, err := Load(writeConfig(t, `{
+  "listen": "127.0.0.1:9000",
+  "token": "s3cret",
+  "accent_color": "`+bad+`",
+  "sources": {}
+}`))
+		if err == nil {
+			t.Errorf("Load accepted invalid accent_color %q, want an error", bad)
+		}
+	}
+}
+
+func TestSaveRoundTripsEveryFieldIncludingSourceSettings(t *testing.T) {
+	path := writeConfig(t, validConfig)
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	cfg.AccentColor = "#7c83fd"
+	if err := Save(path, cfg); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	reloaded, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load after Save: %v", err)
+	}
+	if reloaded.AccentColor != "#7c83fd" {
+		t.Errorf("AccentColor after round trip = %q, want %q", reloaded.AccentColor, "#7c83fd")
+	}
+	if reloaded.Listen != cfg.Listen || reloaded.Token != cfg.Token {
+		t.Errorf("Listen/Token did not round trip: got %+v", reloaded)
+	}
+	clock, ok := reloaded.Sources["clock"]
+	if !ok {
+		t.Fatal(`Save dropped the "clock" source`)
+	}
+	if !clock.Enabled || clock.IntervalMS != 1000 {
+		t.Errorf("clock source did not round trip: %+v", clock)
+	}
+	// sleep_start/sleep_end are source-specific keys with no field on Source;
+	// they must survive only because Settings is written back verbatim.
+	var clockSettings struct {
+		SleepStart string `json:"sleep_start"`
+	}
+	if err := json.Unmarshal(clock.Settings, &clockSettings); err != nil {
+		t.Fatalf("unmarshalling round-tripped clock settings: %v", err)
+	}
+	if clockSettings.SleepStart != "23:30" {
+		t.Errorf("sleep_start = %q, want %q, source-specific settings did not survive Save", clockSettings.SleepStart, "23:30")
+	}
+}
+
+func TestSaveWritesAtomically(t *testing.T) {
+	path := writeConfig(t, validConfig)
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if err := Save(path, cfg); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	entries, err := os.ReadDir(filepath.Dir(path))
+	if err != nil {
+		t.Fatalf("reading dir: %v", err)
+	}
+	for _, e := range entries {
+		if strings.Contains(e.Name(), ".tmp") {
+			t.Errorf("a temp file %q was left behind, Save should clean up on success", e.Name())
+		}
+	}
+}

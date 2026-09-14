@@ -38,6 +38,7 @@ export const state = {
   connection: "connecting",
   uptimeSeconds: 0,
   version: "",
+  accentColor: "",
   sources: {},
   lastError: "",
 };
@@ -245,6 +246,7 @@ export function applyHealth(health) {
   }
   state.uptimeSeconds = health.uptime_seconds || 0;
   state.version = health.version || "";
+  state.accentColor = health.accent_color || "";
 
   const reported = health.sources || {};
   for (const name of Object.keys(reported)) {
@@ -258,6 +260,17 @@ export function applyHealth(health) {
   }
 }
 
+// applyAccentColor pushes the configured accent onto the document, live,
+// without a page reload. Kept separate from applyHealth, which is plain
+// state and unit tested without a DOM: this is the one place that touches
+// document, and only ever called from the real browser bootstrap below.
+function applyAccentColor() {
+  if (!state.accentColor) {
+    return;
+  }
+  document.documentElement.style.setProperty("--live", state.accentColor);
+}
+
 async function pollHealth() {
   try {
     const response = await fetch("/health", { cache: "no-store" });
@@ -265,6 +278,7 @@ async function pollHealth() {
       throw new Error(`health returned ${response.status}`);
     }
     applyHealth(await response.json());
+    applyAccentColor();
     state.lastError = "";
   } catch (err) {
     state.lastError = err && err.message ? err.message : String(err);
