@@ -212,7 +212,23 @@ revoked is a failure, with a `/spotify/connect` hint in the error.
 
 **Art**: fetched once per track, cached to one file next to `state_file`,
 served from the agent's own origin rather than a direct CDN hit from the
-device. Re-fetched only when the track ID changes.
+device. Re-fetched only when the track ID changes. The published `ArtURL`
+carries the track ID as a query parameter (`/art/spotify?track=...`) rather
+than the bare path: the file behind it is correctly re-downloaded on every
+track change, but an unchanged URL gives neither the browser's own cache nor
+the client's same-URL guard in `setArt()` any reason to treat the cover as
+different, so without this the cover freezes on whichever track first set
+it.
+
+**Consistency after a skip**: Spotify's own `currently-playing` endpoint does
+not reliably reflect a `next`/`previous` immediately, even though the
+control call itself is accepted right away; measured live, anywhere from
+under 200ms to over a second. `handleControl` flags this
+(`expectingChange`), and the poll immediately after retries briefly
+(`consistencyRetries`, `consistencyDelay`) rather than accepting a read that
+is still the track from before the action. Bounded and best-effort: pause
+and resume do not set the flag, since `Playing` is reflected immediately in
+practice and there is no "which track" ambiguity for a retry to resolve.
 
 **Layout**: `"fill"` or `"disc"`, default `"fill"`, set via config rather than
 a URL parameter since the shell loads one fixed URL with no way to attach one.

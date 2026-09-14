@@ -7,7 +7,9 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"path/filepath"
+	"sync/atomic"
 	"time"
 )
 
@@ -76,6 +78,27 @@ type apiSource struct {
 	lastTrackID  string
 	hasArt       bool
 
+	// previousTrackID is the track ID as of the end of the last poll,
+	// updated unconditionally there rather than only on a successful art
+	// download like lastTrackID is. It exists purely to let poll() tell
+	// whether a fetch immediately after a next/previous actually changed
+	// anything.
+	previousTrackID string
+
+	// expectingChange is set by handleControl right after a successful
+	// next/previous, and consumed by the very next poll. Spotify's own
+	// currently-playing endpoint does not always reflect a skip
+	// immediately, even though the skip itself was accepted, so that next
+	// poll retries briefly rather than accepting a read that is still the
+	// track from before the control action. An atomic because it is
+	// written from an HTTP handler goroutine and read from the poller's.
+	expectingChange atomic.Bool
+
+	// sleep waits out one consistency-retry delay, or returns early if ctx
+	// is done. Overridden in tests so the retry loop does not make them
+	// slow.
+	sleep func(ctx context.Context, d time.Duration)
+
 	// Exposed so the app wiring can mount the OAuth routes.
 	auth *authManager
 
@@ -84,6 +107,27 @@ type apiSource struct {
 	// SetRepoll once the runner exists; nil until then, and nil is a safe,
 	// silent no-op rather than something callers have to check for.
 	repoll func()
+}
+
+// consistencyRetries and consistencyDelay bound how long poll() will chase
+// Spotify's own eventual consistency after a next/previous: measured live,
+// the currently-playing endpoint has taken anywhere from under 200ms to
+// over a second to reflect a skip that was already accepted. Three tries
+// roughly 400ms apart caps the extra wait around 1.2s - short of the
+// interval floor (minPollTimeout, 2s) this poll is running under, and far
+// short of waiting out a full scheduled interval to catch up instead.
+const (
+	consistencyRetries = 3
+	consistencyDelay   = 400 * time.Millisecond
+)
+
+// ctxSleep is the production sleep: a plain wait, cut short if ctx ends
+// first.
+func ctxSleep(ctx context.Context, d time.Duration) {
+	select {
+	case <-ctx.Done():
+	case <-time.After(d):
+	}
 }
 
 // SetRepoll implements sources.RepollRegistrar.
@@ -125,6 +169,7 @@ func newAPISourceFromSettings(interval time.Duration, s settings) (*apiSource, e
 		art:          &httpArtDownloader{http: &http.Client{Timeout: 10 * time.Second}},
 		artCachePath: filepath.Join(filepath.Dir(s.StateFile), "spotify_art.jpg"),
 		auth:         auth,
+		sleep:        ctxSleep,
 	}, nil
 }
 
@@ -208,6 +253,16 @@ func (s *apiSource) handleControl(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// A skip is the case Spotify's own eventual consistency actually bites:
+	// the very next poll can still read the track from before this action.
+	// Flagged here, consumed by poll(), which retries briefly rather than
+	// accepting a stale read. Pause/resume do not need this: Playing is
+	// reflected immediately in practice, and there is no "which track"
+	// ambiguity for the retry to resolve.
+	if body.Action == "next" || body.Action == "previous" {
+		s.expectingChange.Store(true)
+	}
+
 	// The whole point of a transport control: the panel reflects the change
 	// right away rather than whenever the next scheduled poll happens to land.
 	if s.repoll != nil {
@@ -268,9 +323,18 @@ func (s *apiSource) poll(ctx context.Context) (Reading, error) {
 		}
 	}
 
+	// Consumed regardless of what np turns out to be, so a stale flag never
+	// leaks into some much later, unrelated poll.
+	expecting := s.expectingChange.Swap(false)
+	if expecting && np != nil {
+		np = s.awaitTrackChange(ctx, token, np)
+	}
+
 	if np == nil {
+		s.previousTrackID = ""
 		return Reading{Layout: s.layout}, nil
 	}
+	s.previousTrackID = np.TrackID
 
 	reading := Reading{
 		Title:      np.Title,
@@ -288,11 +352,43 @@ func (s *apiSource) poll(ctx context.Context) (Reading, error) {
 			// the reading over. The face already renders without art.
 			s.hasArt = false
 		} else {
-			reading.ArtURL = artPath
+			// The track ID as a cache-busting query parameter, not just the
+			// bare path: the file behind artPath is correctly re-downloaded
+			// on every track change, but an unchanged URL means neither the
+			// browser nor the client's own same-URL guard in setArt() has
+			// any reason to treat the cover as different, and the panel
+			// would keep showing whatever track's cover loaded first.
+			reading.ArtURL = artPath + "?track=" + url.QueryEscape(np.TrackID)
 		}
 	}
 
 	return reading, nil
+}
+
+// awaitTrackChange retries a fetch that still shows the track from before a
+// next/previous, up to consistencyRetries times, consistencyDelay apart.
+// Bounded and best-effort: if Spotify's own endpoint is still not caught up
+// by the end of the budget, this returns whatever the last fetch had rather
+// than blocking further, so the reading is stale but the poll still
+// completes. A fetch error mid-retry keeps the last good np for the same
+// reason: a transient failure here should not turn an already-successful
+// poll into a failed one.
+func (s *apiSource) awaitTrackChange(ctx context.Context, token string, np *nowPlaying) *nowPlaying {
+	for attempt := 0; attempt < consistencyRetries; attempt++ {
+		if s.previousTrackID == "" || np.TrackID != s.previousTrackID {
+			return np
+		}
+		s.sleep(ctx, consistencyDelay)
+		if ctx.Err() != nil {
+			return np
+		}
+		next, err := s.playback.fetchCurrentlyPlaying(ctx, token)
+		if err != nil || next == nil {
+			return np
+		}
+		np = next
+	}
+	return np
 }
 
 // ensureArtCached downloads the cover only when the track actually changed.

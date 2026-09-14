@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/afrugalpenguin/spotdash/agent/internal/sources/partial"
 )
@@ -58,6 +59,9 @@ func newTestAPISource(t *testing.T, tokens accessTokenSource, playback currently
 		playback:     playback,
 		art:          art,
 		artCachePath: filepath.Join(t.TempDir(), "spotify_art.jpg"),
+		// A no-op rather than ctxSleep: the consistency-retry tests exercise
+		// the retry loop itself, not real wall-clock delay.
+		sleep: func(context.Context, time.Duration) {},
 	}
 }
 
@@ -192,6 +196,43 @@ func TestPollRedownloadsArtWhenTheTrackChanges(t *testing.T) {
 	}
 }
 
+// TestPollArtURLChangesWithTheTrack is what actually makes a new cover show
+// up on the panel: the client only swaps its <img> when the URL differs from
+// what it is already showing, and a browser will not re-fetch an unchanged
+// URL either way. A fixed "/art/spotify" for every track, even though the
+// file underneath is correctly re-downloaded, means the cover freezes on
+// whatever track first set it.
+func TestPollArtURLChangesWithTheTrack(t *testing.T) {
+	tokens := &fakeTokenSource{token: "access-1"}
+	playback := &fakePlaybackFetcher{result: &nowPlaying{
+		Title: "First Track", TrackID: "track-1", DurationMS: 1000,
+		ArtImageURL: "https://i.scdn.co/image/first",
+	}}
+	art := &fakeDownloader{bytes: []byte("art bytes")}
+	src := newTestAPISource(t, tokens, playback, art)
+
+	first, err := src.poll(context.Background())
+	if err != nil {
+		t.Fatalf("first poll: %v", err)
+	}
+
+	playback.result = &nowPlaying{
+		Title: "Second Track", TrackID: "track-2", DurationMS: 1000,
+		ArtImageURL: "https://i.scdn.co/image/second",
+	}
+	second, err := src.poll(context.Background())
+	if err != nil {
+		t.Fatalf("second poll: %v", err)
+	}
+
+	if first.ArtURL == second.ArtURL {
+		t.Errorf("ArtURL was %q for both tracks, want it to change so the client actually reloads the image", first.ArtURL)
+	}
+	if !strings.HasPrefix(second.ArtURL, artPath) {
+		t.Errorf("ArtURL = %q, want it to still be served from %s", second.ArtURL, artPath)
+	}
+}
+
 func TestPollWritesArtToTheCachePath(t *testing.T) {
 	tokens := &fakeTokenSource{token: "access-1"}
 	playback := &fakePlaybackFetcher{result: &nowPlaying{
@@ -257,6 +298,127 @@ func TestPollRetriesOnceOnAnExpiredAccessToken(t *testing.T) {
 	}
 	if calls != 2 {
 		t.Errorf("fetchCurrentlyPlaying called %d times, want 2", calls)
+	}
+}
+
+// TestPollRetriesUntilTheTrackActuallyChanges covers the case measured
+// live: a control action succeeds, but Spotify's own currently-playing
+// endpoint still reports the track from before it for a beat. The poll
+// immediately after should not settle for that stale read when it knows a
+// change is expected.
+func TestPollRetriesUntilTheTrackActuallyChanges(t *testing.T) {
+	tokens := &fakeTokenSource{token: "access-1"}
+	calls := 0
+	playback := &fakePlaybackFetcherFunc{fn: func(context.Context, string) (*nowPlaying, error) {
+		calls++
+		if calls < 3 {
+			return &nowPlaying{Title: "Old Track", TrackID: "track-1", DurationMS: 1000}, nil
+		}
+		return &nowPlaying{Title: "New Track", TrackID: "track-2", DurationMS: 1000}, nil
+	}}
+	src := newTestAPISource(t, tokens, playback, &fakeDownloader{})
+	src.previousTrackID = "track-1"
+	src.expectingChange.Store(true)
+
+	reading, err := src.poll(context.Background())
+
+	if err != nil {
+		t.Fatalf("poll: %v", err)
+	}
+	if reading.Title != "New Track" {
+		t.Errorf("Title = %q, want the reading was retried until it actually changed", reading.Title)
+	}
+	if calls != 3 {
+		t.Errorf("fetchCurrentlyPlaying called %d times, want 3 (1 initial + 2 retries)", calls)
+	}
+	if src.expectingChange.Load() {
+		t.Error("expectingChange should be consumed by the poll that acted on it")
+	}
+}
+
+// TestPollGivesUpAfterTheRetryBudget checks the retry loop is bounded: a
+// track that never changes across the whole budget still produces a
+// reading, not an error, once the budget runs out.
+func TestPollGivesUpAfterTheRetryBudget(t *testing.T) {
+	tokens := &fakeTokenSource{token: "access-1"}
+	calls := 0
+	playback := &fakePlaybackFetcherFunc{fn: func(context.Context, string) (*nowPlaying, error) {
+		calls++
+		return &nowPlaying{Title: "Stuck Track", TrackID: "track-1", DurationMS: 1000}, nil
+	}}
+	src := newTestAPISource(t, tokens, playback, &fakeDownloader{})
+	src.previousTrackID = "track-1"
+	src.expectingChange.Store(true)
+
+	reading, err := src.poll(context.Background())
+
+	if err != nil {
+		t.Fatalf("a still-stale reading after the retry budget should not be an error: %v", err)
+	}
+	if reading.Title != "Stuck Track" {
+		t.Errorf("Title = %q, want the last reading even though it never changed", reading.Title)
+	}
+	if calls != 1+consistencyRetries {
+		t.Errorf("fetchCurrentlyPlaying called %d times, want %d (1 initial + %d retries)", calls, 1+consistencyRetries, consistencyRetries)
+	}
+}
+
+// TestPollDoesNotRetryWithoutAPendingControlAction is the common case: most
+// polls are not immediately after a skip, and must not pay the retry cost
+// just because the track happens to be unchanged, which is the ordinary,
+// expected state most of the time.
+func TestPollDoesNotRetryWithoutAPendingControlAction(t *testing.T) {
+	tokens := &fakeTokenSource{token: "access-1"}
+	calls := 0
+	playback := &fakePlaybackFetcherFunc{fn: func(context.Context, string) (*nowPlaying, error) {
+		calls++
+		return &nowPlaying{Title: "Same Track", TrackID: "track-1", DurationMS: 1000}, nil
+	}}
+	src := newTestAPISource(t, tokens, playback, &fakeDownloader{})
+	src.previousTrackID = "track-1"
+	// expectingChange left false: no control action is pending.
+
+	if _, err := src.poll(context.Background()); err != nil {
+		t.Fatalf("poll: %v", err)
+	}
+	if calls != 1 {
+		t.Errorf("fetchCurrentlyPlaying called %d times, want 1 (no retry without a pending control action)", calls)
+	}
+}
+
+func TestHandleControlFlagsExpectingChangeOnNextAndPrevious(t *testing.T) {
+	for _, action := range []string{"next", "previous"} {
+		t.Run(action, func(t *testing.T) {
+			src := &apiSource{tokens: &fakeTokenSource{token: "t"}, control: &fakeControlAPI{}}
+
+			rec := httptest.NewRecorder()
+			src.handleControl(rec, newControlRequest(t, action))
+
+			if rec.Code != http.StatusOK {
+				t.Fatalf("status = %d, want 200", rec.Code)
+			}
+			if !src.expectingChange.Load() {
+				t.Errorf("expectingChange should be set after a successful %q", action)
+			}
+		})
+	}
+}
+
+func TestHandleControlDoesNotFlagExpectingChangeOnPauseOrResume(t *testing.T) {
+	for _, action := range []string{"pause", "resume"} {
+		t.Run(action, func(t *testing.T) {
+			src := &apiSource{tokens: &fakeTokenSource{token: "t"}, control: &fakeControlAPI{}}
+
+			rec := httptest.NewRecorder()
+			src.handleControl(rec, newControlRequest(t, action))
+
+			if rec.Code != http.StatusOK {
+				t.Fatalf("status = %d, want 200", rec.Code)
+			}
+			if src.expectingChange.Load() {
+				t.Errorf("expectingChange should not be set after %q, there is no track ambiguity to retry", action)
+			}
+		})
 	}
 }
 
