@@ -119,3 +119,27 @@ func (s *Store) Snapshot() []Entry {
 	sort.Slice(out, func(i, j int) bool { return out[i].Source < out[j].Source })
 	return out
 }
+
+// UpdatePartial records a poll that produced a usable value while running with
+// reduced capability. The value is stored and broadcast as a fresh reading, and
+// the source is marked degraded with the reason attached.
+//
+// Telemetry on a machine where NVML is unavailable is the case this exists for:
+// CPU, RAM and disk are genuinely there and worth showing, and the source is
+// genuinely degraded. Treating that as a failure would throw away a good
+// reading; treating it as a success would hide a real problem.
+func (s *Store) UpdatePartial(name string, data any, reason error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	entry, ok := s.entries[name]
+	if !ok {
+		return
+	}
+	entry.Status = StatusDegraded
+	entry.Data = data
+	entry.UpdatedAt = s.now()
+	if reason != nil {
+		entry.LastError = reason.Error()
+	}
+	s.broadcastLocked(*entry)
+}

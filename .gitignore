@@ -35,3 +35,8 @@ desktop.ini
 
 # Local planning notes, not part of the project
 spotdash-kickoff-prompt.md
+
+# Design mockups and scratch images, not part of the build
+mockups/
+artcover.png
+Screenshot*.png

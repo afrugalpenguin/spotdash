@@ -8,6 +8,10 @@
       "interval_ms": 1000,
       "sleep_start": "23:30",
       "sleep_end": "07:00"
+    },
+    "telemetry": {
+      "enabled": true,
+      "interval_ms": 2000
     }
   }
 }

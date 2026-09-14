@@ -587,18 +587,119 @@ sources, which has been removed.
 
 ## 6. Telemetry source, including the NVML degraded path
 
-Status: not yet verified.
+Status: verified on 2026-09-14.
 
-What must be shown:
-
-- With a working NVIDIA driver, GPU utilisation, VRAM, temperature, and power
-  appear in the telemetry payload.
-- With NVML unavailable, telemetry still reports CPU, RAM, and disk, the GPU
-  fields are null, and the source is `degraded` with the NVML error recorded.
+### Tests
 
 ```
-Not yet verified.
+$ go vet ./... && gofmt -l .
+$ go test -race -count=1 ./...
+?       .../agent/cmd/spotdash                    [no test files]
+ok      .../agent/internal/config                 1.203s
+ok      .../agent/internal/logging                1.173s
+ok      .../agent/internal/server                 1.934s
+ok      .../agent/internal/sources                1.639s
+ok      .../agent/internal/sources/clock          1.142s
+?       .../agent/internal/sources/partial        [no test files]
+ok      .../agent/internal/sources/telemetry      1.591s
+ok      .../agent/internal/state                  1.343s
+?       .../agent/web                             [no test files]
 ```
+
+### The GPU, cross-checked against nvidia-smi
+
+Both read the same card seconds apart:
+
+```
+$ nvidia-smi --query-gpu=name,utilization.gpu,memory.used,memory.total,temperature.gpu,power.draw --format=csv
+NVIDIA GeForce RTX 4070 Ti SUPER, 22 %, 3249 MiB, 16376 MiB, 30, 22.12 W
+
+$ wsprobe -token <token>        # the agent's own reading
+name             NVIDIA GeForce RTX 4070 Ti SUPER
+utilisation      17 %
+vram used        3564 MiB
+vram total       16376 MiB
+temperature      30 C
+power            22.121 W
+```
+
+Name, VRAM total, temperature and power match exactly. Utilisation and VRAM used
+differ because both are volatile and the two samples are seconds apart, which is
+the expected result rather than a discrepancy to explain away.
+
+The full reading over the socket, on a machine with 24 logical cores:
+
+```
+{"source":"telemetry","ts":"2026-09-14T10:26:53Z","data":{
+  "cpu":{"percent":3.757693553611921,"per_core":[6.92,5.42,6.97,6.20,16.27,...]},
+  "ram":{"used_bytes":17221271552,"total_bytes":33455644672,"percent":51.47493560754183},
+  "disks":[{"mount":"C:","used_bytes":1742788804608,"total_bytes":1999323000832,"percent":87.1689468826575}],
+  "gpu":{"name":"NVIDIA GeForce RTX 4070 Ti SUPER","percent":17,"vram_used_bytes":3748651008,
+         "vram_total_bytes":17171480576,"vram_percent":21.83068018746947,
+         "temperature_c":30,"power_watts":21.84}}}
+```
+
+### The degraded path
+
+Exercised through the whole agent, not only against a fake system reader: the
+real registry runner, the real state store, the real HTTP server, and a real
+WebSocket client, with only the GPU reader replaced by one that fails the way a
+missing driver does.
+
+```
+$ go test ./internal/sources/telemetry/ -run 'TestAgentKeeps|TestDegradedReading' -v
+--- PASS: TestAgentKeepsRunningWhenNVMLIsUnavailable (0.00s)
+--- PASS: TestDegradedReadingStillCarriesTheMachineOverTheSocket (0.00s)
+```
+
+Those assert what the acceptance asked for: `/health` reports `telemetry` as
+`degraded` with the NVML reason in `last_error`, the socket still carries real
+per core CPU, RAM and at least one disk, and `gpu` serialises as `null` rather
+than an empty object that the panel would render as genuine zeroes.
+
+The DLL rename variant was not performed. It needs administrator rights against
+`C:\Windows\System32` and would briefly break GPU monitoring for everything else
+on the machine, so it is not something to do unasked. Stubbing is the option the
+plan allowed, and stubbing only the GPU reader keeps every other layer real.
+
+### Two findings that changed the build
+
+**go-nvml cannot build on Windows.** It loads the library through `dlfcn.h`,
+which is POSIX:
+
+```
+$ go test ./internal/sources/telemetry/
+# github.com/NVIDIA/go-nvml/pkg/dl
+...\go-nvml@v0.13.4-0\pkg\dl\dl.go:26:11: fatal error: dlfcn.h: No such file or directory
+   26 | // #include <dlfcn.h>
+```
+
+There are no build tags guarding it, so this is not a configuration problem. The
+replacement is about a hundred lines binding `nvml.dll` directly through
+`windows.NewLazySystemDLL`, which resolves only from the system directory so a
+stray `nvml.dll` beside the binary cannot be loaded instead.
+
+**That removes cgo from the project entirely**, which settles the question
+carried forward from section 0:
+
+```
+$ CGO_ENABLED=0 go build -o spotdash-nocgo.exe ./cmd/spotdash
+builds with CGO_ENABLED=0
+
+$ # scan the produced binary for mingw runtime references
+mingw runtime references: 0
+nvml referenced: True
+```
+
+The agent is a single static binary with no runtime dependency on the compiler's
+DLLs, and it references `nvml.dll` only as a lazy runtime load. The mingw
+toolchain from section 0 is still worth having, because `go test -race` needs
+it, but the shipped artefact no longer does.
+
+`go vet` also caught a real issue in the first version of the binding: reading
+`nvmlErrorString` meant converting a pointer into memory the Go runtime does not
+own. The return codes are stable API, so they are mapped locally instead, which
+is both safer and more predictable.
 
 ## 7. Telemetry face
 
