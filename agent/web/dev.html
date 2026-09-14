@@ -121,9 +121,10 @@
 
     <script type="module">
       import * as clockFace from "./faces/clock.js";
+      import * as telemetryFace from "./faces/telemetry.js";
       import * as statusFace from "./faces/status.js";
 
-      const faces = [clockFace, statusFace];
+      const faces = [clockFace, telemetryFace, statusFace];
 
       // One state object, mutated in place, exactly as the real panel does.
       const state = {
@@ -150,6 +151,7 @@
         currentFace = faces[currentIndex];
         currentFace.render(faceHost, state);
         notify("clock", state.sources.clock && state.sources.clock.data);
+        notify("telemetry", state.sources.telemetry && state.sources.telemetry.data);
         paintFaceButtons();
       }
 
@@ -188,6 +190,53 @@
         }
       }
 
+      function pushTelemetry(reading) {
+        state.sources.telemetry = {
+          status: reading.gpu ? "ok" : "degraded",
+          lastUpdate: new Date().toISOString(),
+          lastError: reading.gpu ? "" : "nvml unavailable: library not found",
+          data: reading,
+        };
+        notify("telemetry", reading);
+      }
+
+      const telemetryIdle = {
+        cpu: { percent: 3.7, per_core: [6.9, 5.4, 6.9, 6.2] },
+        ram: { percent: 51.4, used_bytes: 17221271552, total_bytes: 33455644672 },
+        disks: [{ mount: "C:", used_bytes: 1742788804608, total_bytes: 1999323000832, percent: 87.1 }],
+        gpu: {
+          name: "NVIDIA GeForce RTX 4070 Ti SUPER",
+          percent: 17,
+          vram_used_bytes: 3748651008,
+          vram_total_bytes: 17171480576,
+          vram_percent: 21.8,
+          temperature_c: 30,
+          power_watts: 21.84,
+        },
+      };
+
+      const telemetryLoaded = {
+        cpu: { percent: 91.4, per_core: [96, 88, 94, 90] },
+        ram: { percent: 84.2, used_bytes: 28172000000, total_bytes: 33455644672 },
+        disks: [{ mount: "C:", used_bytes: 1742788804608, total_bytes: 1999323000832, percent: 87.1 }],
+        gpu: {
+          name: "NVIDIA GeForce RTX 4070 Ti SUPER",
+          percent: 99,
+          vram_used_bytes: 16600000000,
+          vram_total_bytes: 17171480576,
+          vram_percent: 96.7,
+          temperature_c: 86,
+          power_watts: 284.6,
+        },
+      };
+
+      const telemetryNoGPU = {
+        cpu: { percent: 12.5, per_core: [10, 15, 9, 14] },
+        ram: { percent: 51.4, used_bytes: 17221271552, total_bytes: 33455644672 },
+        disks: [{ mount: "C:", used_bytes: 1742788804608, total_bytes: 1999323000832, percent: 87.1 }],
+        gpu: null,
+      };
+
       function pushClock(sleep) {
         const reading = clockReading(new Date(), sleep);
         state.sources.clock = {
@@ -209,6 +258,7 @@
           };
           setConnection("live");
           pushClock(false);
+          pushTelemetry(telemetryIdle);
           ticking = window.setInterval(() => pushClock(false), 1000);
         },
         "sleeping": () => {
@@ -217,6 +267,30 @@
           setConnection("live");
           pushClock(true);
           ticking = window.setInterval(() => pushClock(true), 1000);
+        },
+        "gpu idle": () => {
+          stopTicking();
+          state.uptimeSeconds = 4231;
+          setConnection("live");
+          pushClock(false);
+          pushTelemetry(telemetryIdle);
+          ticking = window.setInterval(() => pushClock(false), 1000);
+        },
+        "under load": () => {
+          stopTicking();
+          state.uptimeSeconds = 9120;
+          setConnection("live");
+          pushClock(false);
+          pushTelemetry(telemetryLoaded);
+          ticking = window.setInterval(() => pushClock(false), 1000);
+        },
+        "no gpu": () => {
+          stopTicking();
+          state.uptimeSeconds = 640;
+          setConnection("live");
+          pushClock(false);
+          pushTelemetry(telemetryNoGPU);
+          ticking = window.setInterval(() => pushClock(false), 1000);
         },
         "one source degraded": () => {
           stopTicking();
