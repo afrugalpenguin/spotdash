@@ -58,9 +58,16 @@ body {
 
 /* The rim. One SVG per face, absolutely positioned so face content can sit on
  * top of it without affecting layout. */
+/* Explicit offsets rather than the inset shorthand. LineageOS 18.1 ships a
+ * WebView around Chromium 83, which predates inset. It happens to render
+ * correctly there anyway because of the width and height below, which is
+ * exactly the kind of accident that stops being true after one layout change. */
 .rim {
   position: absolute;
-  inset: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
   width: 100%;
   height: 100%;
   pointer-events: none;
@@ -137,6 +144,10 @@ body {
   outline: none;
 }
 
+/* Chromium 83 does not know :focus-visible, so this rule is simply ignored on
+ * the device. That is the right way round: the rule above removes the ring a
+ * tap would leave behind, and this one restores it for keyboard navigation in a
+ * desktop browser, which is where the developing happens. */
 .zone:focus-visible {
   outline: 2px solid var(--live);
   outline-offset: -4px;
