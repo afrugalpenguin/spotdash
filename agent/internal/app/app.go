@@ -226,14 +226,31 @@ func (a *App) startSession(cfg *config.Config) (*session, error) {
 	// reaches the panel from the machine next to it rather than from a CDN.
 	// Registered before the static handler, which takes the root.
 	for _, src := range built {
-		provider, ok := src.(sources.AssetProvider)
-		if !ok {
-			continue
+		if provider, ok := src.(sources.AssetProvider); ok {
+			for urlPath, filePath := range provider.Assets() {
+				path := filePath
+				srv.HandleFile(urlPath, func() string { return path })
+				a.log.Debug("serving source asset", "source", src.Name(), "path", urlPath, "file", path)
+			}
 		}
-		for urlPath, filePath := range provider.Assets() {
-			path := filePath
-			srv.HandleFile(urlPath, func() string { return path })
-			a.log.Debug("serving source asset", "source", src.Name(), "path", urlPath, "file", path)
+
+		// A source may register its own authenticated routes, such as the page
+		// that starts a Spotify authorization attempt.
+		if provider, ok := src.(sources.RouteProvider); ok {
+			for urlPath, handler := range provider.Routes() {
+				srv.Handle(urlPath, handler)
+				a.log.Debug("serving source route", "source", src.Name(), "path", urlPath)
+			}
+		}
+
+		// And, separately, routes that must be reachable without the bearer
+		// token, because whatever calls them cannot carry it. An OAuth
+		// callback is the case this exists for.
+		if provider, ok := src.(sources.OpenRouteProvider); ok {
+			for urlPath, handler := range provider.OpenRoutes() {
+				srv.HandleOpen(urlPath, handler)
+				a.log.Debug("serving source open route", "source", src.Name(), "path", urlPath)
+			}
 		}
 	}
 

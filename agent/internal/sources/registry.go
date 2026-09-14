@@ -10,6 +10,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"time"
 
 	"github.com/afrugalpenguin/spotdash/agent/internal/config"
@@ -33,6 +34,22 @@ type Source interface {
 // particular source needs.
 type AssetProvider interface {
 	Assets() map[string]string
+}
+
+// RouteProvider is an optional extra a source may implement to register its
+// own authenticated HTTP routes on the agent, such as the page that starts a
+// Spotify authorization attempt.
+type RouteProvider interface {
+	Routes() map[string]http.Handler
+}
+
+// OpenRouteProvider is like RouteProvider, but for routes that must be
+// reachable without the bearer token, because whatever calls them cannot
+// carry it. An OAuth callback is the case this exists for: the browser tab an
+// external provider redirects to is freshly opened and holds no token. A
+// source using this is responsible for protecting the route itself.
+type OpenRouteProvider interface {
+	OpenRoutes() map[string]http.Handler
 }
 
 // Factory builds a source from its config block.

@@ -12,9 +12,13 @@ import (
 
 func source(t *testing.T, settings string) *Source {
 	t.Helper()
-	src, err := New(config.Source{Enabled: true, IntervalMS: 1000, Settings: []byte(settings)})
+	built, err := New(config.Source{Enabled: true, IntervalMS: 1000, Settings: []byte(settings)})
 	if err != nil {
 		t.Fatalf("New returned an error: %v", err)
+	}
+	src, ok := built.(*Source)
+	if !ok {
+		t.Fatalf("New returned %T, want *Source (a mock)", built)
 	}
 	return src
 }
@@ -167,14 +171,14 @@ func TestModeIsRequired(t *testing.T) {
 	}
 }
 
-func TestApiModeSaysItIsNotBuiltYet(t *testing.T) {
+func TestApiModeRequiresAClientID(t *testing.T) {
 	_, err := New(config.Source{Enabled: true, IntervalMS: 1000, Settings: []byte(`{"mode":"api"}`)})
 
 	if err == nil {
-		t.Fatal("New should refuse a mode that is not implemented")
+		t.Fatal("New should refuse api mode with no client_id")
 	}
-	if !strings.Contains(err.Error(), "not implemented") {
-		t.Errorf("the error should say plainly that it is unbuilt, got: %v", err)
+	if !strings.Contains(err.Error(), "client_id") {
+		t.Errorf("error should name the missing setting, got: %v", err)
 	}
 }
 
@@ -214,5 +218,38 @@ func TestReadingEncodesTheFieldsTheFaceNeeds(t *testing.T) {
 		if !strings.Contains(string(encoded), key) {
 			t.Errorf("encoded reading is missing %s\n%s", key, encoded)
 		}
+	}
+}
+
+func TestLayoutDefaultsToFill(t *testing.T) {
+	src := source(t, mockSettings)
+
+	reading := poll(t, src)
+
+	if reading.Layout != "fill" {
+		t.Errorf("Layout = %q, want fill when nothing is configured", reading.Layout)
+	}
+}
+
+func TestLayoutIsConfigurable(t *testing.T) {
+	src := source(t, `{"mode":"mock","track":"a","artist":"b","duration_ms":1000,"layout":"disc"}`)
+
+	reading := poll(t, src)
+
+	if reading.Layout != "disc" {
+		t.Errorf("Layout = %q, want disc as configured", reading.Layout)
+	}
+}
+
+func TestInvalidLayoutIsRejected(t *testing.T) {
+	_, err := New(config.Source{Enabled: true, IntervalMS: 1000, Settings: []byte(
+		`{"mode":"mock","track":"a","duration_ms":1000,"layout":"sideways"}`,
+	)})
+
+	if err == nil {
+		t.Fatal("New should reject an unrecognised layout")
+	}
+	if !strings.Contains(err.Error(), "layout") {
+		t.Errorf("error should name the offending setting, got: %v", err)
 	}
 }
