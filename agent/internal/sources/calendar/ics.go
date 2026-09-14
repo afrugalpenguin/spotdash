@@ -186,21 +186,34 @@ func parseICSTime(params map[string]string, value string) (t time.Time, allDay b
 	return parsed, false, err
 }
 
-// nextUpEvent picks the soonest event that is still in the future.
+// nextUpEvent picks the soonest event that is still in the future: the
+// first entry upcomingEvents would return.
+func nextUpEvent(events []icsEvent, now time.Time) (icsEvent, bool) {
+	up := upcomingEvents(events, now, 1)
+	if len(up) == 0 {
+		return icsEvent{}, false
+	}
+	return up[0], true
+}
+
+// upcomingEvents returns up to limit future events, in chronological order
+// by their next occurrence. Each event contributes at most one entry - its
+// own next occurrence, not several future instances of the same recurring
+// series - so a daily standup does not crowd out everything else in an
+// agenda.
 //
 // A recurring event's own DTSTART is just its first-ever occurrence, almost
 // always in the past, so a plain non-recurring comparison would wrongly
 // exclude every recurring event that has ever happened before. For an
 // RRULE this source knows how to expand (see rrule.go), the event's
-// effective start becomes its next real occurrence after now instead.
-// An RRULE outside what nextOccurrence supports is excluded rather than
+// effective start becomes its next real occurrence after now instead. An
+// RRULE outside what nextOccurrence supports is excluded rather than
 // guessed at, a known v1 limitation, not a silent gap.
 //
 // All-day events are excluded because "next up in N minutes" does not mean
 // anything for one.
-func nextUpEvent(events []icsEvent, now time.Time) (icsEvent, bool) {
-	var best icsEvent
-	found := false
+func upcomingEvents(events []icsEvent, now time.Time, limit int) []icsEvent {
+	var resolved []icsEvent
 	for _, e := range events {
 		if e.AllDay || e.Summary == "" {
 			continue
@@ -217,11 +230,21 @@ func nextUpEvent(events []icsEvent, now time.Time) (icsEvent, bool) {
 			continue
 		}
 
-		if !found || start.Before(best.Start) {
-			best = e
-			best.Start = start
-			found = true
+		resolved = append(resolved, e)
+		resolved[len(resolved)-1].Start = start
+	}
+
+	sortEventsByStart(resolved)
+	if len(resolved) > limit {
+		resolved = resolved[:limit]
+	}
+	return resolved
+}
+
+func sortEventsByStart(events []icsEvent) {
+	for i := 1; i < len(events); i++ {
+		for j := i; j > 0 && events[j-1].Start.After(events[j].Start); j-- {
+			events[j-1], events[j] = events[j], events[j-1]
 		}
 	}
-	return best, found
 }

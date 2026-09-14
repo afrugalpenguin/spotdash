@@ -1,10 +1,11 @@
-// Package calendar reports the next-up event from a calendar.
+// Package calendar reports the next-up event, and a short agenda after it,
+// from a calendar.
 //
 // "mock" plays a configured sample event, for developing and judging the
 // face without a real feed. "ics" fetches and parses a real ICS feed URL,
 // which is what Outlook (and anything else that publishes one) exposes
-// without needing OAuth. Recurring and all-day events are a known v1
-// limitation: see the comment on nextUpEvent in ics.go.
+// without needing OAuth. All-day events, and some RRULE shapes, are a known
+// v1 limitation: see the comments on upcomingEvents and parseRRule.
 package calendar
 
 import (
@@ -32,6 +33,10 @@ const DefaultNotifyMinutes = 15
 // show_seconds is not set.
 const DefaultShowSeconds = 45
 
+// AgendaSize is how many events the face shows in total: the primary
+// next-up event plus this many more below it.
+const AgendaSize = 3
+
 // Reading is what the calendar source publishes. An empty Title means no
 // upcoming event, a normal state the face shows as idle rather than an
 // error.
@@ -56,6 +61,17 @@ type Reading struct {
 	// ShowSeconds travels with the reading so the client knows how long to
 	// hold the face open on an auto-switch without needing its own config.
 	ShowSeconds int `json:"show_seconds"`
+	// Upcoming is the rest of the mini agenda: up to AgendaSize-1 further
+	// events after the primary one above, title and start time only. No
+	// countdown, no urgency, no location - those all stay specific to the
+	// one event the auto-switch and the rim colour actually key off.
+	Upcoming []AgendaItem `json:"upcoming,omitempty"`
+}
+
+// AgendaItem is one entry in the mini agenda below the primary event.
+type AgendaItem struct {
+	Title      string `json:"title"`
+	StartLabel string `json:"start_label"`
 }
 
 type settings struct {
@@ -73,6 +89,10 @@ type settings struct {
 	// "16:30" for a repeatable demo or screenshot.
 	StartInMinutes int    `json:"start_in_minutes"`
 	StartAt        string `json:"start_at"`
+	// Upcoming is canned agenda entries for the mock, shown exactly as
+	// given rather than computed: the mock exists to judge the face, not to
+	// simulate a real calendar's timekeeping for entries 2 and 3.
+	Upcoming []AgendaItem `json:"upcoming"`
 
 	// mode: "ics"
 	FeedURL string `json:"feed_url"`
@@ -90,6 +110,7 @@ type Source struct {
 	mockLocation string
 	mockMinutes  int
 	mockStartAt  string
+	mockUpcoming []AgendaItem
 	start        time.Time // computed once, on the first poll; see Poll
 
 	// ics mode
@@ -156,6 +177,7 @@ func newMockSource(interval time.Duration, s settings) (*Source, error) {
 		mockLocation:  s.Location,
 		mockMinutes:   s.StartInMinutes,
 		mockStartAt:   s.StartAt,
+		mockUpcoming:  s.Upcoming,
 		now:           time.Now,
 	}, nil
 }
@@ -206,7 +228,7 @@ func (s *Source) pollMock() Reading {
 			s.start = now.Add(time.Duration(s.mockMinutes) * time.Minute)
 		}
 	}
-	return s.reading(s.mockTitle, s.mockLocation, s.start, now)
+	return s.reading(s.mockTitle, s.mockLocation, s.start, now, s.mockUpcoming)
 }
 
 // nextOccurrenceOf combines an "HH:MM" clock time with now's date, rolling
@@ -254,18 +276,24 @@ func (s *Source) pollICS(ctx context.Context) (any, error) {
 	}
 
 	now := s.now()
-	next, found := nextUpEvent(events, now)
-	if !found {
+	upcoming := upcomingEvents(events, now, AgendaSize)
+	if len(upcoming) == 0 {
 		return Reading{}, nil
 	}
+	primary := upcoming[0]
 
-	return s.reading(next.Summary, next.Location, next.Start, now), nil
+	var agenda []AgendaItem
+	for _, e := range upcoming[1:] {
+		agenda = append(agenda, AgendaItem{Title: e.Summary, StartLabel: e.Start.Format("15:04")})
+	}
+
+	return s.reading(primary.Summary, primary.Location, primary.Start, now, agenda), nil
 }
 
 // reading builds the published Reading from a title, location and start
 // time, applying the notify threshold and hold duration common to both
 // modes.
-func (s *Source) reading(title, location string, start, now time.Time) Reading {
+func (s *Source) reading(title, location string, start, now time.Time, upcoming []AgendaItem) Reading {
 	minutesUntil := start.Sub(now).Minutes()
 	return Reading{
 		Title:        title,
@@ -274,5 +302,6 @@ func (s *Source) reading(title, location string, start, now time.Time) Reading {
 		MinutesUntil: minutesUntil,
 		Urgent:       minutesUntil <= float64(s.notifyMinutes),
 		ShowSeconds:  s.showSeconds,
+		Upcoming:     upcoming,
 	}
 }

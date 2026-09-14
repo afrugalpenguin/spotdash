@@ -291,6 +291,103 @@ func TestICSSourceFetchesAndPublishesTheNextEvent(t *testing.T) {
 	}
 }
 
+func TestICSSourcePopulatesTheAgendaAfterThePrimaryEvent(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte("BEGIN:VCALENDAR\r\n" +
+			"BEGIN:VEVENT\r\n" +
+			"SUMMARY:First\r\n" +
+			"DTSTART:20990101T090000Z\r\n" +
+			"END:VEVENT\r\n" +
+			"BEGIN:VEVENT\r\n" +
+			"SUMMARY:Second\r\n" +
+			"DTSTART:20990101T110000Z\r\n" +
+			"END:VEVENT\r\n" +
+			"BEGIN:VEVENT\r\n" +
+			"SUMMARY:Third\r\n" +
+			"DTSTART:20990101T130000Z\r\n" +
+			"END:VEVENT\r\n" +
+			"END:VCALENDAR\r\n"))
+	}))
+	defer server.Close()
+
+	cfg := config.Source{Settings: mustSettings(t, settings{Mode: "ics", FeedURL: server.URL})}
+	src, err := New(cfg)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	value, err := src.Poll(context.Background())
+	if err != nil {
+		t.Fatalf("Poll: %v", err)
+	}
+	reading := value.(Reading)
+
+	if reading.Title != "First" {
+		t.Fatalf("Title = %q, want %q", reading.Title, "First")
+	}
+	if len(reading.Upcoming) != 2 {
+		t.Fatalf("Upcoming has %d entries, want 2", len(reading.Upcoming))
+	}
+	if reading.Upcoming[0].Title != "Second" || reading.Upcoming[1].Title != "Third" {
+		t.Errorf("Upcoming = %+v, want Second then Third", reading.Upcoming)
+	}
+	if reading.Upcoming[0].StartLabel != "11:00" {
+		t.Errorf("Upcoming[0].StartLabel = %q, want %q", reading.Upcoming[0].StartLabel, "11:00")
+	}
+}
+
+func TestICSSourceOmitsUpcomingWhenNoFurtherEventsExist(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte("BEGIN:VCALENDAR\r\n" +
+			"BEGIN:VEVENT\r\n" +
+			"SUMMARY:Only one\r\n" +
+			"DTSTART:20990101T090000Z\r\n" +
+			"END:VEVENT\r\n" +
+			"END:VCALENDAR\r\n"))
+	}))
+	defer server.Close()
+
+	cfg := config.Source{Settings: mustSettings(t, settings{Mode: "ics", FeedURL: server.URL})}
+	src, err := New(cfg)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	value, err := src.Poll(context.Background())
+	if err != nil {
+		t.Fatalf("Poll: %v", err)
+	}
+	reading := value.(Reading)
+	if len(reading.Upcoming) != 0 {
+		t.Errorf("Upcoming = %+v, want empty with only one qualifying event", reading.Upcoming)
+	}
+}
+
+func TestMockSourcePassesThroughConfiguredUpcoming(t *testing.T) {
+	cfg := config.Source{Settings: mustSettings(t, settings{
+		Mode:           "mock",
+		Title:          "Standup",
+		StartInMinutes: 10,
+		Upcoming: []AgendaItem{
+			{Title: "Design review", StartLabel: "11:00"},
+			{Title: "1:1", StartLabel: "14:30"},
+		},
+	})}
+	src, err := New(cfg)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	value, err := src.Poll(context.Background())
+	if err != nil {
+		t.Fatalf("Poll: %v", err)
+	}
+	reading := value.(Reading)
+	if len(reading.Upcoming) != 2 {
+		t.Fatalf("Upcoming has %d entries, want 2", len(reading.Upcoming))
+	}
+	if reading.Upcoming[0].Title != "Design review" || reading.Upcoming[1].Title != "1:1" {
+		t.Errorf("Upcoming = %+v", reading.Upcoming)
+	}
+}
+
 func TestICSSourceWithNoQualifyingEventIsIdle(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte("BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n"))

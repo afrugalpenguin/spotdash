@@ -241,10 +241,13 @@ event, `mode: "ics"` for a real feed. No OAuth: an ICS feed is a URL, which
 Outlook publishes natively and any future replacement calendar only needs to
 serve the same way.
 
-Shows exactly one thing, the next-up event: title, location (whatever the
+The next-up event is the primary content: title, location (whatever the
 feed's own `LOCATION` field says, e.g. "Microsoft Teams Meeting"), start
 time, and a countdown that ticks locally between polls the same way spotify's
-position does. No agenda, no multi-calendar merge, no editing.
+position does. Below it, a short agenda (`AgendaSize`, 3 total including the
+primary) of what follows: title and start time only, no location or
+countdown, since urgency and the rim colour stay keyed to the one primary
+event. Still no multi-calendar merge, no editing.
 
 **Parsing** (`ics.go`): a minimal hand-rolled RFC 5545 reader, not a library.
 Reads `SUMMARY`, `LOCATION`, `DTSTART` (UTC, a named `TZID`, or floating
