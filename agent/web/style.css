@@ -238,8 +238,15 @@ body {
 .status-row {
   display: flex;
   align-items: baseline;
-  gap: 8px;
+  /* Not flex gap: LineageOS 18.1 ships a WebView around Chromium 83, which
+   * predates flex gap support (added in 84) and silently ignores it rather
+   * than erroring, so items render with no space at all. The sibling
+   * margin below works everywhere. */
   padding: 3px 0;
+}
+
+.status-row > * + * {
+  margin-left: 8px;
 }
 
 .status-name {
@@ -286,7 +293,9 @@ body {
 .status-footer {
   display: flex;
   justify-content: space-between;
-  gap: 10px;
+  /* No gap: space-between alone separates its two items correctly even on
+   * the Chromium 83 WebView that does not support flex gap; unlike the
+   * other rows here this one needs no sibling-margin replacement. */
   color: var(--muted);
   font-size: 14px;
   border-top: 1px solid var(--track);
@@ -328,8 +337,12 @@ body {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 2px;
+  /* Not flex gap: see the note on .status-row. */
   z-index: 2;
+}
+
+.gauge-readout > * + * {
+  margin-top: 2px;
 }
 
 .gauge-name {
@@ -469,6 +482,41 @@ body {
   color: var(--alert);
 }
 
+/* The rest of the agenda: quieter than the pill, and taking no space at all
+ * when there is nothing after the primary event. */
+.calendar-agenda {
+  list-style: none;
+  width: 100%;
+  max-width: 280px;
+  margin: 14px auto 0;
+  padding: 0;
+}
+
+.calendar-agenda-row {
+  display: flex;
+  align-items: baseline;
+  /* Not flex gap: see the note on .status-row. */
+  padding: 7px 6px;
+  border-top: 1px solid rgba(237, 241, 238, 0.08);
+  font-size: 14px;
+}
+
+.calendar-agenda-time {
+  flex: 0 0 auto;
+  margin-right: 10px;
+  color: var(--muted);
+}
+
+.calendar-agenda-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
+  color: #b9c0c6;
+}
+
 /* Spotify face. Two layouts: the cover as a disc concentric with the progress
  * rim, which keeps type on flat black and is the more legible at 60cm, or the
  * cover filling the panel, which has more presence and depends on the sleeve
@@ -562,8 +610,13 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 14px;
+  /* Not flex gap: see the note on .status-row. Without this fix the three
+   * buttons render edge to edge with no space at all. */
   margin: 14px 0 0;
+}
+
+.spotify-controls > * + * {
+  margin-left: 14px;
 }
 
 .spotify-control {

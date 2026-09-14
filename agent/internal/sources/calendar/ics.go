@@ -16,19 +16,22 @@ import (
 // icsEvent is the handful of VEVENT fields this source cares about. Nothing
 // about attendees, alarms, categories, or anything else an ICS feed can carry.
 type icsEvent struct {
-	Summary   string
-	Location  string
-	Start     time.Time
-	Recurring bool // has an RRULE
-	AllDay    bool // DATE rather than DATE-TIME
+	Summary  string
+	Location string
+	Start    time.Time
+	// RRule is the raw RRULE value, or empty for a non-recurring event.
+	// Expanding it into a concrete next occurrence is nextUpEvent's job, via
+	// nextOccurrence in rrule.go - parsing is not where that policy belongs.
+	RRule  string
+	AllDay bool // DATE rather than DATE-TIME
 }
 
 // parseICS extracts VEVENT blocks from raw ICS data.
 //
-// Deliberately narrow: only SUMMARY, LOCATION, DTSTART and the presence of
-// RRULE are read. Recurring events and all-day events are still returned
-// (recognisable as flagged, not skipped here) so the caller decides what to
-// do with them; parsing is not where policy belongs.
+// Deliberately narrow: only SUMMARY, LOCATION, DTSTART and RRULE are read.
+// Recurring events and all-day events are still returned (recognisable, not
+// skipped here) so the caller decides what to do with them; parsing is not
+// where policy belongs.
 func parseICS(data []byte) ([]icsEvent, error) {
 	lines, err := unfoldLines(data)
 	if err != nil {
@@ -65,7 +68,7 @@ func parseICS(data []byte) ([]icsEvent, error) {
 		case "LOCATION":
 			current.Location = unescapeText(value)
 		case "RRULE":
-			current.Recurring = true
+			current.RRule = value
 		case "DTSTART":
 			start, allDay, err := parseICSTime(params, value)
 			if err != nil {
@@ -183,30 +186,65 @@ func parseICSTime(params map[string]string, value string) (t time.Time, allDay b
 	return parsed, false, err
 }
 
-// nextUpEvent picks the soonest event that is still in the future, excluding
-// recurring and all-day events.
-//
-// Recurring events are excluded rather than guessed at: this source does not
-// expand RRULEs, so a recurring event's own DTSTART is just its first ever
-// occurrence, almost always in the past, and showing that as "next up" would
-// be actively wrong rather than merely incomplete. All-day events are
-// excluded because "next up in N minutes" does not mean anything for one.
-// Both are a known v1 limitation, not a silent gap: a daily standup will not
-// appear here until RRULE expansion is built.
+// nextUpEvent picks the soonest event that is still in the future: the
+// first entry upcomingEvents would return.
 func nextUpEvent(events []icsEvent, now time.Time) (icsEvent, bool) {
-	var best icsEvent
-	found := false
+	up := upcomingEvents(events, now, 1)
+	if len(up) == 0 {
+		return icsEvent{}, false
+	}
+	return up[0], true
+}
+
+// upcomingEvents returns up to limit future events, in chronological order
+// by their next occurrence. Each event contributes at most one entry - its
+// own next occurrence, not several future instances of the same recurring
+// series - so a daily standup does not crowd out everything else in an
+// agenda.
+//
+// A recurring event's own DTSTART is just its first-ever occurrence, almost
+// always in the past, so a plain non-recurring comparison would wrongly
+// exclude every recurring event that has ever happened before. For an
+// RRULE this source knows how to expand (see rrule.go), the event's
+// effective start becomes its next real occurrence after now instead. An
+// RRULE outside what nextOccurrence supports is excluded rather than
+// guessed at, a known v1 limitation, not a silent gap.
+//
+// All-day events are excluded because "next up in N minutes" does not mean
+// anything for one.
+func upcomingEvents(events []icsEvent, now time.Time, limit int) []icsEvent {
+	var resolved []icsEvent
 	for _, e := range events {
-		if e.Recurring || e.AllDay || e.Summary == "" {
+		if e.AllDay || e.Summary == "" {
 			continue
 		}
-		if !e.Start.After(now) {
+
+		start := e.Start
+		if e.RRule != "" {
+			occ, ok := nextOccurrence(e.Start, e.RRule, now)
+			if !ok {
+				continue
+			}
+			start = occ
+		} else if !e.Start.After(now) {
 			continue
 		}
-		if !found || e.Start.Before(best.Start) {
-			best = e
-			found = true
+
+		resolved = append(resolved, e)
+		resolved[len(resolved)-1].Start = start
+	}
+
+	sortEventsByStart(resolved)
+	if len(resolved) > limit {
+		resolved = resolved[:limit]
+	}
+	return resolved
+}
+
+func sortEventsByStart(events []icsEvent) {
+	for i := 1; i < len(events); i++ {
+		for j := i; j > 0 && events[j-1].Start.After(events[j].Start); j-- {
+			events[j-1], events[j] = events[j], events[j-1]
 		}
 	}
-	return best, found
 }

@@ -1,6 +1,7 @@
-// Calendar face. Shows exactly one thing: the next-up event. No agenda, no
-// list, because the whole point of this face is answering "what's next"
-// at a glance, not being a calendar app on a 480px circle.
+// Calendar face. The next-up event is the whole point, front and centre in
+// its own card; a short agenda of what follows sits below it, quieter, for
+// "what else is coming" without turning this into a calendar app on a 480px
+// circle.
 //
 // The rim carries urgency rather than a fixed quantity: it fills as the event
 // approaches within a lookahead window, and its colour steps from live to
@@ -27,6 +28,7 @@ let titleEl = null;
 let locationEl = null;
 let timeEl = null;
 let countdownEl = null;
+let agendaEl = null;
 let current = null; // the last reading, for the ticker to interpolate from
 let syncedAt = 0; // Date.now() when `current` arrived
 let ticker = null;
@@ -70,6 +72,13 @@ export function render(container, state) {
   pillEl.appendChild(timeEl);
   pillEl.appendChild(countdownEl);
   face.appendChild(pillEl);
+
+  // The rest of the agenda: quieter than the pill, below it, empty (and
+  // taking no space) whenever there is nothing after the primary event.
+  agendaEl = document.createElement("ul");
+  agendaEl.className = "calendar-agenda";
+  face.appendChild(agendaEl);
+
   container.appendChild(face);
 
   const existing = state && state.sources && state.sources.calendar;
@@ -91,6 +100,7 @@ function showIdle() {
   timeEl.textContent = "";
   countdownEl.textContent = "";
   countdownEl.className = "calendar-countdown";
+  agendaEl.innerHTML = "";
   setArc(arcEl, 0);
   arcEl.classList.remove("is-warn", "is-alert");
   arcEl.classList.add("is-off");
@@ -124,6 +134,29 @@ function paint(minutesUntil) {
   arcEl.classList.remove("is-warn", "is-alert", "is-off");
   if (level === "warn") arcEl.classList.add("is-warn");
   if (level === "alert") arcEl.classList.add("is-alert");
+}
+
+// renderAgenda fills in what follows the primary event: time and title only,
+// no location or countdown, since those stay specific to the one event the
+// rim and auto-switch actually key off.
+function renderAgenda(items) {
+  agendaEl.innerHTML = "";
+  for (const item of items || []) {
+    const row = document.createElement("li");
+    row.className = "calendar-agenda-row";
+
+    const time = document.createElement("span");
+    time.className = "calendar-agenda-time";
+    time.textContent = item.start_label || "";
+
+    const title = document.createElement("span");
+    title.className = "calendar-agenda-title";
+    title.textContent = item.title || "";
+
+    row.appendChild(time);
+    row.appendChild(title);
+    agendaEl.appendChild(row);
+  }
 }
 
 function stopTicking() {
@@ -169,6 +202,7 @@ export function onState(source, data) {
   titleEl.textContent = data.title;
   locationEl.textContent = data.location || "";
   timeEl.textContent = data.start_label || "";
+  renderAgenda(data.upcoming);
 
   paint(Math.round(data.minutes_until));
   startTicking();
@@ -183,6 +217,7 @@ export function teardown() {
   locationEl = null;
   timeEl = null;
   countdownEl = null;
+  agendaEl = null;
 }
 
 export const title = "calendar";

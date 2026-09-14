@@ -128,16 +128,18 @@ func TestParseICSExtractsEvents(t *testing.T) {
 	if events[0].Summary != "Standup" || events[0].Location != "Microsoft Teams Meeting" {
 		t.Errorf("event 0 = %+v", events[0])
 	}
-	if !events[1].Recurring {
-		t.Error("event 1 should be flagged Recurring")
+	if events[1].RRule != "FREQ=WEEKLY" {
+		t.Errorf("event 1 RRule = %q, want %q", events[1].RRule, "FREQ=WEEKLY")
 	}
 }
 
-func TestNextUpEventPicksTheSoonestFutureNonRecurringTimedEvent(t *testing.T) {
+func TestNextUpEventPicksTheSoonestFutureTimedEvent(t *testing.T) {
 	now := time.Date(2026, 1, 1, 8, 0, 0, 0, time.UTC)
 	events := []icsEvent{
 		{Summary: "past", Start: now.Add(-time.Hour)},
-		{Summary: "recurring", Start: now.Add(time.Hour), Recurring: true},
+		// An RRULE shape this source does not support: excluded, same as a
+		// plain past event, rather than guessed at.
+		{Summary: "unsupported recurrence", Start: now.Add(time.Hour), RRule: "FREQ=SECONDLY"},
 		{Summary: "all day", Start: now.Add(30 * time.Minute), AllDay: true},
 		{Summary: "later", Start: now.Add(2 * time.Hour)},
 		{Summary: "soonest", Start: now.Add(15 * time.Minute)},
@@ -152,11 +154,99 @@ func TestNextUpEventPicksTheSoonestFutureNonRecurringTimedEvent(t *testing.T) {
 	}
 }
 
+func TestNextUpEventExpandsASupportedRecurringEvent(t *testing.T) {
+	now := time.Date(2026, 3, 10, 10, 0, 0, 0, time.UTC) // after today's 9am occurrence
+	events := []icsEvent{
+		// First-ever occurrence is long in the past; the daily standup is
+		// still today's occurrence, which is what should come back as
+		// next-up ahead of a one-off meeting later in the week.
+		{Summary: "daily standup", Start: time.Date(2026, 1, 1, 9, 0, 0, 0, time.UTC), RRule: "FREQ=DAILY"},
+		{Summary: "later one-off", Start: now.Add(72 * time.Hour)},
+	}
+
+	got, ok := nextUpEvent(events, now)
+	if !ok {
+		t.Fatal("nextUpEvent found nothing, want the standup's next occurrence")
+	}
+	if got.Summary != "daily standup" {
+		t.Errorf("got %q, want %q", got.Summary, "daily standup")
+	}
+	want := time.Date(2026, 3, 11, 9, 0, 0, 0, time.UTC)
+	if !got.Start.Equal(want) {
+		t.Errorf("Start = %v, want %v (tomorrow's occurrence, today's already passed)", got.Start, want)
+	}
+}
+
+func TestUpcomingEventsReturnsChronologicalOrder(t *testing.T) {
+	now := time.Date(2026, 1, 1, 8, 0, 0, 0, time.UTC)
+	events := []icsEvent{
+		{Summary: "third", Start: now.Add(3 * time.Hour)},
+		{Summary: "past", Start: now.Add(-time.Hour)},
+		{Summary: "first", Start: now.Add(15 * time.Minute)},
+		{Summary: "second", Start: now.Add(2 * time.Hour)},
+	}
+
+	got := upcomingEvents(events, now, 3)
+
+	if len(got) != 3 {
+		t.Fatalf("got %d events, want 3", len(got))
+	}
+	wantOrder := []string{"first", "second", "third"}
+	for i, want := range wantOrder {
+		if got[i].Summary != want {
+			t.Errorf("position %d = %q, want %q", i, got[i].Summary, want)
+		}
+	}
+}
+
+func TestUpcomingEventsRespectsTheLimit(t *testing.T) {
+	now := time.Date(2026, 1, 1, 8, 0, 0, 0, time.UTC)
+	events := []icsEvent{
+		{Summary: "a", Start: now.Add(time.Hour)},
+		{Summary: "b", Start: now.Add(2 * time.Hour)},
+		{Summary: "c", Start: now.Add(3 * time.Hour)},
+	}
+
+	got := upcomingEvents(events, now, 2)
+
+	if len(got) != 2 {
+		t.Fatalf("got %d events, want 2", len(got))
+	}
+}
+
+func TestUpcomingEventsGivesEachRecurringSeriesOnlyOneEntry(t *testing.T) {
+	now := time.Date(2026, 3, 10, 10, 0, 0, 0, time.UTC)
+	events := []icsEvent{
+		{Summary: "daily standup", Start: date(2026, 1, 1, 9, 0), RRule: "FREQ=DAILY"},
+		{Summary: "one-off", Start: now.Add(48 * time.Hour)},
+	}
+
+	got := upcomingEvents(events, now, 5)
+
+	if len(got) != 2 {
+		t.Fatalf("got %d events, want 2 (one occurrence per series, not several)", len(got))
+	}
+	if got[0].Summary != "daily standup" || got[1].Summary != "one-off" {
+		t.Errorf("got %q then %q", got[0].Summary, got[1].Summary)
+	}
+}
+
+func TestUpcomingEventsWithFewerThanLimitReturnsWhatItHas(t *testing.T) {
+	now := time.Date(2026, 1, 1, 8, 0, 0, 0, time.UTC)
+	events := []icsEvent{{Summary: "only one", Start: now.Add(time.Hour)}}
+
+	got := upcomingEvents(events, now, 3)
+
+	if len(got) != 1 {
+		t.Fatalf("got %d events, want 1", len(got))
+	}
+}
+
 func TestNextUpEventWithNoCandidatesReturnsFalse(t *testing.T) {
 	now := time.Date(2026, 1, 1, 8, 0, 0, 0, time.UTC)
 	events := []icsEvent{
 		{Summary: "past", Start: now.Add(-time.Hour)},
-		{Summary: "recurring", Start: now.Add(time.Hour), Recurring: true},
+		{Summary: "unsupported recurrence", Start: now.Add(time.Hour), RRule: "FREQ=SECONDLY"},
 	}
 	if _, ok := nextUpEvent(events, now); ok {
 		t.Fatal("want ok=false when nothing qualifies")
