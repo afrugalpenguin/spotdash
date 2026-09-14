@@ -10,6 +10,8 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -23,6 +25,12 @@ const (
 )
 
 var validLogLevels = []string{"debug", "info", "warn", "error"}
+
+// accentColorPattern is the only shape accent_color is allowed to take: a
+// 6-digit hex colour with its leading #, exactly what an
+// <input type="color"> produces. Anything else is rejected rather than
+// guessed at.
+var accentColorPattern = regexp.MustCompile(`^#[0-9a-fA-F]{6}$`)
 
 // Source is the per-source configuration block. Enabled and IntervalMS are
 // common to every source; anything else a source needs stays in Settings for
@@ -55,12 +63,30 @@ func (s *Source) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+// MarshalJSON writes back exactly what was read: Settings already holds the
+// complete original object for this source, enabled/interval_ms and every
+// source-specific key alike, captured verbatim by UnmarshalJSON. Marshalling
+// the struct fields individually here instead would both duplicate them
+// under the wrong (capitalised, untagged) names and lose anything
+// source-specific, which is exactly what Save must not do.
+func (s Source) MarshalJSON() ([]byte, error) {
+	if s.Settings == nil {
+		return []byte("{}"), nil
+	}
+	return s.Settings, nil
+}
+
 // Config is the validated contents of config.json.
 type Config struct {
-	Listen   string            `json:"listen"`
-	Token    string            `json:"token"`
-	LogLevel string            `json:"log_level"`
-	Sources  map[string]Source `json:"sources"`
+	Listen   string `json:"listen"`
+	Token    string `json:"token"`
+	LogLevel string `json:"log_level"`
+	// AccentColor is the panel's one accent colour, "#rrggbb". Optional: an
+	// absent value keeps the built-in default the stylesheet ships with.
+	// Changed from the tray's settings page rather than usually hand-edited,
+	// which is why it round-trips through Save rather than only Load.
+	AccentColor string            `json:"accent_color,omitempty"`
+	Sources     map[string]Source `json:"sources"`
 }
 
 // SourceNames returns the configured source names in a stable order, so logs
@@ -96,10 +122,48 @@ func Load(path string) (*Config, error) {
 	if err := cfg.applyDefaults(); err != nil {
 		return nil, fmt.Errorf("in %s: %w", path, err)
 	}
-	if err := cfg.validate(); err != nil {
+	if err := cfg.Validate(); err != nil {
 		return nil, fmt.Errorf("in %s: %w", path, err)
 	}
 	return cfg, nil
+}
+
+// Save writes cfg back to path, atomically: a temp file in the same
+// directory, renamed into place, so a process that dies mid-write leaves
+// either the old contents or the new ones, never a corrupt mix. This is what
+// lets the settings page change config.json without a person hand-editing
+// it, the same file Load reads on every startup and every "Reload config".
+func Save(path string, cfg *Config) error {
+	data, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		return fmt.Errorf("encoding config: %w", err)
+	}
+
+	dir := filepath.Dir(path)
+	tmp, err := os.CreateTemp(dir, ".config_*.tmp")
+	if err != nil {
+		return fmt.Errorf("creating a temp file in %s: %w", dir, err)
+	}
+	tmpPath := tmp.Name()
+	cleanup := true
+	defer func() {
+		if cleanup {
+			os.Remove(tmpPath)
+		}
+	}()
+
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(tmpPath, path); err != nil {
+		return fmt.Errorf("saving %s: %w", path, err)
+	}
+	cleanup = false
+	return nil
 }
 
 func (c *Config) applyDefaults() error {
@@ -115,7 +179,10 @@ func (c *Config) applyDefaults() error {
 	return nil
 }
 
-func (c *Config) validate() error {
+// Validate checks a Config that was built in memory (e.g. by the settings
+// route, after Load and a field change), the same checks Load runs after
+// parsing.
+func (c *Config) Validate() error {
 	if strings.TrimSpace(c.Token) == "" {
 		return errors.New(`"token" is required and must not be empty: the agent will not serve data without a shared secret`)
 	}
@@ -124,6 +191,9 @@ func (c *Config) validate() error {
 	}
 	if !contains(validLogLevels, c.LogLevel) {
 		return fmt.Errorf(`"log_level" is %q, want one of %s`, c.LogLevel, strings.Join(validLogLevels, ", "))
+	}
+	if c.AccentColor != "" && !accentColorPattern.MatchString(c.AccentColor) {
+		return fmt.Errorf(`"accent_color" is %q, want a 6-digit hex colour such as "#4e9eea"`, c.AccentColor)
 	}
 	for _, name := range c.SourceNames() {
 		src := c.Sources[name]

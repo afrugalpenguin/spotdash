@@ -7,6 +7,7 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -157,6 +158,18 @@ func (a *App) Addr() string {
 // 0.0.0.0, and carries the token, because the page authenticates with it on
 // first load and would otherwise show nothing but a 401.
 func (a *App) OpenURL() string {
+	return a.tokenURL("/")
+}
+
+// SettingsURL is the address the tray's "Options" item opens: the same panel
+// origin, a different page, authenticated the same way the panel itself is.
+func (a *App) SettingsURL() string {
+	return a.tokenURL("/settings.html")
+}
+
+// tokenURL builds a browser-openable URL for one page on this agent, token
+// attached the same way OpenURL always has.
+func (a *App) tokenURL(path string) string {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if a.current == nil {
@@ -171,7 +184,7 @@ func (a *App) OpenURL() string {
 		host = "127.0.0.1"
 	}
 
-	return fmt.Sprintf("http://%s/?token=%s", net.JoinHostPort(host, port), url.QueryEscape(a.current.cfg.Token))
+	return fmt.Sprintf("http://%s%s?token=%s", net.JoinHostPort(host, port), path, url.QueryEscape(a.current.cfg.Token))
 }
 
 // baseURL is the address a test or a local client can reach.
@@ -214,13 +227,17 @@ func (a *App) startSession(cfg *config.Config) (*session, error) {
 	}
 
 	srv := server.New(server.Options{
-		Token:   cfg.Token,
-		Version: a.version,
-		Started: time.Now(),
-		Store:   store,
-		Logger:  a.log,
+		Token:       cfg.Token,
+		Version:     a.version,
+		Started:     time.Now(),
+		Store:       store,
+		Logger:      a.log,
+		AccentColor: cfg.AccentColor,
 	})
 	srv.HandleWebSocket()
+	// Agent-level, not tied to any one source, so it is registered directly
+	// here rather than through a source's RouteProvider.
+	srv.Handle("/settings/accent", http.HandlerFunc(a.handleAccentSettings))
 
 	// A source may ask the agent to serve files for it, which is how album art
 	// reaches the panel from the machine next to it rather than from a CDN.
@@ -297,6 +314,82 @@ func (a *App) startSession(cfg *config.Config) (*session, error) {
 		cancel:   cancel,
 		started:  time.Now(),
 	}, nil
+}
+
+// accentSettingsBody is both the GET response and the POST request for
+// /settings/accent. One field today; the shape is generic enough that a
+// second setting is an added field here, not a restructure.
+type accentSettingsBody struct {
+	AccentColor string `json:"accent_color"`
+}
+
+// handleAccentSettings backs the settings page: GET reports the currently
+// configured accent colour, POST changes it. Requires the bearer token, the
+// same as everything else that is not /health or an OAuth callback.
+func (a *App) handleAccentSettings(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		a.mu.Lock()
+		current := ""
+		if a.current != nil {
+			current = a.current.cfg.AccentColor
+		}
+		a.mu.Unlock()
+		writeJSON(w, accentSettingsBody{AccentColor: current})
+
+	case http.MethodPost:
+		var body accentSettingsBody
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			http.Error(w, "invalid request body", http.StatusBadRequest)
+			return
+		}
+		if err := a.saveAccentColor(body.AccentColor); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		writeJSON(w, accentSettingsBody{AccentColor: body.AccentColor})
+
+		// Reload rebuilds the whole session, including the listener this very
+		// request arrived on. Calling it synchronously, before responding,
+		// would have its Shutdown wait for this handler to return while this
+		// handler is waiting for Reload to return: a real deadlock, resolved
+		// only by the 5 second shutdown grace period force-closing the
+		// connection out from under the response that was about to be sent.
+		// Scheduled instead, a short beat after the response above has gone
+		// out and this handler has returned.
+		time.AfterFunc(200*time.Millisecond, func() {
+			if err := a.Reload(); err != nil {
+				a.log.Error("reload after saving accent colour failed", "error", err)
+			}
+		})
+
+	default:
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+// saveAccentColor writes the new colour to config.json and reloads, the same
+// as choosing "Reload config" from the tray after a hand edit would. Based
+// on a fresh read of the file rather than the in-memory config, so a manual
+// edit made since this session started is not clobbered by this one field.
+// saveAccentColor validates and writes the new colour to config.json.
+// Applying it live is the caller's job (a scheduled Reload), since doing
+// that here would run it inside the same request this save was made from.
+func (a *App) saveAccentColor(value string) error {
+	cfg, err := config.Load(a.configPath)
+	if err != nil {
+		return err
+	}
+	cfg.AccentColor = value
+	if err := cfg.Validate(); err != nil {
+		return err
+	}
+	return config.Save(a.configPath, cfg)
+}
+
+func writeJSON(w http.ResponseWriter, v any) {
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	_ = json.NewEncoder(w).Encode(v)
 }
 
 // stopSession shuts one session down in the order that avoids surprises: stop

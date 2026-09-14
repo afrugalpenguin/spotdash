@@ -21,6 +21,7 @@ type Controller interface {
 	Reload() error
 	Stop() error
 	OpenURL() string
+	SettingsURL() string
 }
 
 // Options configures the tray.

@@ -196,6 +196,13 @@ cd agent
 
 Refuses to install without a `config.json` already in place.
 
+## Changing settings
+
+The tray has an **Options** item that opens a small settings page in your
+browser (one field today: the panel's accent colour). Saving writes back to
+`config.json` and reloads; an already-open panel picks it up within a few
+seconds, no restart needed.
+
 ## Security posture
 
 Phase 1 uses a shared bearer token over plain HTTP on a trusted LAN. There is no
