@@ -2,6 +2,7 @@ package sources
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
@@ -106,6 +107,16 @@ func (r *Runner) pollOnce(ctx context.Context, src Source) (err error) {
 	}()
 
 	elapsed := time.Since(started)
+
+	// A partial result is a working source with something worth publishing, so
+	// it is stored and broadcast, and it is not a failure for backoff: nothing
+	// is failing, and polling less often would not bring the missing part back.
+	if err != nil && IsPartial(err) && value != nil {
+		r.store.UpdatePartial(name, value, errors.Unwrap(err))
+		r.log.Debug("source poll partial", "source", name, "duration", elapsed, "reason", errors.Unwrap(err))
+		return nil
+	}
+
 	if err != nil {
 		r.store.Fail(name, err)
 		r.log.Debug("source poll failed", "source", name, "duration", elapsed, "error", err)

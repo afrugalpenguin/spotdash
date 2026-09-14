@@ -128,13 +128,49 @@ Degradation is deliberately not fatal and deliberately visible. A telemetry
 source on a machine with no usable NVML still reports CPU, RAM, and disk, with
 the GPU fields null, and marks itself `degraded` with the NVML error attached.
 
-The NVML binding is the one part of the agent that needs cgo, so a C compiler is
-a build requirement even though nothing else uses one. Two consequences follow.
-Go defaults `CGO_ENABLED` to 0 when it cannot find a compiler on PATH, which
-turns GPU telemetry off with no error at build time, so the build environment is
-checked rather than assumed. And a cgo-linked binary can acquire a runtime
-dependency on the compiler's own DLLs, which would defeat the single binary
-goal; the produced binary is checked for that and linked statically if needed.
+### A third outcome: partial results
+
+A poll has two natural outcomes, a value or a failure, and telemetry has a
+third. On a machine where the GPU cannot be read, CPU, RAM and disk are all
+genuinely present and worth publishing, and the source is genuinely degraded.
+Forcing that into either outcome loses something: a failure throws away a good
+reading, a success hides a real problem.
+
+So a source may return a value together with an error marked partial. The runner
+stores and broadcasts the value, marks the source degraded, records the reason,
+and does not count it as a failure for backoff, because nothing is failing and
+polling less often would not bring the missing part back.
+
+The marker lives in its own small package so a source can use it without
+importing the registry that runs it, which would be an import cycle.
+
+### GPU telemetry
+
+NVML, NVIDIA's management library, is the only way to read utilisation, VRAM,
+temperature and power. It ships with the driver as `nvml.dll`, and it is the
+same interface `nvidia-smi` uses.
+
+NVIDIA's own `go-nvml` cannot build on Windows: it loads the library through
+`dlfcn.h`, which is POSIX, with no build tags guarding it. So `nvml.dll` is
+bound directly through `windows.NewLazySystemDLL`, which resolves only from the
+system directory, so a stray `nvml.dll` beside the binary or in the working
+directory cannot be loaded in its place.
+
+That binding is pure Go, which means the agent needs no cgo at all and ships as
+a single static binary with no runtime dependency on a compiler's DLLs. A C
+toolchain is still worth having for `go test -race`, but nothing shipped
+requires one.
+
+The library is loaded lazily and initialisation is retried on every read that
+finds it unestablished. That covers what actually happens on a desktop: the
+agent starts while the driver is updating, and the card appears a minute later.
+Initialising once at construction would leave the GPU missing until the agent
+was restarted.
+
+Within a successful read, each field is read independently and one failure is
+not fatal. Not every card reports power draw, and a driver can refuse a single
+metric while serving the rest; losing the whole GPU over a missing wattage would
+be the wrong trade.
 
 ### State and transport
 

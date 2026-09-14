@@ -30,14 +30,14 @@ desktop browser and the shell runs in a 480x480 Android emulator.
 | Tool                | Needed for                                                |
 | ------------------- | --------------------------------------------------------- |
 | Go 1.25 or later    | The agent.                                                |
-| mingw-w64 gcc       | cgo, used by the GPU telemetry binding, and `go test -race`. |
+| mingw-w64 gcc       | `go test -race` only. Nothing shipped needs it.           |
 | JDK 17 or later     | The shell.                                                |
 | Android SDK, API 30 | The shell and its emulator.                               |
 
-Go looks for a C compiler on PATH and silently defaults `CGO_ENABLED` to 0 when
-it finds none, which makes GPU telemetry and the race detector unavailable
-without an obvious reason. Confirm with `go env CGO_ENABLED`, which should print
-`1`. Setup details are in `docs/verify.md` section 0.
+The agent itself needs no C compiler: GPU telemetry binds `nvml.dll` directly in
+pure Go, so the build is cgo free and the result is a single static binary. A
+compiler is only needed to run `go test -race`. Setup details are in
+`docs/verify.md` section 0.
 
 ## Agent quick start
 

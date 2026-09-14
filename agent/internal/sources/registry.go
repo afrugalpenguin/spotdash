@@ -14,6 +14,7 @@ import (
 
 	"github.com/afrugalpenguin/spotdash/agent/internal/config"
 	"github.com/afrugalpenguin/spotdash/agent/internal/sources/clock"
+	"github.com/afrugalpenguin/spotdash/agent/internal/sources/telemetry"
 )
 
 // Source produces one value on demand.
@@ -31,7 +32,8 @@ var errTestConstruction = errors.New("construction failed")
 
 // factories is the one place a new source has to be mentioned.
 var factories = map[string]Factory{
-	clock.Name: adapt(clock.New),
+	clock.Name:     adapt(clock.New),
+	telemetry.Name: adapt(telemetry.New),
 }
 
 // adapt turns a constructor returning a concrete source type into a Factory.
