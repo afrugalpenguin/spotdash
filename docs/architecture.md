@@ -98,8 +98,23 @@ The registry supplies everything else:
   string.
 
 Adding a source is one new package that implements the interface, plus one line
-in the registry. Nothing else in the agent changes. This is the property that
-makes the later faces (Spotify, calendar, weather, voice) cheap.
+in the factory table. Nothing else in the agent changes. This is the property
+that makes the later faces (Spotify, calendar, weather, voice) cheap.
+
+A source package cannot import the registry package without a cycle, so each
+source constructor returns its own concrete type and a small generic adapter in
+the registry widens it to the interface. That keeps the table one line per
+source.
+
+A source named in config with no implementation behind it is a startup error,
+including when it is disabled. Starting anyway would leave a face that never
+populates with nothing on screen explaining why, and a typo in a disabled block
+is the likeliest way a working source gets silently switched off.
+
+Sources are constructed before the listener opens, so a source that cannot be
+built stops the agent instead of degrading forever. Validation that can happen
+once, such as parsing the clock sleep window, happens at construction rather
+than on every poll.
 
 ### Source status
 
