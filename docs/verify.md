@@ -357,18 +357,101 @@ costs nothing at runtime rather than being polled and discarded.
 
 ## 4. WebSocket broadcast
 
-Status: not yet verified.
+Status: verified on 2026-09-14, after item 5.
 
-What must be shown:
-
-- A client connecting to `/ws` with a valid token receives a full snapshot.
-- Subsequent `clock` updates arrive as separate messages in the documented
-  `{source, ts, data}` shape.
-- A connection without a token, or with a wrong token, is rejected.
+### Tests
 
 ```
-Not yet verified.
+$ go test -race -count=1 ./...
+?       github.com/afrugalpenguin/spotdash/agent/cmd/spotdash          [no test files]
+ok      github.com/afrugalpenguin/spotdash/agent/internal/config        1.312s
+ok      github.com/afrugalpenguin/spotdash/agent/internal/logging       1.291s
+ok      github.com/afrugalpenguin/spotdash/agent/internal/server        1.905s
+ok      github.com/afrugalpenguin/spotdash/agent/internal/sources       1.375s
+ok      github.com/afrugalpenguin/spotdash/agent/internal/sources/clock 1.143s
+ok      github.com/afrugalpenguin/spotdash/agent/internal/state          1.344s
+?       github.com/afrugalpenguin/spotdash/agent/web                   [no test files]
 ```
+
+The store tests cover the property that matters most: five hundred updates
+against a subscriber that never reads complete without blocking, and that
+subscriber is then dropped rather than left silently skipping messages.
+
+### A real client outside the browser
+
+`wsprobe` dials the socket exactly as the panel does and prints what arrives.
+
+```
+$ wsprobe -count 1
+dial failed: failed to WebSocket dial: expected handshake response status code 101 but got 401 (http status 401)
+
+$ wsprobe -token wrong -count 1
+dial failed: failed to WebSocket dial: expected handshake response status code 101 but got 401 (http status 401)
+
+$ wsprobe -token <token> -count 4
+connected, negotiated subprotocol "spotdash.v1"
+snapshot {"source":"clock","ts":"2026-09-14T10:01:07Z","data":{"iso":"2026-09-14T11:01:07+01:00","time":"11:01","seconds":7,"date":"Mon 14 Sep","sleep":false}}
+update   {"source":"clock","ts":"2026-09-14T10:01:08Z","data":{"iso":"2026-09-14T11:01:08+01:00","time":"11:01","seconds":8,"date":"Mon 14 Sep","sleep":false}}
+update   {"source":"clock","ts":"2026-09-14T10:01:09Z","data":{"iso":"2026-09-14T11:01:09+01:00","time":"11:01","seconds":9,"date":"Mon 14 Sep","sleep":false}}
+update   {"source":"clock","ts":"2026-09-14T10:01:10Z","data":{"iso":"2026-09-14T11:01:10+01:00","time":"11:01","seconds":10,"date":"Mon 14 Sep","sleep":false}}
+```
+
+Snapshot first, then one message per second, all in the documented
+`{source, ts, data}` shape with an RFC3339 timestamp. Unauthorised connections
+are refused at the handshake, so they never reach a live socket.
+
+### The clock face live, which item 5 deferred
+
+```
+$ chrome --headless=new --window-size=480,480 \
+    --screenshot=live-clock.png "http://127.0.0.1:8765/?token=<token>"
+```
+
+The clock face rendered `11:01`, `Mon 14 Sep`, with the seconds arc filled to
+roughly three quarters and a teal connection dot. The status face rendered
+`clock ok 1s`, `up 48s`, `link live`.
+
+### A slow close, found by a test being slow
+
+Every socket test took exactly 5.00 seconds, which is a timeout rather than
+work:
+
+```
+--- PASS: TestSocketAcceptsTheSessionCookie (5.00s)
+--- PASS: TestSocketSendsTheFullStateOnConnect (5.00s)
+--- PASS: TestTwoClientsBothReceiveUpdates (10.00s)
+ok      github.com/afrugalpenguin/spotdash/agent/internal/server   35.736s
+```
+
+The panel only listens, so the handler never read from the connection, and a
+connection that is never read from never processes control frames. The client's
+close was therefore never acknowledged until it timed out. The same defect means
+a device that vanishes from wifi is never noticed, since nothing reads the
+frames that would reveal it.
+
+Fixed with `CloseRead`, which drains incoming frames and cancels the handler
+context when the peer goes away, plus a thirty second keepalive ping so a silent
+dead connection is detected rather than held open.
+
+```
+--- PASS: TestSocketAcceptsTheSessionCookie (0.00s)
+--- PASS: TestSocketSendsTheFullStateOnConnect (0.00s)
+--- PASS: TestTwoClientsBothReceiveUpdates (0.00s)
+ok      github.com/afrugalpenguin/spotdash/agent/internal/server   0.725s
+```
+
+### One measurement artifact, checked rather than assumed
+
+A first screenshot showed `clock ok 7s` for a source that polls every second.
+That is headless Chrome: `--virtual-time-budget` fast-forwards `Date.now()`
+while socket messages still arrive in real time, so the rendered age inflates.
+Rerun with a shorter budget it reads `1s`, and `wsprobe` shows timestamps one
+second apart.
+
+It did surface a real risk for the hardware, filed as issue 12: the age is the
+browser clock minus the agent timestamp, and the Echo Spot has no battery-backed
+real time clock, so a skewed device clock would render misleading ages on the
+one face whose job is to be trustworthy.
 
 ## 5. Static UI, status and clock faces, dev.html
 

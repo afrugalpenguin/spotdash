@@ -108,6 +108,7 @@ func run() error {
 		Logger:  log,
 	})
 
+	srv.HandleWebSocket()
 	srv.HandleStatic()
 
 	httpServer := &http.Server{

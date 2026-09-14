@@ -29,7 +29,11 @@ type Options struct {
 type Server struct {
 	opts      Options
 	protected *http.ServeMux
-	log       *slog.Logger
+	// socket is mounted outside the token middleware because it authenticates
+	// differently: its token arrives as a WebSocket subprotocol, which the
+	// generic check cannot see.
+	socket http.Handler
+	log    *slog.Logger
 }
 
 // New builds a Server. Protected routes are added with Handle.
@@ -54,6 +58,9 @@ func (s *Server) Handle(pattern string, h http.Handler) {
 func (s *Server) Handler() http.Handler {
 	root := http.NewServeMux()
 	root.HandleFunc("/health", s.handleHealth)
+	if s.socket != nil {
+		root.Handle("/ws", s.socket)
+	}
 	// Everything else sits behind auth, including paths that match nothing, so
 	// an unauthenticated caller cannot map which routes exist.
 	root.Handle("/", s.requireToken(s.protected))
