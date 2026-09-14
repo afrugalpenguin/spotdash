@@ -66,9 +66,13 @@ type settings struct {
 	ShowSeconds   int `json:"show_seconds"`
 
 	// mode: "mock"
-	Title          string `json:"title"`
-	Location       string `json:"location"`
+	Title    string `json:"title"`
+	Location string `json:"location"`
+	// Exactly one of StartInMinutes or StartAt: a countdown relative to
+	// whenever the agent happens to start, or a fixed clock time such as
+	// "16:30" for a repeatable demo or screenshot.
 	StartInMinutes int    `json:"start_in_minutes"`
+	StartAt        string `json:"start_at"`
 
 	// mode: "ics"
 	FeedURL string `json:"feed_url"`
@@ -85,6 +89,7 @@ type Source struct {
 	mockTitle    string
 	mockLocation string
 	mockMinutes  int
+	mockStartAt  string
 	start        time.Time // computed once, on the first poll; see Poll
 
 	// ics mode
@@ -130,10 +135,18 @@ func New(cfg config.Source) (interface {
 }
 
 func newMockSource(interval time.Duration, s settings) (*Source, error) {
+	if s.StartInMinutes != 0 && s.StartAt != "" {
+		return nil, fmt.Errorf(`"start_in_minutes" and "start_at" cannot both be set: pick one way to place the sample event`)
+	}
 	hasTitle := s.Title != ""
-	hasStart := s.StartInMinutes != 0
+	hasStart := s.StartInMinutes != 0 || s.StartAt != ""
 	if hasTitle != hasStart {
-		return nil, fmt.Errorf(`"title" and "start_in_minutes" must be set together, or both left out for no event`)
+		return nil, fmt.Errorf(`"title" and one of "start_in_minutes"/"start_at" must be set together, or both left out for no event`)
+	}
+	if s.StartAt != "" {
+		if _, err := time.Parse("15:04", s.StartAt); err != nil {
+			return nil, fmt.Errorf(`"start_at" is %q, want "HH:MM"`, s.StartAt)
+		}
 	}
 	return &Source{
 		interval:      interval,
@@ -142,6 +155,7 @@ func newMockSource(interval time.Duration, s settings) (*Source, error) {
 		mockTitle:     s.Title,
 		mockLocation:  s.Location,
 		mockMinutes:   s.StartInMinutes,
+		mockStartAt:   s.StartAt,
 		now:           time.Now,
 	}, nil
 }
@@ -186,9 +200,29 @@ func (s *Source) pollMock() Reading {
 
 	now := s.now()
 	if s.start.IsZero() {
-		s.start = now.Add(time.Duration(s.mockMinutes) * time.Minute)
+		if s.mockStartAt != "" {
+			s.start = nextOccurrenceOf(s.mockStartAt, now)
+		} else {
+			s.start = now.Add(time.Duration(s.mockMinutes) * time.Minute)
+		}
 	}
 	return s.reading(s.mockTitle, s.mockLocation, s.start, now)
+}
+
+// nextOccurrenceOf combines an "HH:MM" clock time with now's date, rolling
+// to tomorrow if that time has already passed today. clockTime is assumed
+// already validated by newMockSource; a parse failure here falls back to
+// now itself rather than panicking on what should be unreachable.
+func nextOccurrenceOf(clockTime string, now time.Time) time.Time {
+	parsed, err := time.Parse("15:04", clockTime)
+	if err != nil {
+		return now
+	}
+	candidate := time.Date(now.Year(), now.Month(), now.Day(), parsed.Hour(), parsed.Minute(), 0, 0, now.Location())
+	if candidate.Before(now) {
+		candidate = candidate.Add(24 * time.Hour)
+	}
+	return candidate
 }
 
 // pollICS fetches and parses the configured feed and picks the next-up

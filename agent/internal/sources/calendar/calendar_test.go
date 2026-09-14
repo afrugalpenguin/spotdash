@@ -117,6 +117,89 @@ func TestMockSourceCountsDown(t *testing.T) {
 	}
 }
 
+// TestMockSourceWithStartAtUsesTheGivenClockTime checks that "start_at" pins
+// the mock event to a specific time of day, e.g. for a screenshot or a demo,
+// rather than the countdown drifting with whenever the agent happens to
+// start.
+func TestMockSourceWithStartAtUsesTheGivenClockTime(t *testing.T) {
+	cfg := config.Source{Settings: mustSettings(t, settings{
+		Mode:    "mock",
+		Title:   "Standup with team 2",
+		StartAt: "16:30",
+	})}
+	src, err := New(cfg)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	mock := src.(*Source)
+	mock.now = func() time.Time {
+		return time.Date(2026, 1, 1, 16, 12, 0, 0, time.Local)
+	}
+
+	value, err := mock.Poll(context.Background())
+	if err != nil {
+		t.Fatalf("Poll: %v", err)
+	}
+	reading := value.(Reading)
+	if reading.StartLabel != "16:30" {
+		t.Errorf("StartLabel = %q, want %q", reading.StartLabel, "16:30")
+	}
+	if reading.MinutesUntil != 18 {
+		t.Errorf("MinutesUntil = %v, want 18", reading.MinutesUntil)
+	}
+}
+
+// TestMockSourceWithStartAtInThePastRollsToTomorrow checks that a start_at
+// earlier than the current time is still a sensible future demo event rather
+// than an already-passed, negative countdown.
+func TestMockSourceWithStartAtInThePastRollsToTomorrow(t *testing.T) {
+	cfg := config.Source{Settings: mustSettings(t, settings{
+		Mode:    "mock",
+		Title:   "Standup with team 2",
+		StartAt: "09:00",
+	})}
+	src, err := New(cfg)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	mock := src.(*Source)
+	mock.now = func() time.Time {
+		return time.Date(2026, 1, 1, 16, 12, 0, 0, time.Local)
+	}
+
+	value, err := mock.Poll(context.Background())
+	if err != nil {
+		t.Fatalf("Poll: %v", err)
+	}
+	reading := value.(Reading)
+	if reading.MinutesUntil <= 0 {
+		t.Errorf("MinutesUntil = %v, want positive (rolled to tomorrow)", reading.MinutesUntil)
+	}
+}
+
+func TestMockModeRejectsAnUnparseableStartAt(t *testing.T) {
+	cfg := config.Source{Settings: mustSettings(t, settings{
+		Mode:    "mock",
+		Title:   "Standup",
+		StartAt: "not a time",
+	})}
+	if _, err := New(cfg); err == nil {
+		t.Fatal("want an error for an unparseable start_at, got none")
+	}
+}
+
+func TestMockModeRejectsBothStartInMinutesAndStartAt(t *testing.T) {
+	cfg := config.Source{Settings: mustSettings(t, settings{
+		Mode:           "mock",
+		Title:          "Standup",
+		StartInMinutes: 12,
+		StartAt:        "16:30",
+	})}
+	if _, err := New(cfg); err == nil {
+		t.Fatal("want an error when both start_in_minutes and start_at are set, got none")
+	}
+}
+
 func TestReadingIsUrgentWithinNotifyMinutes(t *testing.T) {
 	cfg := config.Source{Settings: mustSettings(t, settings{
 		Mode:           "mock",
