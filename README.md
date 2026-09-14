@@ -7,6 +7,39 @@ Amazon Echo Spot and displays that UI in a WebView.
 
 All logic and all UI live in the agent. The display device is a dumb panel.
 
+## Faces
+
+One face on screen at a time; tap left or right half to cycle. Live data
+throughout, captured on the emulator against a real Spotify account.
+
+<table>
+<tr>
+<td align="center" width="33%">
+<img src="docs/screenshots/clock.png" width="220" alt="Clock face"><br>
+Clock
+</td>
+<td align="center" width="33%">
+<img src="docs/screenshots/spotify.png" width="220" alt="Spotify face"><br>
+Spotify, with playback controls
+</td>
+<td align="center" width="33%">
+<img src="docs/screenshots/calendar.png" width="220" alt="Calendar face"><br>
+Calendar, next-up event
+</td>
+</tr>
+<tr>
+<td align="center" width="33%">
+<img src="docs/screenshots/telemetry.png" width="220" alt="Telemetry face"><br>
+Telemetry
+</td>
+<td align="center" width="33%">
+<img src="docs/screenshots/status.png" width="220" alt="Status face"><br>
+Status, the debug face
+</td>
+<td width="33%"></td>
+</tr>
+</table>
+
 ## Components
 
 | Path     | What it is                                                                 |
