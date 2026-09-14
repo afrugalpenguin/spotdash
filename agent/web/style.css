@@ -214,35 +214,44 @@ body {
 }
 
 .clock-tick {
-  stroke: var(--muted);
+  stroke: var(--track);
   stroke-width: 2;
 }
 
 .clock-tick-major {
-  stroke: var(--text);
-  stroke-width: 4;
+  stroke: var(--muted);
+  stroke-width: 2;
 }
 
+/* Upright labels at each hour, the dial's primary markers - the ticks are
+ * secondary texture once these are on, the reverse of the plain-tick-only
+ * first pass of this face. */
+.clock-numeral {
+  fill: var(--text);
+  font-size: 22px;
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Hour and minute hands are tapered polygons (see createHand in clock.js),
+ * so fill carries them rather than stroke. */
 .clock-hand {
-  stroke: var(--text);
-  stroke-linecap: round;
+  fill: var(--text);
   transition: transform 0.2s ease-out;
-}
-
-.clock-hand-hour {
-  stroke-width: 10;
-}
-
-.clock-hand-minute {
-  stroke-width: 7;
 }
 
 .clock-hand-second {
   stroke: var(--live);
-  stroke-width: 3;
+  stroke-width: 2;
+  stroke-linecap: round;
+  fill: none;
   /* The second hand jumps once a second, same as the rim's own seconds arc
    * on the digital face; easing it would make it lag a real reading. */
   transition: none;
+}
+
+.clock-hub {
+  fill: var(--text);
 }
 
 /* The date is all .face holds in analogue mode (the hands take the centre),

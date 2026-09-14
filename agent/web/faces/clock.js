@@ -43,22 +43,34 @@ export function handAngles(time, seconds) {
   };
 }
 
-// tickMarks returns the twelve hour positions as degrees clockwise from
-// twelve o'clock, each flagged major at 12/3/6/9 (drawn longer and bolder,
-// the same weight distinction a real clock face uses) so bare hands on an
-// empty rim read as a clock rather than a windmill.
+// tickMarks returns all sixty minute positions as degrees clockwise from
+// twelve o'clock, each flagged major at the twelve hour positions (drawn
+// longer and bolder, the same weight distinction a real watch face uses).
+// Sixty rather than twelve reads as an instrument face rather than a plain
+// dial - it is what the numerals below sit inside of.
 export function tickMarks() {
   const ticks = [];
-  for (let i = 0; i < 12; i += 1) {
-    const angle = i * 30;
-    ticks.push({ angle, major: angle % 90 === 0 });
+  for (let i = 0; i < 60; i += 1) {
+    ticks.push({ angle: i * 6, major: i % 5 === 0 });
   }
   return ticks;
 }
 
+// hourNumerals returns the twelve hour labels in clock order, starting at
+// twelve, each with the angle its tick sits at. Rendered upright rather than
+// rotated with the tick: a clock's numerals always read right-way-up, only
+// their position goes around the dial.
+export function hourNumerals() {
+  const numerals = [];
+  for (let i = 0; i < 12; i += 1) {
+    numerals.push({ label: String(i === 0 ? 12 : i), angle: i * 30 });
+  }
+  return numerals;
+}
+
 function createTick(tick) {
   const outer = RIM_RADIUS - 6;
-  const length = tick.major ? 24 : 14;
+  const length = tick.major ? 16 : 7;
   const mark = document.createElementNS(SVG_NS, "line");
   mark.setAttribute("class", tick.major ? "clock-tick clock-tick-major" : "clock-tick");
   mark.setAttribute("x1", String(CENTER));
@@ -69,13 +81,45 @@ function createTick(tick) {
   return mark;
 }
 
-function createHand(className, length) {
+// NUMERAL_RADIUS sits inside the ticks, clear of the minute hand's own
+// length, so nothing on the dial ever overlaps.
+const NUMERAL_RADIUS = 184;
+
+function createNumeral(numeral) {
+  const rad = (numeral.angle * Math.PI) / 180;
+  const text = document.createElementNS(SVG_NS, "text");
+  text.setAttribute("class", "clock-numeral");
+  text.setAttribute("x", String(CENTER + NUMERAL_RADIUS * Math.sin(rad)));
+  text.setAttribute("y", String(CENTER - NUMERAL_RADIUS * Math.cos(rad)));
+  text.setAttribute("text-anchor", "middle");
+  text.setAttribute("dominant-baseline", "central");
+  text.textContent = numeral.label;
+  return text;
+}
+
+// A hand is a slim kite rather than a plain stroked line: widest at a short
+// tail below centre, tapering to a point at its tip. That taper, not the
+// tick count, is most of what separates a watch face from a diagram of one.
+function createHand(className, length, baseWidth, tail) {
+  const hand = document.createElementNS(SVG_NS, "polygon");
+  hand.setAttribute("class", className);
+  hand.setAttribute(
+    "points",
+    `0,${tail} ${-baseWidth},0 0,${-length} ${baseWidth},0`
+  );
+  return hand;
+}
+
+// The second hand stays a plain thin line rather than a tapered polygon:
+// tapering reads well on the two slow hands, but a wide taper on the one
+// that sweeps every second would flicker distractingly instead of ticking.
+function createSecondHand(className, length) {
   const hand = document.createElementNS(SVG_NS, "line");
   hand.setAttribute("class", className);
-  hand.setAttribute("x1", String(CENTER));
-  hand.setAttribute("y1", String(CENTER));
-  hand.setAttribute("x2", String(CENTER));
-  hand.setAttribute("y2", String(CENTER - length));
+  hand.setAttribute("x1", "0");
+  hand.setAttribute("y1", "16");
+  hand.setAttribute("x2", "0");
+  hand.setAttribute("y2", String(-length));
   return hand;
 }
 
@@ -83,7 +127,11 @@ function setHand(hand, degrees) {
   if (!hand) {
     return;
   }
-  hand.setAttribute("transform", `rotate(${degrees} ${CENTER} ${CENTER})`);
+  // Rotate first (the hand's points are defined around its own origin),
+  // then move that origin to the dial's centre: composed in that order so
+  // the rotation happens in hand-local space rather than around the corner
+  // of the viewBox.
+  hand.setAttribute("transform", `translate(${CENTER} ${CENTER}) rotate(${degrees})`);
 }
 
 export function render(container, state) {
@@ -103,13 +151,27 @@ export function render(container, state) {
     for (const tick of tickMarks()) {
       hands.appendChild(createTick(tick));
     }
+    for (const numeral of hourNumerals()) {
+      hands.appendChild(createNumeral(numeral));
+    }
 
-    hourHand = createHand("clock-hand clock-hand-hour", HAND_RADII.hour);
-    minuteHand = createHand("clock-hand clock-hand-minute", HAND_RADII.minute);
-    secondHand = createHand("clock-hand clock-hand-second", HAND_RADII.second);
+    hourHand = createHand("clock-hand clock-hand-hour", HAND_RADII.hour, 7, 14);
+    minuteHand = createHand("clock-hand clock-hand-minute", HAND_RADII.minute, 5, 16);
+    secondHand = createSecondHand("clock-hand clock-hand-second", HAND_RADII.second);
     hands.appendChild(hourHand);
     hands.appendChild(minuteHand);
+    setHand(hourHand, 0);
+    setHand(minuteHand, 0);
+    setHand(secondHand, 0);
     hands.appendChild(secondHand);
+
+    const hub = document.createElementNS(SVG_NS, "circle");
+    hub.setAttribute("class", "clock-hub");
+    hub.setAttribute("cx", String(CENTER));
+    hub.setAttribute("cy", String(CENTER));
+    hub.setAttribute("r", "5");
+    hands.appendChild(hub);
+
     container.appendChild(hands);
 
     // Not wrapped in .face: .face is positioned and sized for the digital

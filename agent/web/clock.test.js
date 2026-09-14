@@ -9,7 +9,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { handAngles, tickMarks } from "./faces/clock.js";
+import { handAngles, hourNumerals, tickMarks } from "./faces/clock.js";
 
 test("twelve o'clock exactly points every hand at the top", () => {
   const angles = handAngles("00:00", 0);
@@ -45,17 +45,33 @@ test("an unparseable time reads as twelve o'clock rather than throwing", () => {
   assert.deepEqual(handAngles("--:--", 0), { hour: 0, minute: 0, second: 0 });
 });
 
-test("tickMarks places twelve ticks, thirty degrees apart", () => {
+test("tickMarks places sixty ticks, six degrees apart", () => {
   const ticks = tickMarks();
 
-  assert.equal(ticks.length, 12);
-  assert.deepEqual(ticks.map((t) => t.angle), [0, 30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330]);
+  assert.equal(ticks.length, 60);
+  assert.equal(ticks[0].angle, 0);
+  assert.equal(ticks[1].angle, 6);
+  assert.equal(ticks[59].angle, 354);
 });
 
-test("tickMarks marks twelve, three, six and nine as major", () => {
+test("tickMarks marks only the twelve hour positions as major", () => {
   const major = tickMarks()
     .filter((t) => t.major)
     .map((t) => t.angle);
 
-  assert.deepEqual(major, [0, 90, 180, 270]);
+  assert.deepEqual(major, [0, 30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330]);
+});
+
+test("hourNumerals labels twelve through eleven, in clock order", () => {
+  const numerals = hourNumerals();
+
+  assert.equal(numerals.length, 12);
+  assert.deepEqual(
+    numerals.map((n) => n.label),
+    ["12", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11"]
+  );
+  assert.deepEqual(
+    numerals.map((n) => n.angle),
+    [0, 30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330]
+  );
 });
