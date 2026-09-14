@@ -62,14 +62,29 @@ build step required. Open the file directly.
 
 ## Shell quick start
 
+Create and launch the 480x480 emulator, which matches the real device:
+
+```powershell
+cd shell	ools
+.vd.ps1
+```
+
+Build and install:
+
 ```powershell
 cd shell
 .\gradlew assembleDebug
+adb install -r appuild\outputspk\debugpp-debug.apk
+adb shell am start -n dev.spotdash.shell/.PanelActivity
 ```
 
-Then install on an emulator or device. The agent URL and token are entered in
-the shell's settings screen, reached by long-pressing the display for three
-seconds.
+Press and hold the display for three seconds to open settings, then enter the
+agent URL and token. From the emulator the host is `http://10.0.2.2:8765`. That
+gesture is the only UI the shell has beyond the WebView, because the device has
+no other input.
+
+On the real device, set the shell as the default launcher so the panel survives
+a reboot without anyone touching it.
 
 ## Security posture
 

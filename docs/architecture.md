@@ -373,10 +373,27 @@ available.
 
 ### Failure behaviour
 
-If the WebView fails to load, or the WebSocket has been down for more than 30
+If the WebView fails to load, or the agent has been unreachable for more than 30
 seconds, the shell shows a native fallback screen with the configured agent URL
 and the last error, and retries every 10 seconds. The fallback is native rather
 than web because the web layer is exactly what is in question at that moment.
+
+The shell polls `/health` itself to decide this, rather than asking the page.
+That keeps the bridge at exactly the four methods above, and it means the
+fallback still works when the WebView is the thing that has failed. `/health` is
+unauthenticated precisely so it stays usable when everything else is broken.
+
+The thirty second delay is deliberate. The shell notices a failure at once, but
+a restarting agent is back within a second or two, and flashing a fallback at
+every restart would be worse than briefly showing a stale dashboard.
+
+### Scaling
+
+The panel is a fixed 480 CSS pixel layout, and CSS pixels are density
+independent. On a 240dpi display those become 720 physical pixels and two thirds
+of the panel falls off the glass. The shell therefore computes an initial scale
+from the real display width rather than assuming one, so the panel fits whatever
+density it lands on. The Echo Spot's density need not match the emulator's.
 
 ## Security posture for phase 1
 

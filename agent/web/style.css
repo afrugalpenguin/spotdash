@@ -120,8 +120,21 @@ body {
   left: 0;
 }
 
+.zone,
+.zone:active {
+  -webkit-tap-highlight-color: transparent;
+}
+
 .zone-next {
   right: 0;
+}
+
+/* A tap leaves the zone focused, and the WebView then draws its own focus ring.
+ * The circular clip hides three of its four edges, so it appears as a stray
+ * vertical line down the middle of the panel. Keyboard focus still gets a ring,
+ * because that one is navigation rather than an artefact of touching the glass. */
+.zone:focus {
+  outline: none;
 }
 
 .zone:focus-visible {

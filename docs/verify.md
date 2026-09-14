@@ -869,20 +869,162 @@ and it is the flag to use when running the agent from a terminal.
 
 ## 9. Shell in the 480x480 emulator
 
-Status: not yet verified.
+Status: verified on 2026-09-14.
 
-What must be shown:
-
-- The AVD is created at 480x480, API 30, 1 GB RAM by the provided script.
-- The shell installs, launches fullscreen, and loads the agent UI from
-  `http://10.0.2.2:8765`.
-- The settings screen opens on a three second long press and persists values.
-- The fallback screen appears when the agent is stopped and recovers when it
-  returns.
+### The AVD
 
 ```
-Not yet verified.
+$ cd shell\tools
+$ .\avd.ps1 -CreateOnly
+spotdash_480 configured at 480x480, API 30, 1024 MB
+
+$ adb shell wm size
+Physical size: 480x480
+$ adb shell wm density
+Physical density: 240
+$ adb shell getprop ro.build.version.sdk
+30
 ```
+
+The emulated display is also set circular, so content straying outside the
+inscribed circle disappears here exactly as it would on the device rather than
+being discovered later.
+
+Two details the script has to get right, both found the hard way:
+
+- `avdmanager` asks about a hardware profile on stdin. Answering from a
+  PowerShell pipeline sends UTF-16 with a byte order mark, and `avdmanager`
+  rejects it with `Error: ?no is not a valid reply`. The answer goes through
+  `cmd` instead.
+- `local.properties` is a Java properties file, so a Windows path needs escaped
+  backslashes or forward slashes. A raw path fails the build with
+  `The filename, directory name, or volume label syntax is incorrect`, which
+  names neither the file nor the setting.
+
+### Build and install
+
+```
+$ cd shell
+$ .\gradlew assembleDebug
+BUILD SUCCESSFUL in 28s
+33 actionable tasks: 33 executed
+
+$ adb install -r app\build\outputs\apk\debug\app-debug.apk
+Success
+```
+
+### Three defects the emulator caught
+
+**The launcher crashed on start.** `goFullscreen()` ran before `setContentView`,
+so the decor view did not exist and the insets controller was null:
+
+```
+FATAL EXCEPTION: main
+java.lang.NullPointerException: Attempt to invoke virtual method
+  'android.view.WindowInsetsController com.android.internal.policy.DecorView.getWindowInsetsController()'
+  on a null object reference
+    at dev.spotdash.shell.PanelActivity.goFullscreen(PanelActivity.kt:270)
+    at dev.spotdash.shell.PanelActivity.onCreate(PanelActivity.kt:49)
+```
+
+This one is worth noting for what it would have meant on the real device: the
+shell is the HOME launcher, so a crash on start leaves a device with no
+launcher at all.
+
+**The panel rendered at 1.5x and fell off the glass.** CSS pixels are density
+independent and this display is 240dpi, so the panel's fixed 480 CSS pixel
+layout became 720 physical pixels and only two thirds of it was visible. The
+shell now computes an initial scale from the real display width, and the page no
+longer pins `initial-scale=1`, so the panel fits whatever density it lands on.
+That matters because the Echo Spot's density need not match the emulator's.
+
+**A stray amber line ran down the middle of the panel.** A tap leaves the zone
+button focused and the WebView draws its own focus ring; the circular clip hides
+three of its four edges, leaving the inner vertical edge visible as a line
+through the centre. Suppressed for touch focus and kept for keyboard focus,
+which is navigation rather than an artefact of touching the glass.
+
+None of the three would have been found without running it.
+
+### The panel running in the shell
+
+The clock face rendered at 480x480 with the seconds arc and a teal connection
+dot, meaning the WebSocket was connected to the agent across the emulator's host
+route. Tapping the right half advanced to the telemetry face, which rendered
+live host values: `cpu 7%`, `ram 71%`, `gpu 2%`, `vram 23%`, `32` degrees,
+`44 W`.
+
+The settings screen opened on a genuine three second press:
+
+```
+$ adb shell input swipe 240 240 240 240 3500
+```
+
+and the agent URL and token were typed into it and saved, after which:
+
+```
+I spotdash: settings saved, reloading
+I spotdash: loading the panel
+I spotdash: page loaded
+```
+
+### The fallback, and recovery
+
+The agent was stopped at 12:55:07. The shell noticed immediately, waited out the
+threshold, showed the fallback, and began retrying:
+
+```
+12:55:07 W spotdash: agent unreachable: failed to connect to /10.0.2.2 (port 8765)
+                     from /10.0.2.16 (port 46576) after 4000ms
+12:55:47 I spotdash: retrying the panel
+12:55:57 I spotdash: retrying the panel
+```
+
+The fallback screen showed the heading, the configured URL
+`http://10.0.2.2:8765`, and the real connection error rather than a generic
+message. Noticing at once but only showing the fallback after thirty seconds is
+deliberate: a restarting agent is back within a second or two, and flashing a
+fallback at every restart would be worse than briefly showing a stale dashboard.
+
+With the agent back, recovery needed no intervention:
+
+```
+12:56:03 I spotdash: agent reachable again
+12:56:03 I spotdash: loading the panel
+12:56:03 I spotdash: page loaded
+```
+
+### How the shell knows
+
+The shell polls `/health` natively rather than asking the page. That keeps the
+bridge at exactly the four methods specified, and it means the fallback still
+works when the WebView itself is what has failed, which is the case where asking
+the page would be useless. `/health` is unauthenticated precisely so it stays
+usable when everything else is broken, and this is the first thing to actually
+rely on that.
+
+### One false alarm worth recording
+
+A screenshot mid-verification showed an amber connection dot and frozen gauges,
+which looked like the socket failing to re-establish after recovery. It was not:
+the agent had been stopped at that moment to switch its log level to debug. The
+console message that made it look real came from the old app instance timing out
+against a host port that genuinely was not listening:
+
+```
+I chromium: [INFO:CONSOLE] "WebSocket connection to 'ws://10.0.2.2:8765/ws' failed:
+             Error in connection establishment: net::ERR_CONNECTION_TIMED_OUT"
+```
+
+Checked properly, the agent reports one socket open and holding:
+
+```
+$ grep -c "websocket client connected" agent.log     # 2
+$ grep -c "websocket client disconnected" agent.log  # 1
+currently open: 1
+```
+
+and the panel renders the clock live with a teal connection dot.
 
 ## 10. End to end
 
