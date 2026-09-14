@@ -57,19 +57,121 @@ and the degraded path is produced by making NVML unreachable.
 
 ## 2. Config loading and /health
 
-Status: not yet verified.
+Status: verified on 2026-09-14.
 
-What must be shown:
-
-- The agent exits non-zero with a clear message when `config.json` is absent.
-- The agent exits non-zero with a clear message when `token` is empty.
-- With a valid config, `GET /health` returns JSON containing uptime, version,
-  and a per-source status map.
-- `GET /health` succeeds without an `Authorization` header.
+### Unit tests
 
 ```
-Not yet verified.
+$ cd agent
+$ go vet ./...
+$ gofmt -l .
+$ go test ./...
+ok      github.com/afrugalpenguin/spotdash/agent/internal/config   0.246s
+ok      github.com/afrugalpenguin/spotdash/agent/internal/logging  0.208s
+ok      github.com/afrugalpenguin/spotdash/agent/internal/server   0.282s
+ok      github.com/afrugalpenguin/spotdash/agent/internal/state    0.181s
 ```
+
+`go vet` and `gofmt -l` both printed nothing, which is the passing result.
+
+The race detector is not available on this machine: `go test -race` reports
+`-race requires cgo; enable cgo by setting CGO_ENABLED=1`, and there is no C
+toolchain installed. Item 6 needs cgo for NVML, so a mingw-w64 toolchain gets
+installed then and the race detector becomes available at that point.
+
+### Build
+
+```
+$ go build -ldflags "-X main.version=0.1.0-item2" -o spotdash.exe ./cmd/spotdash
+$ ./spotdash.exe -version
+0.1.0-item2
+```
+
+### Fail-closed startup
+
+Each case below must exit non-zero and name the offending key. `$T` is an empty
+temporary directory.
+
+```
+$ ./spotdash.exe -config "$T/config.json"
+spotdash: config file not found at C:/.../config.json: create it from config.example.json
+exit=1
+
+$ echo '{"token":"","sources":{}}' > "$T/config.json"
+$ ./spotdash.exe -config "$T/config.json"
+spotdash: in C:/.../config.json: "token" is required and must not be empty: the agent will not serve data without a shared secret
+exit=1
+
+$ echo '{"token":"abc",}' > "$T/config.json"
+$ ./spotdash.exe -config "$T/config.json"
+spotdash: parsing C:/.../config.json: invalid character '}' looking for beginning of object key string
+exit=1
+
+$ echo '{"token":"abc","listn":"0.0.0.0:8765"}' > "$T/config.json"
+$ ./spotdash.exe -config "$T/config.json"
+spotdash: parsing C:/.../config.json: json: unknown field "listn"
+exit=1
+
+$ echo '{"token":"abc","sources":{"clock":{"enabled":true}}}' > "$T/config.json"
+$ ./spotdash.exe -config "$T/config.json"
+spotdash: in C:/.../config.json: source "clock" is enabled but its "interval_ms" is 0, want a positive number of milliseconds
+exit=1
+```
+
+The fourth case matters as much as the empty token: a mistyped key is silently
+ignored by most JSON loaders, which is how a config ends up not meaning what it
+looks like it means.
+
+### /health and auth against a running agent
+
+Started with `listen` `127.0.0.1:8765`, token `verify-token-item2`, `clock`
+enabled and `telemetry` disabled.
+
+```
+$ curl -s -i http://127.0.0.1:8765/health
+HTTP/1.1 200 OK
+Cache-Control: no-store
+Content-Type: application/json; charset=utf-8
+Content-Length: 164
+
+{"version":"0.1.0-item2","uptime_seconds":5.4692583,"sources":{"clock":{"status":"degraded","last_error":"awaiting first poll"},"telemetry":{"status":"disabled"}}}
+```
+
+`clock` reads `degraded` because the registry does not exist yet, so nothing has
+polled it. That flips to `ok` in item 3. `telemetry` is `disabled` because config
+says so.
+
+```
+$ curl -s -i http://127.0.0.1:8765/
+HTTP/1.1 401 Unauthorized
+Www-Authenticate: Bearer realm="spotdash"
+
+$ curl -H 'Authorization: Bearer wrong' http://127.0.0.1:8765/
+status=401
+
+$ curl -H 'Authorization: Bearer verify-token-item2' http://127.0.0.1:8765/
+status=404
+
+$ curl http://127.0.0.1:8765/secret-route
+status=401
+```
+
+The 404 is correct for this item: the token was accepted and routing then found
+nothing, because the UI and the WebSocket arrive in items 4 and 5. The last case
+is the one worth keeping: an unknown path returns 401 rather than 404, so an
+unauthenticated caller cannot map which routes exist.
+
+### Logging
+
+```
+$ cat spotdash.log
+time=2026-09-14T08:55:01.473+01:00 level=INFO msg=starting version=0.1.0-item2 config=C:/.../config.json log_file=C:\...\spotdash.log listen=127.0.0.1:8765 log_level=debug
+time=2026-09-14T08:55:01.474+01:00 level=DEBUG msg="registered source" source=clock enabled=true
+time=2026-09-14T08:55:01.474+01:00 level=DEBUG msg="registered source" source=telemetry enabled=false
+time=2026-09-14T08:55:01.474+01:00 level=INFO msg=listening addr=127.0.0.1:8765
+```
+
+Records go to stderr and to the rotating file at the same time.
 
 ## 3. Source registry and the clock source
 

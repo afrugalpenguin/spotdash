@@ -1,0 +1,186 @@
+package server
+
+import (
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/afrugalpenguin/spotdash/agent/internal/state"
+)
+
+const testToken = "test-token-value"
+
+func newTestServer(t *testing.T) (*Server, *state.Store) {
+	t.Helper()
+	store := state.New()
+	srv := New(Options{
+		Token:   testToken,
+		Version: "test-version",
+		Started: time.Now().Add(-90 * time.Second),
+		Store:   store,
+	})
+	return srv, store
+}
+
+func do(t *testing.T, srv *Server, method, target, authHeader string) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequest(method, target, nil)
+	if authHeader != "" {
+		req.Header.Set("Authorization", authHeader)
+	}
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+	return rec
+}
+
+func TestHealthNeedsNoToken(t *testing.T) {
+	srv, _ := newTestServer(t)
+
+	rec := do(t, srv, http.MethodGet, "/health", "")
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200. /health must work when auth is the thing that is broken", rec.Code)
+	}
+	if ct := rec.Header().Get("Content-Type"); !strings.HasPrefix(ct, "application/json") {
+		t.Errorf("Content-Type = %q, want JSON", ct)
+	}
+}
+
+func TestHealthReportsVersionAndUptime(t *testing.T) {
+	srv, _ := newTestServer(t)
+
+	rec := do(t, srv, http.MethodGet, "/health", "")
+
+	var body struct {
+		Version       string  `json:"version"`
+		UptimeSeconds float64 `json:"uptime_seconds"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decoding /health body: %v\nbody: %s", err, rec.Body.String())
+	}
+	if body.Version != "test-version" {
+		t.Errorf("version = %q, want %q", body.Version, "test-version")
+	}
+	if body.UptimeSeconds < 90 {
+		t.Errorf("uptime_seconds = %v, want at least 90", body.UptimeSeconds)
+	}
+}
+
+func TestHealthReportsEverySourceStatus(t *testing.T) {
+	srv, store := newTestServer(t)
+	store.Register("clock", state.StatusDegraded, "awaiting first poll")
+	store.Register("telemetry", state.StatusDisabled, "")
+	store.Update("clock", map[string]any{"time": "10:00"})
+
+	rec := do(t, srv, http.MethodGet, "/health", "")
+
+	var body struct {
+		Sources map[string]struct {
+			Status     string `json:"status"`
+			LastUpdate string `json:"last_update"`
+			LastError  string `json:"last_error"`
+		} `json:"sources"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decoding /health body: %v\nbody: %s", err, rec.Body.String())
+	}
+	if got := body.Sources["clock"].Status; got != "ok" {
+		t.Errorf("clock status = %q, want ok", got)
+	}
+	if body.Sources["clock"].LastUpdate == "" {
+		t.Error("clock should report a last_update after an update")
+	}
+	if got := body.Sources["telemetry"].Status; got != "disabled" {
+		t.Errorf("telemetry status = %q, want disabled", got)
+	}
+	if body.Sources["telemetry"].LastUpdate != "" {
+		t.Error("a source that never polled should report an empty last_update")
+	}
+}
+
+func TestHealthNeverLeaksTokenOrSourceData(t *testing.T) {
+	srv, store := newTestServer(t)
+	store.Register("clock", state.StatusOK, "")
+	store.Update("clock", map[string]any{"secret_reading": "sensitive-payload-marker"})
+
+	rec := do(t, srv, http.MethodGet, "/health", "")
+
+	body := rec.Body.String()
+	if strings.Contains(body, testToken) {
+		t.Errorf("/health leaked the token:\n%s", body)
+	}
+	// /health is unauthenticated, so it reports status only, never readings.
+	if strings.Contains(body, "sensitive-payload-marker") {
+		t.Errorf("/health leaked source data:\n%s", body)
+	}
+}
+
+func TestProtectedRoutesRejectBadAuth(t *testing.T) {
+	tests := []struct {
+		name   string
+		header string
+	}{
+		{"no header", ""},
+		{"empty bearer", "Bearer "},
+		{"wrong token", "Bearer not-the-token"},
+		{"token without scheme", testToken},
+		{"wrong scheme", "Basic " + testToken},
+		{"token as a prefix of the header", "Bearer " + testToken + "extra"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			srv, _ := newTestServer(t)
+			srv.Handle("/probe", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusOK)
+			}))
+
+			rec := do(t, srv, http.MethodGet, "/probe", tt.header)
+
+			if rec.Code != http.StatusUnauthorized {
+				t.Errorf("status = %d, want 401", rec.Code)
+			}
+		})
+	}
+}
+
+func TestProtectedRouteAcceptsValidToken(t *testing.T) {
+	srv, _ := newTestServer(t)
+	srv.Handle("/probe", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusTeapot)
+	}))
+
+	rec := do(t, srv, http.MethodGet, "/probe", "Bearer "+testToken)
+
+	if rec.Code != http.StatusTeapot {
+		t.Fatalf("status = %d, want the handler to have run", rec.Code)
+	}
+}
+
+func TestAuthSchemeIsCaseInsensitive(t *testing.T) {
+	// RFC 7235 makes the auth scheme case-insensitive, and clients differ.
+	srv, _ := newTestServer(t)
+	srv.Handle("/probe", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusTeapot)
+	}))
+
+	rec := do(t, srv, http.MethodGet, "/probe", "bearer "+testToken)
+
+	if rec.Code != http.StatusTeapot {
+		t.Errorf("status = %d, want the handler to have run for a lowercase scheme", rec.Code)
+	}
+}
+
+func TestUnknownPathRequiresAuth(t *testing.T) {
+	// An unauthenticated caller should not be able to map which routes exist.
+	srv, _ := newTestServer(t)
+
+	rec := do(t, srv, http.MethodGet, "/does-not-exist", "")
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("status = %d, want 401 rather than a 404 that confirms the route is absent", rec.Code)
+	}
+}
