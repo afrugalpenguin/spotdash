@@ -127,12 +127,23 @@ func resolveConfigPath(flagValue string) (string, error) {
 		return flagValue, nil
 	}
 
+	// The binary usually sits in the working directory, in which case both
+	// candidates are the same path and listing it twice in the error reads as a
+	// bug in the message rather than a missing file.
 	var candidates []string
+	seen := map[string]bool{}
+	add := func(path string) {
+		if path == "" || seen[path] {
+			return
+		}
+		seen[path] = true
+		candidates = append(candidates, path)
+	}
 	if exe, err := os.Executable(); err == nil {
-		candidates = append(candidates, filepath.Join(filepath.Dir(exe), configFileName))
+		add(filepath.Join(filepath.Dir(exe), configFileName))
 	}
 	if wd, err := os.Getwd(); err == nil {
-		candidates = append(candidates, filepath.Join(wd, configFileName))
+		add(filepath.Join(wd, configFileName))
 	}
 
 	for _, candidate := range candidates {

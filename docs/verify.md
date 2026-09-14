@@ -1028,11 +1028,129 @@ and the panel renders the clock live with a teal connection dot.
 
 ## 10. End to end
 
-Status: not yet verified.
+Status: verified on 2026-09-14.
 
-A single pass from a clean checkout to the UI running in the emulator, with
-every command and its output recorded.
+Every section above records work verified on the machine it was built on. This
+one starts from a fresh clone, so nothing carried over from the state that
+machine happened to be in.
+
+### Clone
 
 ```
-Not yet verified.
+$ git clone <repo> spotdash-clean-checkout
+$ cd spotdash-clean-checkout && git log --oneline | head -1
+235f7c1 fix(web): avoid css newer than the device webview (#23)
+
+$ ls agent/
+cmd  config.example.json  go.mod  go.sum  internal  run.ps1  web
+
+config.json present? no
+binary present? no
 ```
+
+No secret and no build output came with the clone, which is what `.gitignore` is
+there for.
+
+### It refuses to start before it is configured
+
+```
+$ go build -o spotdash.exe ./cmd/spotdash
+$ ./spotdash.exe
+spotdash: config file not found: looked in [...\agent\config.json]. Copy config.example.json to config.json, or pass -config
+exit=1
+
+$ cp config.example.json config.json     # then blank the token
+$ ./spotdash.exe
+spotdash: in ...\agent\config.json: "token" is required and must not be empty: the agent will not serve data without a shared secret
+exit=1
+```
+
+The example config ships with a placeholder token rather than a working one, so
+a fresh clone cannot accidentally serve with a secret that is in public version
+control.
+
+### Tests
+
+```
+$ go vet ./... && gofmt -l .
+both clean
+
+$ go test -race -count=1 ./...
+?       .../agent/cmd/spotdash                [no test files]
+ok      .../agent/internal/app                1.685s
+ok      .../agent/internal/config             1.221s
+ok      .../agent/internal/logging            1.173s
+ok      .../agent/internal/server             1.903s
+ok      .../agent/internal/sources            1.546s
+ok      .../agent/internal/sources/clock      1.157s
+?       .../agent/internal/sources/partial    [no test files]
+ok      .../agent/internal/sources/telemetry  1.640s
+ok      .../agent/internal/state              1.343s
+?       .../agent/internal/tray               [no test files]
+?       .../agent/web                         [no test files]
+
+$ cd web && node --test app.test.js telemetry.test.js
+tests 28   pass 28   fail 0
+```
+
+### Serving
+
+With a real token and `127.0.0.1:8799`:
+
+```
+$ curl http://127.0.0.1:8799/health
+{"version":"1.0.0-clean","uptime_seconds":8.1021862,"sources":{
+  "clock":{"status":"ok","last_update":"2026-09-14T12:12:08Z"},
+  "telemetry":{"status":"ok","last_update":"2026-09-14T12:12:08Z"}}}
+
+GET / no token       -> 401
+GET / with token     -> 200
+GET / browser style  -> 200
+```
+
+The socket, from a client outside any browser:
+
+```
+$ wsprobe -addr ws://127.0.0.1:8799/ws -token <token> -count 3
+connected, negotiated subprotocol "spotdash.v1"
+snapshot {"source":"clock","ts":"2026-09-14T12:12:08Z","data":{...,"time":"13:12","seconds":8,...}}
+update   {"source":"telemetry","ts":"2026-09-14T12:12:08Z","data":{"cpu":{"percent":3.6281179138321997,...
+update   {"source":"clock","ts":"2026-09-14T12:12:09Z","data":{...,"seconds":9,...}}
+```
+
+All three faces were then rendered at 480x480 from the clean build. The status
+face reported both sources `ok`, `up 17s`, and `link live`.
+
+### The shell, from the same clone
+
+```
+local.properties present? no
+
+$ .\gradlew assembleDebug
+BUILD SUCCESSFUL
+33 actionable tasks: 33 executed
+
+$ ls app\build\outputs\apk\debug\app-debug.apk
+9711395 bytes
+```
+
+A clean checkout needs only `ANDROID_HOME` set. `local.properties` is gitignored
+and is not required, which is worth knowing because when it *is* present and
+wrong the build fails with `The filename, directory name, or volume label syntax
+is incorrect`, naming neither the file nor the setting.
+
+The APK carries no native libraries, so the build verified on an x86_64 emulator
+runs unchanged on the device's ARM chip.
+
+### One blemish, fixed
+
+The not-configured message listed the same path twice, because the binary
+usually sits in the working directory and both candidates resolve to it. It read
+as a bug in the message rather than a missing file. Now deduplicated.
+
+### What phase 1 does not cover
+
+Everything that needs the hardware. `docs/device.md` is the bring-up list, and
+the one known defect waiting for it is issue 12: source ages are the device
+clock minus the agent timestamp, and the Echo Spot has no battery backed real
+time clock.
