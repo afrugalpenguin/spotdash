@@ -13,6 +13,7 @@ import {
   applyHealth,
   applyMessage,
   faceIndexFromQuery,
+  isStale,
   jittered,
   nextBackoff,
   readToken,
@@ -205,6 +206,20 @@ test("relative age counts up from the timestamp", () => {
   const twoMinutesAgo = new Date(Date.now() - 125000).toISOString();
 
   assert.equal(relativeAge(twoMinutesAgo), "2m");
+});
+
+test("a connection is not stale before the threshold has passed", () => {
+  assert.equal(isStale(1000, 1000 + 59999, 60000), false);
+});
+
+test("a connection is stale once the threshold has passed", () => {
+  assert.equal(isStale(1000, 1000 + 60001, 60000), true);
+});
+
+test("a connection that has never received anything is not stale", () => {
+  // 0 means "never connected", a real attempt already handles that; the
+  // watchdog is not the thing that chases an initial connection.
+  assert.equal(isStale(0, 999999999, 60000), false);
 });
 
 test("the rim geometry matches the drawn radius", () => {

@@ -431,9 +431,20 @@ drops is a status view that fails when you need it.
 
 ### Reconnection
 
-The WebSocket client reconnects with exponential backoff and jitter. Connection
-state is rendered as a small indicator present on every face, so a stale panel is
-always distinguishable from a live one.
+The WebSocket client reconnects with exponential backoff and jitter on a
+`close` or `error` event. Connection state is rendered as a small indicator
+present on every face.
+
+That indicator is not the whole story: observed live, a connection can go
+silently stale without either event firing, some sources still updating
+while at least one stops, the indicator reporting "live" the entire time. Not
+fully explained (WebView backgrounding is the leading suspect), so rather
+than trying to prevent it, a watchdog detects and recovers from it: every
+message and every socket open updates a last-heard timestamp, and a
+10-second check closes the connection if 60 seconds pass with nothing heard
+while the panel still believes it is live. Closing feeds into the same
+`close` handler an actual disconnect would, so there is one recovery path,
+not two.
 
 ## Shell
 
