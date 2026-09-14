@@ -25,6 +25,20 @@ the device can keep up.
 Neither component requires that device to develop against. The UI runs in a
 desktop browser and the shell runs in a 480x480 Android emulator.
 
+## Prerequisites
+
+| Tool                | Needed for                                                |
+| ------------------- | --------------------------------------------------------- |
+| Go 1.25 or later    | The agent.                                                |
+| mingw-w64 gcc       | cgo, used by the GPU telemetry binding, and `go test -race`. |
+| JDK 17 or later     | The shell.                                                |
+| Android SDK, API 30 | The shell and its emulator.                               |
+
+Go looks for a C compiler on PATH and silently defaults `CGO_ENABLED` to 0 when
+it finds none, which makes GPU telemetry and the race detector unavailable
+without an obvious reason. Confirm with `go env CGO_ENABLED`, which should print
+`1`. Setup details are in `docs/verify.md` section 0.
+
 ## Agent quick start
 
 ```powershell

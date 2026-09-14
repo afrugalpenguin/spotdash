@@ -113,6 +113,14 @@ Degradation is deliberately not fatal and deliberately visible. A telemetry
 source on a machine with no usable NVML still reports CPU, RAM, and disk, with
 the GPU fields null, and marks itself `degraded` with the NVML error attached.
 
+The NVML binding is the one part of the agent that needs cgo, so a C compiler is
+a build requirement even though nothing else uses one. Two consequences follow.
+Go defaults `CGO_ENABLED` to 0 when it cannot find a compiler on PATH, which
+turns GPU telemetry off with no error at build time, so the build environment is
+checked rather than assumed. And a cgo-linked binary can acquire a runtime
+dependency on the compiler's own DLLs, which would defeat the single binary
+goal; the produced binary is checked for that and linked statically if needed.
+
 ### State and transport
 
 The state store holds the latest value per source with its timestamp and status.

@@ -6,6 +6,83 @@ would happen. If a section still says `Not yet verified`, that item is not done.
 
 Commands are given for PowerShell on Windows unless stated otherwise.
 
+## 0. Development prerequisites
+
+Status: verified on 2026-09-14.
+
+| Tool                | Why                                                    |
+| ------------------- | ------------------------------------------------------ |
+| Go 1.25 or later    | The agent.                                             |
+| mingw-w64 gcc       | cgo, which the NVML binding needs, and the race detector. |
+| JDK 17 or later     | The shell.                                             |
+| Android SDK, API 30 | The shell and its emulator.                            |
+
+### The C toolchain
+
+Go decides the default value of `CGO_ENABLED` by looking for a C compiler on
+PATH. With none found it silently defaults to 0, and both cgo builds and
+`go test -race` then fail. This is the failure that section 2 originally
+recorded as an unfixable limitation.
+
+On this machine MSYS2 was already present at `C:\msys64` with a working
+mingw-w64 gcc, just not on PATH. Adding it to the user PATH is the whole fix:
+
+```powershell
+$key = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey('Environment', $true)
+$raw = $key.GetValue('Path', '', [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames)
+$key.SetValue('Path', $raw.TrimEnd(';') + ';C:\msys64\mingw64\bin', [Microsoft.Win32.RegistryValueKind]::ExpandString)
+$key.Close()
+```
+
+The registry value is written directly rather than through
+`[Environment]::SetEnvironmentVariable`, which rewrites the value as a plain
+string. This PATH is a `REG_EXPAND_SZ` containing `%USERPROFILE%` entries, and
+flattening it would leave those entries as literal unexpanded text.
+
+If MSYS2 is not installed, `winget install MSYS2.MSYS2` followed by
+`C:\msys64\usr\bin\pacman -S mingw-w64-x86_64-gcc` produces the same result.
+
+Verification, in a shell started after the PATH change:
+
+```
+$ gcc --version
+gcc.exe (Rev8, Built by MSYS2 project) 15.2.0
+
+$ go env CGO_ENABLED
+1
+
+$ go env CC
+gcc
+```
+
+`CGO_ENABLED` is left to autodetection rather than pinned in `go env`. Pinning
+it to 1 would make the build fail on a machine without a compiler instead of
+falling back, which is the wrong trade for a project that only needs cgo for one
+optional source.
+
+A cgo program compiles, links, and runs:
+
+```
+$ go build -o cgocheck.exe .
+$ ./cgocheck.exe
+cgo linked and callable, twice(21) = 42
+```
+
+And the agent suite passes under the race detector:
+
+```
+$ go test -race ./...
+ok      github.com/afrugalpenguin/spotdash/agent/internal/config   1.310s
+ok      github.com/afrugalpenguin/spotdash/agent/internal/logging  1.154s
+ok      github.com/afrugalpenguin/spotdash/agent/internal/server   1.363s
+ok      github.com/afrugalpenguin/spotdash/agent/internal/state    1.129s
+```
+
+Open question deferred to item 6: a cgo-linked binary may pick up a runtime
+dependency on the mingw DLLs, which would break the single static binary goal on
+a machine without MSYS2. Item 6 checks the produced binary with `ldd` or an
+equivalent and adds `-extldflags "-static"` if needed.
+
 ## 1. Repository scaffold and docs
 
 Status: verified on 2026-09-14.
@@ -74,10 +151,17 @@ ok      github.com/afrugalpenguin/spotdash/agent/internal/state    0.181s
 
 `go vet` and `gofmt -l` both printed nothing, which is the passing result.
 
-The race detector is not available on this machine: `go test -race` reports
-`-race requires cgo; enable cgo by setting CGO_ENABLED=1`, and there is no C
-toolchain installed. Item 6 needs cgo for NVML, so a mingw-w64 toolchain gets
-installed then and the race detector becomes available at that point.
+The suite also passes under the race detector. See section 0 for how that was
+enabled.
+
+```
+$ go test -race ./...
+?       github.com/afrugalpenguin/spotdash/agent/cmd/spotdash      [no test files]
+ok      github.com/afrugalpenguin/spotdash/agent/internal/config   1.310s
+ok      github.com/afrugalpenguin/spotdash/agent/internal/logging  1.154s
+ok      github.com/afrugalpenguin/spotdash/agent/internal/server   1.363s
+ok      github.com/afrugalpenguin/spotdash/agent/internal/state    1.129s
+```
 
 ### Build
 
