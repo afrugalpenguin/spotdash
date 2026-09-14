@@ -1,0 +1,248 @@
+# Architecture
+
+## Shape of the system
+
+```
++-------------------------------------------------------------+
+|  Windows desktop                                             |
+|                                                              |
+|   +------------------------------------------------------+   |
+|   |  agent (single Go binary, system tray)               |   |
+|   |                                                      |   |
+|   |   sources/          state/            server/        |   |
+|   |   +---------+       +---------+       +---------+    |   |
+|   |   | clock   |--\    |         |       | /health |    |   |
+|   |   +---------+   >-->|  store  |------>| /ws     |    |   |
+|   |   |telemetry|--/    |         |       | /  web  |    |   |
+|   |   +---------+       +---------+       +---------+    |   |
+|   |        ^                 |                  ^        |   |
+|   |    registry          broadcast          embed FS     |   |
+|   +------------------------------------------------------+   |
++---------------------------|----------------------------------+
+                            | LAN, plain HTTP, bearer token
+                            v
+              +---------------------------------+
+              |  Echo Spot, LineageOS 18.1      |
+              |                                 |
+              |   shell (Kotlin, one Activity)  |
+              |   immersive WebView to agent UI |
+              |   window.shell bridge           |
+              +---------------------------------+
+```
+
+The agent owns everything that can fail in an interesting way. The shell owns
+nothing but the glass.
+
+## Agent
+
+### Packages
+
+| Package             | Responsibility                                                              |
+| ------------------- | --------------------------------------------------------------------------- |
+| `internal/config`   | Load and validate `config.json`. Fail closed.                                |
+| `internal/sources`  | The `Source` contract, the registry that runs them, one package per source.  |
+| `internal/state`    | Aggregated latest-value store plus fan-out of change notifications.          |
+| `internal/server`   | HTTP routing, auth middleware, WebSocket hub, embedded static files.         |
+| `internal/tray`     | System tray icon and menu.                                                   |
+| `cmd/spotdash`      | Wiring and lifecycle. Nothing else.                                          |
+
+### Configuration
+
+`config.json` sits next to the binary. Keys:
+
+| Key         | Type   | Notes                                                         |
+| ----------- | ------ | ------------------------------------------------------------- |
+| `listen`    | string | `host:port`. Default `0.0.0.0:8765`.                           |
+| `token`     | string | Shared secret. Required. An empty token is a startup failure.  |
+| `log_level` | string | `debug`, `info`, `warn`, or `error`.                           |
+| `sources`   | object | Source name to settings. Every source has `enabled` and `interval_ms`; sources may add their own keys. |
+
+Validation is strict and total. A missing file, invalid JSON, an empty token, an
+unparseable `listen`, or a non-positive `interval_ms` all cause the process to
+exit non-zero with a message naming the offending key. The agent never starts in
+a half-configured state.
+
+### The source contract
+
+```go
+type Source interface {
+    Name() string
+    Poll(ctx context.Context) (any, error)
+    Interval() time.Duration
+}
+```
+
+That is the whole contract. A source knows how to produce one value and how
+often. It does not know about HTTP, WebSockets, the state store, logging policy,
+or the other sources.
+
+The registry supplies everything else:
+
+- One goroutine per enabled source.
+- A panic in `Poll` is recovered and recorded as an error, not a crash.
+- `Poll` runs under a context with a deadline derived from the interval.
+- Consecutive failures trigger exponential backoff up to a ceiling, so a source
+  whose dependency is gone does not spin.
+- Success writes the value into the state store and marks the source `ok`.
+  Failure marks it `degraded` and retains the last good value and the last error
+  string.
+
+Adding a source is one new package that implements the interface, plus one line
+in the registry. Nothing else in the agent changes. This is the property that
+makes the later faces (Spotify, calendar, weather, voice) cheap.
+
+### Source status
+
+| Status     | Meaning                                                    |
+| ---------- | ---------------------------------------------------------- |
+| `ok`       | Last poll succeeded.                                       |
+| `degraded` | Enabled, but the last poll failed, or it is running with reduced capability such as telemetry without NVML. |
+| `disabled` | Turned off in config. Not polled, not broadcast.           |
+
+Degradation is deliberately not fatal and deliberately visible. A telemetry
+source on a machine with no usable NVML still reports CPU, RAM, and disk, with
+the GPU fields null, and marks itself `degraded` with the NVML error attached.
+
+### State and transport
+
+The state store holds the latest value per source with its timestamp and status.
+It is the single source of truth for both `/health` and `/ws`, so the debug view
+and the live view can never disagree.
+
+| Endpoint       | Auth  | Behaviour                                                        |
+| -------------- | ----- | ---------------------------------------------------------------- |
+| `/health`      | none  | JSON: uptime, version, per-source status, last update, last error. |
+| `/ws`          | token | Full state snapshot on connect, then one message per source update. |
+| `/` and static | token | The embedded web UI, served from `embed.FS`.                      |
+
+WebSocket message shape:
+
+```json
+{ "source": "telemetry", "ts": "2026-09-14T10:04:11Z", "data": {} }
+```
+
+The snapshot sent on connect is a sequence of those same messages, one per
+source, so the client has exactly one code path for handling state.
+
+`/health` is unauthenticated on purpose. It is the thing you curl when nothing
+works, and it exposes status and error strings only, never source data and never
+the token.
+
+## Web UI
+
+Plain HTML, CSS, and vanilla JavaScript served from the binary. No framework and
+no build step, because the target browser is a WebView on a 2017 MediaTek SoC and
+every kilobyte and every parse is real time on that device.
+
+### Faces
+
+A face is a module that exports:
+
+```js
+export function render(container, state) {}
+export function onState(source, data) {}
+```
+
+`render` builds the DOM once. `onState` mutates what already exists. The face
+manager shows exactly one face at a time, switches on a tap in the left half
+(previous) or right half (next), and honours a `?face=` query parameter on load.
+
+Faces are independent. A face that throws is contained and reported rather than
+taking the panel down.
+
+Phase 1 faces: `telemetry`, `clock`, `status`. The `status` face lists every
+source with its status, last update, and last error, along with agent uptime and
+WebSocket connection state. It is the debug face and the fallback whenever the
+WebSocket is down, so there is always something truthful on screen.
+
+### Layout
+
+The root is a 480x480 square with a circular `clip-path` on a dark background.
+Type is large and high contrast, sized for a viewing distance of about 60 cm.
+Anything near the corners is invisible on the real device, so content stays
+inside the inscribed circle.
+
+### Token handling in the UI
+
+The token arrives once as `?token=` on first load. The page reads it, removes it
+from the visible URL, and holds it in memory only. It is never written to
+`localStorage`, `sessionStorage`, or the URL bar afterwards, and it is sent only
+when opening the WebSocket. A reload without the query parameter is expected to
+fail authentication, which is the correct behaviour.
+
+### Reconnection
+
+The WebSocket client reconnects with exponential backoff and jitter. Connection
+state is rendered as a small indicator present on every face, so a stale panel is
+always distinguishable from a live one.
+
+## Shell
+
+Single Activity, `minSdk` and `targetSdk` 30. Fullscreen immersive, screen kept
+on, no title bar and no system bars. It declares the `HOME` and `DEFAULT` intent
+categories so LineageOS can set it as the default launcher.
+
+The agent URL and token live in `EncryptedSharedPreferences`, entered on a
+settings screen opened by a three second long press anywhere on the display. That
+gesture is the only UI the shell has beyond the WebView, because there is no
+other input on the device.
+
+The shell injects the token as a query parameter on the initial page load only.
+After that the page holds it in memory and the shell forgets about it.
+
+### JavaScript bridge
+
+`window.shell` exposes exactly four methods in phase 1:
+
+| Method                 | Purpose                        |
+| ---------------------- | ------------------------------ |
+| `setBrightness(0-255)` | Panel brightness.              |
+| `screenOff()`          | Blank the panel.               |
+| `screenOn()`           | Wake the panel.                |
+| `keepAwake(bool)`      | Hold or release the wake lock. |
+
+Each method is a no-op when the required permission is missing, and logs why.
+That keeps the same UI working unchanged in an emulator, where none of these are
+available.
+
+### Failure behaviour
+
+If the WebView fails to load, or the WebSocket has been down for more than 30
+seconds, the shell shows a native fallback screen with the configured agent URL
+and the last error, and retries every 10 seconds. The fallback is native rather
+than web because the web layer is exactly what is in question at that moment.
+
+## Security posture for phase 1
+
+The agent binds to the LAN and requires `Authorization: Bearer <token>` on every
+endpoint except `/health`. There is no TLS.
+
+This means anyone with LAN access who can observe traffic can read the token and
+the dashboard data. That is an accepted risk for phase 1, on the reasoning that
+the data is desktop telemetry and a clock, the network is a home LAN, and the
+device is a fixed kiosk. It is written down here rather than left implicit so
+that adding a second user, leaving the LAN, or adding a source with sensitive
+data is understood as the trigger to revisit it.
+
+Mitigations that are in scope now:
+
+- The token is required and non-empty or the agent refuses to start.
+- `/health` never returns source data or the token.
+- The token is never persisted by the web UI and never returned to the URL.
+- `config.json` is excluded from version control.
+
+Explicitly out of scope for phase 1: TLS, per-client credentials, token rotation,
+rate limiting, and any write path from the UI back to the agent. There are no
+command endpoints, so a leaked token reads data and can do nothing else.
+
+## Logging
+
+Structured logging to stderr and to a rotating file next to the binary. Every
+source poll is logged at debug level with its outcome and duration, so a
+misbehaving source is diagnosable from the log alone without attaching anything
+to a running process.
+
+## Non-goals for phase 1
+
+No Spotify, calendar, weather, voice, or command handling. No TLS. No installer
+and no Windows service. No animation beyond simple transitions.
