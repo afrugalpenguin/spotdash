@@ -178,7 +178,10 @@ crossing it switches the panel to the calendar face automatically, waking it
 even during the clock's sleep window. `show_seconds` (default 45) is how
 long that switch holds before returning to whatever face was showing.
 
-Recurring and all-day events do not appear as next-up yet: see
+Recurring events (a daily standup, a weekly sync) appear as next-up too, for
+the common recurrence shapes: daily/weekly/monthly/yearly, optionally on
+specific weekdays or days of the month. Exotic RRULE shapes ("the third
+Thursday of the month") and all-day events do not appear as next-up: see
 `docs/architecture.md`.
 
 ## Web UI without the agent

@@ -248,14 +248,27 @@ position does. No agenda, no multi-calendar merge, no editing.
 
 **Parsing** (`ics.go`): a minimal hand-rolled RFC 5545 reader, not a library.
 Reads `SUMMARY`, `LOCATION`, `DTSTART` (UTC, a named `TZID`, or floating
-local time) and whether `RRULE` is present. Recurring and all-day events are
-excluded from next-up selection rather than guessed at: this parser does not
-expand recurrence rules, so a recurring event's own `DTSTART` is just its
-first-ever occurrence, almost always in the past, and showing that as
-"next up" would be actively wrong rather than merely incomplete. A daily
-standup will not appear here until RRULE expansion is built. `time/tzdata` is
-embedded so a named `TZID` resolves without depending on the host machine
-having its own timezone database, matching the single-static-binary design.
+local time), and `RRULE`. `time/tzdata` is embedded so a named `TZID`
+resolves without depending on the host machine having its own timezone
+database, matching the single-static-binary design. All-day events are
+excluded from next-up selection: "next up in N minutes" does not mean
+anything for one.
+
+**Recurrence** (`rrule.go`): expands the RFC 5545 shapes an actual person's
+calendar uses, not the full spec: `FREQ` of `DAILY`/`WEEKLY`/`MONTHLY`/
+`YEARLY`, `INTERVAL`, `COUNT`, `UNTIL`, `BYDAY` (plain weekday codes, weekly
+only, e.g. a weekday standup), `BYMONTHDAY` (positive days, monthly only).
+`nextOccurrence` walks forward from `DTSTART` (bounded by `recurrenceCap`,
+500 occurrences) to find the first one after now, so a recurring event's
+own `DTSTART`, almost always long in the past, is never itself mistaken for
+"next up".
+
+Ordinal `BYDAY` ("the third Thursday", `BYDAY=3TH`), negative
+`BYMONTHDAY` ("the last day of the month"), `BYSETPOS`, `BYWEEKNO`,
+`BYYEARDAY`, `WKST`, and sub-daily frequencies are unsupported and reported
+as such by `parseRRule` rather than guessed at; `nextUpEvent` excludes an
+event whose `RRULE` it cannot expand, the same conservative fallback as
+before recurrence support existed, not a regression from it.
 
 **Auto-switch**: the source itself decides urgency, not the client. Each
 reading carries `urgent` (true once the event is within `notify_minutes` of
