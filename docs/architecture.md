@@ -57,10 +57,20 @@ nothing but the glass.
 | `log_level` | string | `debug`, `info`, `warn`, or `error`.                           |
 | `sources`   | object | Source name to settings. Every source has `enabled` and `interval_ms`; sources may add their own keys. |
 
-Validation is strict and total. A missing file, invalid JSON, an empty token, an
-unparseable `listen`, or a non-positive `interval_ms` all cause the process to
+Validation is strict and total. A missing file, invalid JSON, an unknown
+top-level key, an empty token, an unparseable `listen`, an unknown `log_level`,
+or a non-positive `interval_ms` on an enabled source all cause the process to
 exit non-zero with a message naming the offending key. The agent never starts in
 a half-configured state.
+
+Unknown top-level keys are rejected rather than ignored, because a mistyped key
+that is silently dropped produces a config that does not mean what it appears to
+mean. Keys inside a source block are the exception: they are handed to that
+source untouched, which is what lets a new source add settings without changing
+the config package.
+
+The log file is written to the directory holding the resolved config file. In
+normal use that is the directory holding the binary.
 
 ### The source contract
 

@@ -1,0 +1,222 @@
+package config
+
+import (
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+)
+
+// writeConfig puts contents into a config.json inside a fresh temp directory and
+// returns its path.
+func writeConfig(t *testing.T, contents string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "config.json")
+	if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
+		t.Fatalf("writing test config: %v", err)
+	}
+	return path
+}
+
+const validConfig = `{
+  "listen": "127.0.0.1:9000",
+  "token": "s3cret",
+  "log_level": "debug",
+  "sources": {
+    "clock": {
+      "enabled": true,
+      "interval_ms": 1000,
+      "sleep_start": "23:30",
+      "sleep_end": "07:00"
+    },
+    "telemetry": {
+      "enabled": false,
+      "interval_ms": 2000
+    }
+  }
+}`
+
+func TestLoadReadsEveryField(t *testing.T) {
+	cfg, err := Load(writeConfig(t, validConfig))
+	if err != nil {
+		t.Fatalf("Load returned an error for a valid config: %v", err)
+	}
+
+	if cfg.Listen != "127.0.0.1:9000" {
+		t.Errorf("Listen = %q, want %q", cfg.Listen, "127.0.0.1:9000")
+	}
+	if cfg.Token != "s3cret" {
+		t.Errorf("Token = %q, want %q", cfg.Token, "s3cret")
+	}
+	if cfg.LogLevel != "debug" {
+		t.Errorf("LogLevel = %q, want %q", cfg.LogLevel, "debug")
+	}
+	if len(cfg.Sources) != 2 {
+		t.Fatalf("got %d sources, want 2", len(cfg.Sources))
+	}
+
+	clock := cfg.Sources["clock"]
+	if !clock.Enabled {
+		t.Error("clock source should be enabled")
+	}
+	if got, want := clock.Interval(), time.Second; got != want {
+		t.Errorf("clock Interval() = %v, want %v", got, want)
+	}
+	if cfg.Sources["telemetry"].Enabled {
+		t.Error("telemetry source should be disabled")
+	}
+}
+
+func TestLoadPreservesUnknownPerSourceSettings(t *testing.T) {
+	cfg, err := Load(writeConfig(t, validConfig))
+	if err != nil {
+		t.Fatalf("Load returned an error for a valid config: %v", err)
+	}
+
+	// A source owns its own settings keys. The config package must hand them
+	// back untouched so a source can decode what it needs without every new
+	// source key requiring a change here.
+	var settings struct {
+		SleepStart string `json:"sleep_start"`
+		SleepEnd   string `json:"sleep_end"`
+	}
+	if err := json.Unmarshal(cfg.Sources["clock"].Settings, &settings); err != nil {
+		t.Fatalf("decoding preserved clock settings: %v", err)
+	}
+	if settings.SleepStart != "23:30" || settings.SleepEnd != "07:00" {
+		t.Errorf("settings = %+v, want sleep_start 23:30 and sleep_end 07:00", settings)
+	}
+}
+
+func TestLoadAppliesDefaults(t *testing.T) {
+	cfg, err := Load(writeConfig(t, `{"token":"s3cret","sources":{}}`))
+	if err != nil {
+		t.Fatalf("Load returned an error: %v", err)
+	}
+
+	if cfg.Listen != DefaultListen {
+		t.Errorf("Listen = %q, want the default %q", cfg.Listen, DefaultListen)
+	}
+	if cfg.LogLevel != DefaultLogLevel {
+		t.Errorf("LogLevel = %q, want the default %q", cfg.LogLevel, DefaultLogLevel)
+	}
+}
+
+func TestLoadAllowsDisabledSourceWithNoInterval(t *testing.T) {
+	// A disabled source is never polled, so its interval is irrelevant and must
+	// not block startup.
+	_, err := Load(writeConfig(t, `{"token":"s3cret","sources":{"clock":{"enabled":false}}}`))
+	if err != nil {
+		t.Fatalf("a disabled source with no interval should load, got: %v", err)
+	}
+}
+
+func TestLoadRejectsMissingFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+
+	_, err := Load(path)
+	if err == nil {
+		t.Fatal("Load should refuse to start when the config file is absent")
+	}
+	if !strings.Contains(err.Error(), path) {
+		t.Errorf("error should name the missing path, got: %v", err)
+	}
+}
+
+func TestLoadRejectsInvalidInput(t *testing.T) {
+	tests := []struct {
+		name     string
+		contents string
+		wantIn   string
+	}{
+		{
+			name:     "malformed json",
+			contents: `{"token": "s3cret",}`,
+			wantIn:   "config.json",
+		},
+		{
+			name:     "empty token",
+			contents: `{"token":"","sources":{}}`,
+			wantIn:   "token",
+		},
+		{
+			name:     "missing token",
+			contents: `{"sources":{}}`,
+			wantIn:   "token",
+		},
+		{
+			name:     "whitespace only token",
+			contents: `{"token":"   ","sources":{}}`,
+			wantIn:   "token",
+		},
+		{
+			name:     "listen without a port",
+			contents: `{"token":"s3cret","listen":"0.0.0.0","sources":{}}`,
+			wantIn:   "listen",
+		},
+		{
+			name:     "listen with a non numeric port",
+			contents: `{"token":"s3cret","listen":"0.0.0.0:http","sources":{}}`,
+			wantIn:   "listen",
+		},
+		{
+			name:     "listen with an out of range port",
+			contents: `{"token":"s3cret","listen":"0.0.0.0:70000","sources":{}}`,
+			wantIn:   "listen",
+		},
+		{
+			name:     "unknown log level",
+			contents: `{"token":"s3cret","log_level":"chatty","sources":{}}`,
+			wantIn:   "log_level",
+		},
+		{
+			name:     "enabled source with zero interval",
+			contents: `{"token":"s3cret","sources":{"clock":{"enabled":true,"interval_ms":0}}}`,
+			wantIn:   "interval_ms",
+		},
+		{
+			name:     "enabled source with negative interval",
+			contents: `{"token":"s3cret","sources":{"clock":{"enabled":true,"interval_ms":-5}}}`,
+			wantIn:   "interval_ms",
+		},
+		{
+			name:     "unknown top level key",
+			contents: `{"token":"s3cret","sources":{},"listn":"0.0.0.0:8765"}`,
+			wantIn:   "listn",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := Load(writeConfig(t, tt.contents))
+			if err == nil {
+				t.Fatal("Load should have refused this config")
+			}
+			if !strings.Contains(err.Error(), tt.wantIn) {
+				t.Errorf("error should mention %q, got: %v", tt.wantIn, err)
+			}
+		})
+	}
+}
+
+func TestSourceNamesAreSorted(t *testing.T) {
+	cfg, err := Load(writeConfig(t, validConfig))
+	if err != nil {
+		t.Fatalf("Load returned an error: %v", err)
+	}
+
+	// Map iteration order is random. Stable output matters for logs and for
+	// /health, so the config exposes a sorted name list.
+	got := cfg.SourceNames()
+	want := []string{"clock", "telemetry"}
+	if len(got) != len(want) {
+		t.Fatalf("SourceNames() = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("SourceNames() = %v, want %v", got, want)
+		}
+	}
+}
