@@ -7,12 +7,13 @@
 
 import * as clockFace from "./faces/clock.js";
 import * as spotifyFace from "./faces/spotify.js";
+import * as calendarFace from "./faces/calendar.js";
 import * as telemetryFace from "./faces/telemetry.js";
 import * as statusFace from "./faces/status.js";
 
 // Order is the order tapping cycles through. Clock first because it is what the
 // panel shows most of the time, status last because it is the debug face.
-const FACES = [clockFace, spotifyFace, telemetryFace, statusFace];
+const FACES = [clockFace, spotifyFace, calendarFace, telemetryFace, statusFace];
 const FACE_NAMES = FACES.map((face) => face.title);
 
 // Reconnection backoff. Starts fast because the common case is the agent
