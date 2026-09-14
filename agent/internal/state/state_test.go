@@ -117,3 +117,5 @@ func names(entries []Entry) []string {
 	}
 	return out
 }
+
+var errTest = errors.New("test failure")

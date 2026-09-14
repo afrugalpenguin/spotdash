@@ -34,16 +34,18 @@ type Entry struct {
 
 // Store is a concurrency-safe map of source name to Entry.
 type Store struct {
-	mu      sync.RWMutex
-	entries map[string]*Entry
-	now     func() time.Time
+	mu          sync.RWMutex
+	entries     map[string]*Entry
+	subscribers map[*subscriber]struct{}
+	now         func() time.Time
 }
 
 // New returns an empty store.
 func New() *Store {
 	return &Store{
-		entries: make(map[string]*Entry),
-		now:     time.Now,
+		entries:     make(map[string]*Entry),
+		subscribers: make(map[*subscriber]struct{}),
+		now:         time.Now,
 	}
 }
 
@@ -73,6 +75,10 @@ func (s *Store) Update(name string, data any) {
 	entry.LastError = ""
 	entry.Data = data
 	entry.UpdatedAt = s.now()
+
+	// Broadcast under the same lock that wrote the entry, so a subscriber can
+	// never observe an update out of order with the stored value.
+	s.broadcastLocked(*entry)
 }
 
 // Fail records a failed poll. The source becomes degraded and keeps its last

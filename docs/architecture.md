@@ -181,7 +181,38 @@ WebSocket message shape:
 ```
 
 The snapshot sent on connect is a sequence of those same messages, one per
-source, so the client has exactly one code path for handling state.
+source, so the client has exactly one code path for handling state. A source
+that has never polled is left out of the snapshot: an empty message would have
+the panel render a blank value as though it were a reading.
+
+Only successful polls are broadcast. A failure changes status, which the client
+reads from `/health`, and leaves the last good reading in place.
+
+### Backpressure
+
+A source goroutine writes into the store, and the store fans out to subscribers
+without ever blocking. Each subscriber has a small buffer sized for a brief
+stall, a garbage collection pause or a frame the device spent elsewhere. A
+subscriber that fills it is dropped and its channel closed.
+
+Dropping is deliberate rather than skipping messages. A dropped client
+reconnects and is handed a fresh snapshot, so it is never quietly stale. A
+client that silently missed messages has no way to know it did.
+
+This is the property that keeps one wedged panel from stalling every source in
+the agent.
+
+### Liveness
+
+The panel only listens, so the server never reads application messages from a
+connection. A connection that is never read from also never processes control
+frames, which means a client's close is not acknowledged until it times out and
+a client that has vanished is never noticed at all.
+
+So the handler drains and discards incoming frames, which both acknowledges
+closes promptly and cancels the handler when the peer goes away, and pings a
+silent connection every thirty seconds. A kiosk on wifi can disappear without
+closing anything, and without the ping there would be nothing to detect that.
 
 `/health` is unauthenticated on purpose. It is the thing you curl when nothing
 works, and it exposes status and error strings only, never source data and never
