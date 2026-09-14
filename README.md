@@ -69,7 +69,8 @@ cd shell	ools
 .vd.ps1
 ```
 
-Build and install:
+Build and install. A clean checkout needs only `ANDROID_HOME` set; the gitignored
+`local.properties` is not required.
 
 ```powershell
 cd shell
@@ -95,3 +96,4 @@ TLS. This is a deliberate, documented tradeoff. See `docs/architecture.md`.
 
 - `docs/architecture.md` for component boundaries, data flow, and the source contract.
 - `docs/verify.md` for the commands used to verify each piece of work, and their output.
+- `docs/device.md` for bringing up the real Echo Spot.
