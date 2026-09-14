@@ -96,14 +96,43 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// sessionCookieName carries the token for a browser that has already presented
+// it once.
+const sessionCookieName = "spotdash_session"
+
 func (s *Server) requireToken(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !s.tokenValid(r.Header.Get("Authorization")) {
-			w.Header().Set("WWW-Authenticate", `Bearer realm="spotdash"`)
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
+		// A programmatic client sends the header. Nothing else is needed.
+		if s.tokenValid(r.Header.Get("Authorization")) {
+			next.ServeHTTP(w, r)
 			return
 		}
-		next.ServeHTTP(w, r)
+
+		// A browser cannot set a header when it is navigating, so the panel URL
+		// carries the token once. Everything the page then requests, its own
+		// stylesheet and modules included, arrives with neither, which is why
+		// that first request is exchanged for a session cookie.
+		if s.secretEquals(r.URL.Query().Get("token")) {
+			http.SetCookie(w, &http.Cookie{
+				Name:     sessionCookieName,
+				Value:    s.opts.Token,
+				Path:     "/",
+				HttpOnly: true,
+				SameSite: http.SameSiteStrictMode,
+				// No Expires and no MaxAge: the cookie dies with the browser
+				// session rather than being written to disk.
+			})
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		if cookie, err := r.Cookie(sessionCookieName); err == nil && s.secretEquals(cookie.Value) {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		w.Header().Set("WWW-Authenticate", `Bearer realm="spotdash"`)
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
 	})
 }
 
@@ -115,9 +144,14 @@ func (s *Server) tokenValid(header string) bool {
 	if !found || !strings.EqualFold(scheme, "bearer") {
 		return false
 	}
-	value = strings.TrimSpace(value)
-	if value == "" || s.opts.Token == "" {
+	return s.secretEquals(strings.TrimSpace(value))
+}
+
+// secretEquals compares a candidate against the configured token in constant
+// time. An empty candidate never matches, even against an empty token.
+func (s *Server) secretEquals(candidate string) bool {
+	if candidate == "" || s.opts.Token == "" {
 		return false
 	}
-	return subtle.ConstantTimeCompare([]byte(value), []byte(s.opts.Token)) == 1
+	return subtle.ConstantTimeCompare([]byte(candidate), []byte(s.opts.Token)) == 1
 }

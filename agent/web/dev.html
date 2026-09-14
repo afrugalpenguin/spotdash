@@ -1,0 +1,353 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="dark" />
+    <title>spotdash panel preview</title>
+    <link rel="stylesheet" href="style.css" />
+    <style>
+      /* Harness only. Nothing here ships to the device. */
+      body {
+        overflow: auto;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 28px;
+        padding: 40px 16px 64px;
+        background: #0a0c0c;
+      }
+
+      .harness-head {
+        max-width: 560px;
+        text-align: center;
+      }
+
+      .harness-head h1 {
+        font-size: 19px;
+        font-weight: 500;
+        margin: 0 0 6px;
+      }
+
+      .harness-head p {
+        font-size: 14px;
+        line-height: 1.5;
+        color: var(--muted);
+        margin: 0;
+      }
+
+      /* The bezel makes the circular crop obvious, so it is clear when content
+       * is about to fall off the real panel. */
+      .bezel {
+        width: 480px;
+        height: 480px;
+        border-radius: 50%;
+        border: 1px solid #1d2422;
+        flex: 0 0 auto;
+      }
+
+      .controls {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: center;
+        gap: 8px;
+        max-width: 560px;
+      }
+
+      .controls button {
+        font: inherit;
+        font-size: 14px;
+        color: var(--text);
+        background: #121716;
+        border: 1px solid #222c2a;
+        border-radius: 3px;
+        padding: 7px 12px;
+        cursor: pointer;
+      }
+
+      .controls button[aria-pressed="true"] {
+        border-color: var(--live);
+        color: var(--live);
+      }
+
+      .controls button:focus-visible {
+        outline: 2px solid var(--live);
+        outline-offset: 2px;
+      }
+
+      .group-label {
+        width: 100%;
+        text-align: center;
+        font-size: 13px;
+        color: var(--muted);
+        margin: 6px 0 0;
+      }
+
+      @media (max-width: 560px) {
+        .bezel,
+        #panel {
+          transform: scale(0.75);
+          transform-origin: top center;
+        }
+        .bezel {
+          margin-bottom: -120px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="harness-head">
+      <h1>spotdash panel preview</h1>
+      <p>
+        The real faces and the real stylesheet, at the size they run on the
+        device. No agent required. Click the panel's left or right half to
+        change face, or use the arrow keys.
+      </p>
+    </div>
+
+    <div class="bezel">
+      <div id="panel">
+        <div id="faces"></div>
+        <div id="connection" data-state="live"></div>
+      </div>
+    </div>
+
+    <div class="controls" id="controls">
+      <p class="group-label">face</p>
+      <div class="controls" id="face-controls"></div>
+      <p class="group-label">state</p>
+      <div class="controls" id="scenario-controls"></div>
+    </div>
+
+    <script type="module">
+      import * as clockFace from "./faces/clock.js";
+      import * as statusFace from "./faces/status.js";
+
+      const faces = [clockFace, statusFace];
+
+      // One state object, mutated in place, exactly as the real panel does.
+      const state = {
+        connection: "live",
+        uptimeSeconds: 0,
+        version: "0.0.0-preview",
+        sources: {},
+        lastError: "",
+      };
+
+      let currentFace = null;
+      let currentIndex = 0;
+      let ticking = null;
+
+      const panel = document.getElementById("panel");
+      const faceHost = document.getElementById("faces");
+      const connectionEl = document.getElementById("connection");
+
+      function showFace(index) {
+        currentIndex = (index + faces.length) % faces.length;
+        if (currentFace && currentFace.teardown) {
+          currentFace.teardown();
+        }
+        currentFace = faces[currentIndex];
+        currentFace.render(faceHost, state);
+        notify("clock", state.sources.clock && state.sources.clock.data);
+        paintFaceButtons();
+      }
+
+      function notify(source, data) {
+        if (currentFace && currentFace.onState) {
+          currentFace.onState(source, data);
+        }
+      }
+
+      function setConnection(next) {
+        state.connection = next;
+        connectionEl.dataset.state = next;
+        notify("connection", { state: next });
+      }
+
+      function clockReading(when, sleep) {
+        const two = (n) => String(n).padStart(2, "0");
+        const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+        const months = [
+          "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+          "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+        ];
+        return {
+          iso: when.toISOString(),
+          time: `${two(when.getHours())}:${two(when.getMinutes())}`,
+          seconds: when.getSeconds(),
+          date: `${days[when.getDay()]} ${when.getDate()} ${months[when.getMonth()]}`,
+          sleep: Boolean(sleep),
+        };
+      }
+
+      function stopTicking() {
+        if (ticking) {
+          window.clearInterval(ticking);
+          ticking = null;
+        }
+      }
+
+      function pushClock(sleep) {
+        const reading = clockReading(new Date(), sleep);
+        state.sources.clock = {
+          status: "ok",
+          lastUpdate: reading.iso,
+          lastError: "",
+          data: reading,
+        };
+        notify("clock", reading);
+      }
+
+      const scenarios = {
+        "running": () => {
+          stopTicking();
+          state.uptimeSeconds = 4231;
+          state.sources = {
+            clock: { status: "ok", lastUpdate: new Date().toISOString(), lastError: "" },
+            telemetry: { status: "ok", lastUpdate: new Date().toISOString(), lastError: "" },
+          };
+          setConnection("live");
+          pushClock(false);
+          ticking = window.setInterval(() => pushClock(false), 1000);
+        },
+        "sleeping": () => {
+          stopTicking();
+          state.uptimeSeconds = 31240;
+          setConnection("live");
+          pushClock(true);
+          ticking = window.setInterval(() => pushClock(true), 1000);
+        },
+        "one source degraded": () => {
+          stopTicking();
+          state.uptimeSeconds = 912;
+          state.sources = {
+            clock: { status: "ok", lastUpdate: new Date().toISOString(), lastError: "" },
+            telemetry: {
+              status: "degraded",
+              lastUpdate: new Date(Date.now() - 74000).toISOString(),
+              lastError: "nvml: could not load nvml.dll",
+            },
+          };
+          setConnection("live");
+          pushClock(false);
+          ticking = window.setInterval(() => pushClock(false), 1000);
+        },
+        "source disabled": () => {
+          stopTicking();
+          state.uptimeSeconds = 122;
+          state.sources = {
+            clock: { status: "ok", lastUpdate: new Date().toISOString(), lastError: "" },
+            telemetry: { status: "disabled", lastUpdate: "", lastError: "" },
+          };
+          setConnection("live");
+          pushClock(false);
+          ticking = window.setInterval(() => pushClock(false), 1000);
+        },
+        "agent unreachable": () => {
+          stopTicking();
+          state.uptimeSeconds = 0;
+          state.sources = {
+            clock: {
+              status: "ok",
+              lastUpdate: new Date(Date.now() - 128000).toISOString(),
+              lastError: "",
+            },
+            telemetry: {
+              status: "degraded",
+              lastUpdate: new Date(Date.now() - 128000).toISOString(),
+              lastError: "nvml: could not load nvml.dll",
+            },
+          };
+          setConnection("down");
+          notify("health", null);
+        },
+        "nothing reported": () => {
+          stopTicking();
+          state.uptimeSeconds = 3;
+          state.sources = {};
+          setConnection("connecting");
+          notify("health", null);
+        },
+      };
+
+      let currentScenario = "running";
+
+      function paintFaceButtons() {
+        for (const button of document.querySelectorAll("[data-face]")) {
+          button.setAttribute(
+            "aria-pressed",
+            String(Number(button.dataset.face) === currentIndex)
+          );
+        }
+      }
+
+      function paintScenarioButtons() {
+        for (const button of document.querySelectorAll("[data-scenario]")) {
+          button.setAttribute(
+            "aria-pressed",
+            String(button.dataset.scenario === currentScenario)
+          );
+        }
+      }
+
+      const faceControls = document.getElementById("face-controls");
+      faces.forEach((face, i) => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.dataset.face = String(i);
+        button.textContent = face.title;
+        button.addEventListener("click", () => showFace(i));
+        faceControls.appendChild(button);
+      });
+
+      const scenarioControls = document.getElementById("scenario-controls");
+      for (const name of Object.keys(scenarios)) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.dataset.scenario = name;
+        button.textContent = name;
+        button.addEventListener("click", () => {
+          currentScenario = name;
+          scenarios[name]();
+          paintScenarioButtons();
+        });
+        scenarioControls.appendChild(button);
+      }
+
+      // Tapping the panel halves, the same input the device has.
+      const prev = document.createElement("button");
+      prev.className = "zone zone-prev";
+      prev.type = "button";
+      prev.setAttribute("aria-label", "previous face");
+      prev.addEventListener("click", () => showFace(currentIndex - 1));
+      const next = document.createElement("button");
+      next.className = "zone zone-next";
+      next.type = "button";
+      next.setAttribute("aria-label", "next face");
+      next.addEventListener("click", () => showFace(currentIndex + 1));
+      panel.appendChild(prev);
+      panel.appendChild(next);
+
+      window.addEventListener("keydown", (event) => {
+        if (event.key === "ArrowLeft") showFace(currentIndex - 1);
+        if (event.key === "ArrowRight") showFace(currentIndex + 1);
+      });
+
+      // Deep links, so a particular face and state can be reopened or shared
+      // without clicking through to it.
+      const params = new URLSearchParams(window.location.search);
+      const requestedFace = faces.findIndex(
+        (face) => face.title === params.get("face")
+      );
+      const requestedState = params.get("state");
+      if (requestedState && scenarios[requestedState]) {
+        currentScenario = requestedState;
+      }
+
+      showFace(requestedFace === -1 ? 0 : requestedFace);
+      scenarios[currentScenario]();
+      paintScenarioButtons();
+    </script>
+  </body>
+</html>

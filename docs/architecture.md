@@ -148,6 +148,32 @@ and the live view can never disagree.
 | `/ws`          | token | Full state snapshot on connect, then one message per source update. |
 | `/` and static | token | The embedded web UI, served from `embed.FS`.                      |
 
+### How a browser authenticates
+
+A bearer header is the right mechanism for a programmatic client and impossible
+for a browser: nothing can set a header on a navigation, and the stylesheet and
+modules the page then requests carry neither a header nor a query string. A
+panel behind a header alone can never load itself.
+
+So the token is accepted three ways, in this order:
+
+1. `Authorization: Bearer <token>`, for anything programmatic.
+2. `?token=<token>` on the request, which is how the panel URL is opened once.
+3. A `spotdash_session` cookie, which the second case sets on success.
+
+The cookie is `HttpOnly` so page scripts cannot read the token back out,
+`SameSite=Strict`, and carries no `Expires` or `Max-Age`, so it lives for the
+browser session and is never written to disk. A request authenticated by header
+is deliberately not given a cookie: a programmatic client should not be handed
+browser state it never asked for.
+
+`SameSite=Strict` plus the absence of any state-changing endpoint is what stands
+in for CSRF protection. There is nothing to forge a request against.
+
+The cost of this is that the token appears in one URL, where a proxy or an
+access log could record it. That is accepted on the same basis as the rest of
+the phase 1 posture, and the page removes it from the address bar immediately.
+
 WebSocket message shape:
 
 ```json
@@ -198,10 +224,23 @@ inside the inscribed circle.
 ### Token handling in the UI
 
 The token arrives once as `?token=` on first load. The page reads it, removes it
-from the visible URL, and holds it in memory only. It is never written to
-`localStorage`, `sessionStorage`, or the URL bar afterwards, and it is sent only
-when opening the WebSocket. A reload without the query parameter is expected to
-fail authentication, which is the correct behaviour.
+from the visible URL with `replaceState`, and holds it in memory only. It is
+never written to `localStorage` or `sessionStorage`, and the only place it goes
+afterwards is the WebSocket handshake.
+
+It travels to the socket as a subprotocol value rather than a query parameter,
+because a browser cannot set headers on a WebSocket and a query parameter would
+put the secret somewhere that gets logged.
+
+### Where status comes from
+
+The socket carries readings. Status, uptime, and last error come from `/health`,
+which the panel polls every five seconds.
+
+Splitting it that way is deliberate. `/health` needs no auth and keeps answering
+when the socket is down, which is exactly the moment the status face has to be
+truthful about what is wrong. A status view that goes blank when the connection
+drops is a status view that fails when you need it.
 
 ### Reconnection
 
