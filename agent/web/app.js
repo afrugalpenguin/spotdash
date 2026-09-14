@@ -23,6 +23,17 @@ const BACKOFF_MIN_MS = 500;
 const BACKOFF_MAX_MS = 15000;
 const HEALTH_INTERVAL_MS = 5000;
 
+// A live connection has been observed, on this device, to go silently stale:
+// the socket never fires close or error, the status face keeps reporting
+// "live", and some sources keep updating while at least one stops, with no
+// visible sign anything is wrong. Never fully explained (WebView
+// backgrounding is the leading suspect), so this does not try to prevent it
+// - it detects and recovers instead. STALE_CHECK_MS has to be well under
+// STALE_THRESHOLD_MS so the check actually gets a few chances to run before
+// the threshold is reached.
+const STALE_THRESHOLD_MS = 60000;
+const STALE_CHECK_MS = 10000;
+
 export const state = {
   connection: "connecting",
   uptimeSeconds: 0,
@@ -40,6 +51,7 @@ let connectionEl = null;
 let socket = null;
 let backoffMs = BACKOFF_MIN_MS;
 let reconnectTimer = null;
+let lastMessageAt = 0;
 
 // Auto-switch on an imminent calendar event. urgentKey identifies the event
 // currently holding the panel, so a reading that is still the same urgent
@@ -85,6 +97,18 @@ export function nextBackoff(current) {
 // lockstep against an agent that has just come back.
 export function jittered(delay) {
   return Math.round(delay * (0.5 + Math.random() * 0.5));
+}
+
+// isStale reports whether too long has passed since anything was last heard
+// on the socket, given how the connect open handler and every message both
+// count as "heard from it". lastMessageAt of 0 means never connected, which
+// is not staleness, just not there yet - a real connection attempt is
+// already in flight or about to be, and this is not its job to chase.
+export function isStale(lastMessageAt, now, thresholdMs) {
+  if (lastMessageAt === 0) {
+    return false;
+  }
+  return now - lastMessageAt > thresholdMs;
 }
 
 export function showFace(index) {
@@ -267,10 +291,12 @@ function connect() {
 
   socket.addEventListener("open", () => {
     backoffMs = BACKOFF_MIN_MS;
+    lastMessageAt = Date.now();
     setConnection("live");
   });
 
   socket.addEventListener("message", (event) => {
+    lastMessageAt = Date.now();
     let message;
     try {
       message = JSON.parse(event.data);
@@ -300,6 +326,24 @@ function connect() {
   socket.addEventListener("error", () => {
     state.lastError = "socket error";
   });
+}
+
+// checkStaleness closes a connection that has gone quiet for too long, so
+// the existing close handler's setConnection("down") and scheduleReconnect
+// take over from there - one recovery path rather than two. Only acts while
+// the panel believes it is live: a connection already reconnecting through
+// the normal backoff path needs no help here, and lastMessageAt is not
+// meaningful yet during that window anyway.
+function checkStaleness() {
+  if (state.connection !== "live") {
+    return;
+  }
+  if (isStale(lastMessageAt, Date.now(), STALE_THRESHOLD_MS)) {
+    state.lastError = "connection went quiet, reconnecting";
+    if (socket) {
+      socket.close();
+    }
+  }
 }
 
 function scheduleReconnect() {
@@ -351,6 +395,7 @@ export function start() {
 
   pollHealth();
   window.setInterval(pollHealth, HEALTH_INTERVAL_MS);
+  window.setInterval(checkStaleness, STALE_CHECK_MS);
   connect();
 }
 
