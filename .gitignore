@@ -2,6 +2,14 @@
 config.json
 agent/config.json
 
+# Per-source runtime state, such as the Spotify refresh token. Written by the
+# agent itself, holds real credentials, never hand-edited, never committed.
+spotify_state.json
+agent/spotify_state.json
+spotify_art.*
+agent/spotify_art.*
+*_state.json
+
 # Go build output
 /agent/spotdash
 /agent/spotdash.exe
