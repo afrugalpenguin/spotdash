@@ -101,8 +101,10 @@ With the agent running, open `http://<agent host>:<port>/spotify/connect` in a
 browser (token as `?token=`, or already set as a session cookie from the
 panel). Completing consent lands on a page that says **Connected**.
 
-Scope is read-only, no play or pause from the panel. If the connection drops,
-`/health` and the status face show why and link back to `/spotify/connect`.
+The panel shows a play/pause/next/previous row under the track title. If the
+connection drops, `/health` and the status face show why and link back to
+`/spotify/connect`. A connection made before playback control was added needs
+one more visit to `/spotify/connect` to pick up the extra permission.
 
 ## Connecting a calendar
 

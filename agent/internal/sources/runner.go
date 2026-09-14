@@ -26,6 +26,9 @@ type Runner struct {
 	store *state.Store
 	log   *slog.Logger
 	wg    sync.WaitGroup
+
+	mu     sync.Mutex
+	repoll map[string]chan struct{}
 }
 
 // NewRunner returns a runner that writes into store.
@@ -33,18 +36,47 @@ func NewRunner(store *state.Store, log *slog.Logger) *Runner {
 	if log == nil {
 		log = slog.Default()
 	}
-	return &Runner{store: store, log: log}
+	return &Runner{store: store, log: log, repoll: make(map[string]chan struct{})}
 }
 
 // Start launches one goroutine per source. It returns immediately. Cancelling
 // ctx stops every source; Wait blocks until they have all stopped.
 func (r *Runner) Start(ctx context.Context, srcs []Source) {
 	for _, src := range srcs {
+		// Buffered by one: a pending request is enough. Several rapid calls
+		// while one is already waiting to be picked up are redundant, not
+		// queued work, so the extra sends are dropped rather than piling up.
+		ch := make(chan struct{}, 1)
+		r.mu.Lock()
+		r.repoll[src.Name()] = ch
+		r.mu.Unlock()
+
 		r.wg.Add(1)
-		go func(src Source) {
+		go func(src Source, repoll <-chan struct{}) {
 			defer r.wg.Done()
-			r.loop(ctx, src)
-		}(src)
+			r.loop(ctx, src, repoll)
+		}(src, ch)
+	}
+}
+
+// PollNow asks the named source to poll again immediately, without waiting
+// for its next scheduled tick.
+//
+// This is what a control action needs: a track skipped or paused from the
+// panel has to show up right away, not after however long is left on the
+// source's normal interval. A no-op if the name is not running, and safe to
+// call from any goroutine.
+func (r *Runner) PollNow(name string) {
+	r.mu.Lock()
+	ch, ok := r.repoll[name]
+	r.mu.Unlock()
+	if !ok {
+		return
+	}
+	select {
+	case ch <- struct{}{}:
+	default:
+		// A request is already pending; this one is redundant.
 	}
 }
 
@@ -53,7 +85,7 @@ func (r *Runner) Wait() {
 	r.wg.Wait()
 }
 
-func (r *Runner) loop(ctx context.Context, src Source) {
+func (r *Runner) loop(ctx context.Context, src Source, repoll <-chan struct{}) {
 	name := src.Name()
 	interval := src.Interval()
 	failures := 0
@@ -80,6 +112,12 @@ func (r *Runner) loop(ctx context.Context, src Source) {
 			timer.Stop()
 			r.log.Debug("source stopped", "source", name)
 			return
+		case <-repoll:
+			// The interval restarts from here rather than the request merely
+			// skipping the rest of the current wait, so a burst of taps cannot
+			// bunch polls closer together than the source is configured for.
+			timer.Stop()
+			r.log.Debug("source polling on request", "source", name)
 		case <-timer.C:
 		}
 	}

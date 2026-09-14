@@ -265,6 +265,17 @@ func (a *App) startSession(cfg *config.Config) (*session, error) {
 	runner := sources.NewRunner(store, a.log)
 	runner.Start(ctx, built)
 
+	// A source may want to trigger its own immediate re-poll, such as after a
+	// playback control action, rather than wait out its normal interval. The
+	// runner has to exist first, which is why this is wired here rather than
+	// in the loop above that builds routes and assets.
+	for _, src := range built {
+		if registrar, ok := src.(sources.RepollRegistrar); ok {
+			name := src.Name()
+			registrar.SetRepoll(func() { runner.PollNow(name) })
+		}
+	}
+
 	go func() {
 		if err := httpServer.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			a.log.Error("http server stopped", "error", err)

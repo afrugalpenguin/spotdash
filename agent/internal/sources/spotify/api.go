@@ -23,6 +23,16 @@ const targetArtSize = 300
 // should refresh it and retry once, not treat this as a hard failure.
 var errAccessTokenExpired = errors.New("spotify: access token expired")
 
+// errNoActiveDevice and errPremiumRequired are the two real, common ways a
+// playback control call fails. Both are worth a specific message rather than
+// a bare HTTP status: no active device means nothing is currently playing
+// anywhere to send the command to, and playback control is a Premium-only
+// part of the Spotify API.
+var (
+	errNoActiveDevice  = errors.New("spotify: no active device")
+	errPremiumRequired = errors.New("spotify: playback control requires spotify premium")
+)
+
 // nowPlaying is what one poll of the Spotify Web API found.
 type nowPlaying struct {
 	Title       string
@@ -129,6 +139,69 @@ func (c *apiClient) fetchCurrentlyPlaying(ctx context.Context, accessToken strin
 		DurationMS:  body.Item.DurationMS,
 		Playing:     body.IsPlaying,
 	}, nil
+}
+
+// controlErrorResponse is Spotify's error body shape for player control
+// endpoints: {"error": {"status": 404, "message": "...", "reason": "..."}}.
+type controlErrorResponse struct {
+	Error struct {
+		Reason string `json:"reason"`
+	} `json:"error"`
+}
+
+// pause, resume, next, previous send a playback command with no body. Spotify
+// documents 204 as the success response for all four.
+func (c *apiClient) pause(ctx context.Context, accessToken string) error {
+	return c.control(ctx, http.MethodPut, "/v1/me/player/pause", accessToken)
+}
+
+func (c *apiClient) resume(ctx context.Context, accessToken string) error {
+	return c.control(ctx, http.MethodPut, "/v1/me/player/play", accessToken)
+}
+
+func (c *apiClient) next(ctx context.Context, accessToken string) error {
+	return c.control(ctx, http.MethodPost, "/v1/me/player/next", accessToken)
+}
+
+func (c *apiClient) previous(ctx context.Context, accessToken string) error {
+	return c.control(ctx, http.MethodPost, "/v1/me/player/previous", accessToken)
+}
+
+func (c *apiClient) control(ctx context.Context, method, path, accessToken string) error {
+	req, err := http.NewRequestWithContext(ctx, method, c.endpoint+path, nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return fmt.Errorf("reaching spotify: %w", err)
+	}
+	defer resp.Body.Close()
+
+	// Spotify's documented response for these is 204, but observed behaviour is
+	// not perfectly consistent: /v1/me/player/play has been seen returning a
+	// bare 200. Treat the whole 2xx range as success rather than one exact code.
+	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+		return nil
+	}
+	if resp.StatusCode == http.StatusUnauthorized {
+		return errAccessTokenExpired
+	}
+
+	var body controlErrorResponse
+	// Best effort: if the body does not decode, fall through to the generic
+	// error below rather than losing the real HTTP status.
+	_ = json.NewDecoder(resp.Body).Decode(&body)
+
+	switch body.Error.Reason {
+	case "NO_ACTIVE_DEVICE":
+		return errNoActiveDevice
+	case "PREMIUM_REQUIRED":
+		return errPremiumRequired
+	}
+	return fmt.Errorf("spotify returned HTTP %d for %s %s", resp.StatusCode, method, path)
 }
 
 // pickArt returns the image closest to targetArtSize without going under it,

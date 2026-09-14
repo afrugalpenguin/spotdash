@@ -37,6 +37,10 @@ const connectPath = "/spotify/connect"
 // navigated and carries none. See auth.go for what protects it instead.
 const callbackPath = "/spotify/callback"
 
+// controlPath runs one playback command: pause, resume, next, or previous.
+// Requires the bearer token.
+const controlPath = "/spotify/control"
+
 // Reading is what the spotify source publishes.
 type Reading struct {
 	Title  string `json:"title"`

@@ -113,15 +113,17 @@ func TestBeginAuthBuildsTheAuthorizeURL(t *testing.T) {
 	if q.Get("state") == "" {
 		t.Error("state is empty")
 	}
-	// No write scope. Play and pause from the panel would be the first write
-	// path in the system, and that boundary is not crossed here.
+	// Read scope, plus the one write scope the transport controls need.
+	// Nothing broader: no playlist, library or account scopes.
 	scope := q.Get("scope")
-	if !strings.Contains(scope, "user-read-currently-playing") {
-		t.Errorf("scope = %q, missing user-read-currently-playing", scope)
+	for _, want := range []string{"user-read-currently-playing", "user-modify-playback-state"} {
+		if !strings.Contains(scope, want) {
+			t.Errorf("scope = %q, missing %q", scope, want)
+		}
 	}
-	for _, forbidden := range []string{"modify-playback", "control"} {
+	for _, forbidden := range []string{"playlist", "library", "user-read-email", "streaming"} {
 		if strings.Contains(scope, forbidden) {
-			t.Errorf("scope = %q contains a write scope %q", scope, forbidden)
+			t.Errorf("scope = %q contains an unrequested scope %q", scope, forbidden)
 		}
 	}
 }

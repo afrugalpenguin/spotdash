@@ -200,8 +200,10 @@ hand-edited; this file is agent-written. Atomic write, temp file then rename.
 Mode 0600, though NTFS does not enforce POSIX permissions, so on Windows this
 is no stronger than `config.json`'s existing exposure.
 
-**Scope**: `user-read-currently-playing`, `user-read-playback-state`. No write
-scope, so no play or pause from the panel yet.
+**Scope**: `user-read-currently-playing`, `user-read-playback-state`,
+`user-modify-playback-state`. The write scope was added for playback control
+below; an existing connection made before it must reconnect via
+`/spotify/connect` to pick it up.
 
 **Polling**: `GET /me/player/currently-playing`, default 5s interval. Access
 token refreshed before expiry, or once on a 401. No content or a non-track
