@@ -235,10 +235,10 @@ Refuses to install without a `config.json` already in place.
 ## Changing settings
 
 The tray has an **Options** item that opens a small settings page in your
-browser: the panel's accent colour, and a toggle per face to show or hide it
-in the tap rotation (at least one has to stay on). Saving writes back to
-`config.json` and reloads; an already-open panel picks it up within a few
-seconds, no restart needed.
+browser: the panel's accent colour, whether the clock face is digital or
+analogue, and a toggle per face to show or hide it in the tap rotation (at
+least one has to stay on). Saving writes back to `config.json` and reloads;
+an already-open panel picks it up within a few seconds, no restart needed.
 
 ## Security posture
 

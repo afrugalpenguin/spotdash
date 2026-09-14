@@ -29,6 +29,7 @@ function resetState() {
   state.version = "";
   state.accentColor = "";
   state.hiddenFaces = [];
+  state.clockStyle = "digital";
   state.connection = "connecting";
   state.lastError = "";
 }
@@ -178,6 +179,22 @@ test("applyHealth leaves hiddenFaces empty when unconfigured", () => {
   applyHealth({ version: "1.2.3", uptime_seconds: 1 });
 
   assert.deepEqual(state.hiddenFaces, []);
+});
+
+test("applyHealth carries the configured clock style", () => {
+  resetState();
+
+  applyHealth({ version: "1.2.3", uptime_seconds: 1, clock_style: "analogue" });
+
+  assert.equal(state.clockStyle, "analogue");
+});
+
+test("applyHealth defaults clockStyle to digital when unconfigured", () => {
+  resetState();
+
+  applyHealth({ version: "1.2.3", uptime_seconds: 1 });
+
+  assert.equal(state.clockStyle, "digital");
 });
 
 test("visibleFaces filters out the hidden titles", () => {

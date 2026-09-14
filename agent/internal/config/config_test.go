@@ -301,6 +301,47 @@ func TestLoadRejectsHidingEveryFace(t *testing.T) {
 	}
 }
 
+func TestLoadDefaultsClockStyleToDigital(t *testing.T) {
+	cfg, err := Load(writeConfig(t, `{
+  "listen": "127.0.0.1:9000",
+  "token": "s3cret",
+  "sources": {}
+}`))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.ClockStyle != "digital" {
+		t.Errorf("ClockStyle = %q, want the default of %q", cfg.ClockStyle, "digital")
+	}
+}
+
+func TestLoadAcceptsAnalogueClockStyle(t *testing.T) {
+	cfg, err := Load(writeConfig(t, `{
+  "listen": "127.0.0.1:9000",
+  "token": "s3cret",
+  "clock_style": "analogue",
+  "sources": {}
+}`))
+	if err != nil {
+		t.Fatalf("Load returned an error for a valid clock_style: %v", err)
+	}
+	if cfg.ClockStyle != "analogue" {
+		t.Errorf("ClockStyle = %q, want %q", cfg.ClockStyle, "analogue")
+	}
+}
+
+func TestLoadRejectsAnUnknownClockStyle(t *testing.T) {
+	_, err := Load(writeConfig(t, `{
+  "listen": "127.0.0.1:9000",
+  "token": "s3cret",
+  "clock_style": "roman-numerals",
+  "sources": {}
+}`))
+	if err == nil {
+		t.Fatal("Load accepted an unknown clock_style, want an error")
+	}
+}
+
 func TestSaveRoundTripsEveryFieldIncludingSourceSettings(t *testing.T) {
 	path := writeConfig(t, validConfig)
 	cfg, err := Load(path)

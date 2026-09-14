@@ -1,16 +1,21 @@
-// Settings page: accent colour and which faces show. /settings and this
-// page's structure are generic enough that a third setting is an addition
-// here, not a rewrite.
+// Settings page: accent colour, clock style, and which faces show.
+// /settings and this page's structure are generic enough that a new
+// setting is an addition here, not a rewrite.
 //
 // FACES here has to name the same faces, by the same titles, as ALL_FACES
 // in app.js and KnownFaces in the agent's config package - three places
 // that have to agree, the same kind of one-line-per-thing table this
 // codebase already accepts elsewhere (the source factory table, for one).
+//
+// Overview gets its own row under the Clock heading, labelled for what it
+// actually is ("Combined clock/calendar face") rather than sitting in the
+// generic Faces list under its internal title - it is still just another
+// entry in hidden_faces underneath.
 
 import { readToken } from "./app.js";
 
 const FACES = [
-  { title: "overview", label: "Overview" },
+  { title: "overview", label: "Combined clock/calendar face" },
   { title: "clock", label: "Clock" },
   { title: "calendar", label: "Calendar" },
   { title: "spotify", label: "Spotify" },
@@ -19,10 +24,15 @@ const FACES = [
 ];
 
 let accentInput = null;
+let analogueInput = null;
 let saveButton = null;
 let statusEl = null;
+let clockEl = null;
 let facesEl = null;
-// One checkbox per face, keyed by title, built once in start().
+// One checkbox per face, keyed by title, built once in start(). Overview's
+// lives under the Clock heading rather than in facesEl, but is registered
+// here the same as every other face so hiddenFaceTitles() does not need to
+// know that.
 const toggles = new Map();
 
 function setStatus(text, state) {
@@ -35,32 +45,40 @@ function setStatus(text, state) {
   }
 }
 
+// buildToggle appends one labelled slider switch to container and returns
+// its checkbox input.
+function buildToggle(container, id, label) {
+  const row = document.createElement("div");
+  row.className = "field";
+
+  const labelEl = document.createElement("label");
+  labelEl.setAttribute("for", id);
+  labelEl.textContent = label;
+
+  const toggle = document.createElement("span");
+  toggle.className = "toggle";
+
+  const input = document.createElement("input");
+  input.type = "checkbox";
+  input.id = id;
+  input.checked = true; // corrected once the current settings load
+
+  const track = document.createElement("span");
+  track.className = "toggle-track";
+
+  toggle.appendChild(input);
+  toggle.appendChild(track);
+  row.appendChild(labelEl);
+  row.appendChild(toggle);
+  container.appendChild(row);
+
+  return input;
+}
+
 function buildFaceToggles() {
   for (const face of FACES) {
-    const row = document.createElement("div");
-    row.className = "field";
-
-    const label = document.createElement("label");
-    label.setAttribute("for", `face-${face.title}`);
-    label.textContent = face.label;
-
-    const toggle = document.createElement("span");
-    toggle.className = "toggle";
-
-    const input = document.createElement("input");
-    input.type = "checkbox";
-    input.id = `face-${face.title}`;
-    input.checked = true; // visible by default, corrected once the current settings load
-
-    const track = document.createElement("span");
-    track.className = "toggle-track";
-
-    toggle.appendChild(input);
-    toggle.appendChild(track);
-    row.appendChild(label);
-    row.appendChild(toggle);
-    facesEl.appendChild(row);
-
+    const container = face.title === "overview" ? clockEl : facesEl;
+    const input = buildToggle(container, `face-${face.title}`, face.label);
     toggles.set(face.title, input);
   }
 }
@@ -79,6 +97,7 @@ async function loadCurrent() {
     for (const [title, input] of toggles) {
       input.checked = !hidden.has(title);
     }
+    analogueInput.checked = data.clock_style === "analogue";
     if (data.accent_color) {
       return;
     }
@@ -118,6 +137,7 @@ async function save() {
       body: JSON.stringify({
         accent_color: accentInput.value,
         hidden_faces: hidden,
+        clock_style: analogueInput.checked ? "analogue" : "digital",
       }),
     });
     if (!response.ok) {
@@ -144,9 +164,11 @@ export function start() {
   accentInput = document.getElementById("accent");
   saveButton = document.getElementById("save");
   statusEl = document.getElementById("status");
+  clockEl = document.getElementById("clock-settings");
   facesEl = document.getElementById("faces");
 
   buildFaceToggles();
+  analogueInput = buildToggle(clockEl, "clock-analogue", "Analogue");
   saveButton.addEventListener("click", save);
   loadCurrent();
 }

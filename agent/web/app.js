@@ -61,6 +61,7 @@ export const state = {
   version: "",
   accentColor: "",
   hiddenFaces: [],
+  clockStyle: "digital",
   sources: {},
   lastError: "",
 };
@@ -75,6 +76,7 @@ let socket = null;
 let backoffMs = BACKOFF_MIN_MS;
 let reconnectTimer = null;
 let lastMessageAt = 0;
+let lastClockStyle = "digital";
 
 // Auto-switch on an imminent calendar event. urgentKey identifies the event
 // currently holding the panel, so a reading that is still the same urgent
@@ -270,6 +272,7 @@ export function applyHealth(health) {
   state.version = health.version || "";
   state.accentColor = health.accent_color || "";
   state.hiddenFaces = health.hidden_faces || [];
+  state.clockStyle = health.clock_style || "digital";
 
   const reported = health.sources || {};
   for (const name of Object.keys(reported)) {
@@ -320,6 +323,21 @@ function syncFaces() {
   showFace(stillVisible === -1 ? 0 : stillVisible);
 }
 
+// syncClockStyle re-renders the clock face when state.clockStyle changes
+// under it, live. A plain onState update cannot do this: digital and
+// analogue build entirely different DOM (text versus SVG hands), so a style
+// change needs the same teardown-then-render showFace already does, not
+// just a new reading fed into the shape that is already on screen.
+function syncClockStyle() {
+  if (state.clockStyle === lastClockStyle) {
+    return;
+  }
+  lastClockStyle = state.clockStyle;
+  if (currentFace && currentFace.title === "clock") {
+    showFace(currentIndex);
+  }
+}
+
 async function pollHealth() {
   try {
     const response = await fetch("/health", { cache: "no-store" });
@@ -329,6 +347,7 @@ async function pollHealth() {
     applyHealth(await response.json());
     applyAccentColor();
     syncFaces();
+    syncClockStyle();
     state.lastError = "";
   } catch (err) {
     state.lastError = err && err.message ? err.message : String(err);

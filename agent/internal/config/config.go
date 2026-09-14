@@ -32,6 +32,10 @@ var validLogLevels = []string{"debug", "info", "warn", "error"}
 // setting that silently does nothing.
 var KnownFaces = []string{"overview", "clock", "calendar", "spotify", "telemetry", "status"}
 
+// ClockStyles are the shapes the clock face (standalone or the clock portion
+// of overview) is allowed to draw in.
+var ClockStyles = []string{"digital", "analogue"}
+
 // accentColorPattern is the only shape accent_color is allowed to take: a
 // 6-digit hex colour with its leading #, exactly what an
 // <input type="color"> produces. Anything else is rejected rather than
@@ -95,8 +99,11 @@ type Config struct {
 	// HiddenFaces are face titles (see KnownFaces) left out of the tap
 	// rotation. Optional: an absent or empty list shows every face, the
 	// same as before this setting existed. Changed from the settings page.
-	HiddenFaces []string          `json:"hidden_faces,omitempty"`
-	Sources     map[string]Source `json:"sources"`
+	HiddenFaces []string `json:"hidden_faces,omitempty"`
+	// ClockStyle is "digital" or "analogue", how the clock face draws.
+	// Defaults to "digital" when absent. Changed from the settings page.
+	ClockStyle string            `json:"clock_style,omitempty"`
+	Sources    map[string]Source `json:"sources"`
 }
 
 // SourceNames returns the configured source names in a stable order, so logs
@@ -186,6 +193,9 @@ func (c *Config) applyDefaults() error {
 	if c.Sources == nil {
 		c.Sources = map[string]Source{}
 	}
+	if strings.TrimSpace(c.ClockStyle) == "" {
+		c.ClockStyle = "digital"
+	}
 	return nil
 }
 
@@ -214,6 +224,9 @@ func (c *Config) Validate() error {
 	}
 	if len(hidden) >= len(KnownFaces) {
 		return errors.New(`"hidden_faces" cannot hide every face: the panel would have nothing to show`)
+	}
+	if c.ClockStyle != "" && !contains(ClockStyles, c.ClockStyle) {
+		return fmt.Errorf(`"clock_style" is %q, want one of %s`, c.ClockStyle, strings.Join(ClockStyles, ", "))
 	}
 	for _, name := range c.SourceNames() {
 		src := c.Sources[name]

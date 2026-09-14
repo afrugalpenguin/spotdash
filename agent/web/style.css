@@ -195,6 +195,64 @@ body {
   margin: 14px 0 0;
 }
 
+/* Analogue clock face. Hands are a second full-panel SVG, the same absolute
+ * sizing as .rim and deliberately not nested inside .face: .face's
+ * translate(-50%, -50%) creates a stacking context that has already once
+ * silently trapped a descendant's z-index against a sibling (see the
+ * calendar agenda's scroll gesture in docs/architecture.md), so anything
+ * that has to draw across the whole circle sits alongside .face, not
+ * inside it. */
+.clock-hands {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+.clock-hand {
+  stroke: var(--text);
+  stroke-linecap: round;
+  transition: transform 0.2s ease-out;
+}
+
+.clock-hand-hour {
+  stroke-width: 10;
+}
+
+.clock-hand-minute {
+  stroke-width: 7;
+}
+
+.clock-hand-second {
+  stroke: var(--live);
+  stroke-width: 3;
+  /* The second hand jumps once a second, same as the rim's own seconds arc
+   * on the digital face; easing it would make it lag a real reading. */
+  transition: none;
+}
+
+/* The date is all .face holds in analogue mode (the hands take the centre),
+ * so it sits low in the circle rather than dead centre, clear of the hands
+ * at every hour. */
+.clock-date-analogue {
+  position: absolute;
+  left: 50%;
+  bottom: 100px;
+  transform: translateX(-50%);
+  margin: 0;
+  white-space: nowrap;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .clock-hand {
+    transition: none;
+  }
+}
+
 /* Overview face: the clock's own time/date above, this next-up line below.
  * Hidden entirely (not just empty) when there is nothing scheduled, so an
  * idle calendar costs no vertical space under the date. */
@@ -235,6 +293,7 @@ body {
  * rather than as a dead screen. */
 #panel[data-sleep="true"] .clock-time,
 #panel[data-sleep="true"] .clock-date,
+#panel[data-sleep="true"] .clock-hands,
 #panel[data-sleep="true"] .overview-next,
 #panel[data-sleep="true"] .rim,
 #panel[data-sleep="true"] #connection {
