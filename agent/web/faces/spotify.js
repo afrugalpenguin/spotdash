@@ -20,6 +20,14 @@ let stateEl = null;
 let arcEl = null;
 let shownArt = "";
 
+// The agent polls Spotify rather than being pushed to, and it cannot poll every
+// second without being rate limited, so readings arrive every few seconds. The
+// face carries the counter in between and resyncs whenever one lands.
+const TICK_MS = 1000;
+let ticker = null;
+let current = null;
+let syncedAt = 0;
+
 // formatTime renders a track position as m:ss.
 export function formatTime(ms) {
   if (typeof ms !== "number" || Number.isNaN(ms) || ms < 0) {
@@ -46,6 +54,22 @@ export function progressFraction(positionMs, durationMs) {
 // isPlayable reports whether there is a track worth rendering.
 export function isPlayable(data) {
   return Boolean(data && typeof data.title === "string" && data.title !== "");
+}
+
+// advancePosition moves the counter on by the time elapsed, looping back to the
+// start at the end of the track.
+//
+// The agent sends a position roughly once a second. Carrying the counter
+// between those messages is what makes it tick rather than step, and it means a
+// brief stall in the feed does not look like a frozen panel.
+export function advancePosition(positionMs, elapsedMs, durationMs) {
+  if (typeof durationMs !== "number" || !Number.isFinite(durationMs) || durationMs <= 0) {
+    return 0;
+  }
+  const from = typeof positionMs === "number" && Number.isFinite(positionMs) ? positionMs : 0;
+  const by = typeof elapsedMs === "number" && Number.isFinite(elapsedMs) ? elapsedMs : 0;
+  const next = (from + by) % durationMs;
+  return next < 0 ? 0 : next;
 }
 
 function layoutFromQuery(search) {
@@ -118,6 +142,8 @@ export function render(container, state) {
 
 function showIdle() {
   if (!root) return;
+  stopTicking();
+  current = null;
   root.classList.remove("is-paused");
   root.dataset.art = "none";
   artHost.innerHTML = "";
@@ -157,8 +183,57 @@ function setArt(url) {
   root.dataset.art = "present";
 }
 
+// stopTicking is called whenever the counter would be lying: nothing playing,
+// playback paused, or the connection down. A counter that keeps climbing on a
+// dead feed is worse than one that visibly stops.
+function stopTicking() {
+  if (ticker !== null) {
+    clearInterval(ticker);
+    ticker = null;
+  }
+}
+
+function startTicking() {
+  stopTicking();
+  ticker = setInterval(() => {
+    if (!current || !root) {
+      return;
+    }
+    const elapsed = Date.now() - syncedAt;
+    const position = advancePosition(
+      current.position_ms,
+      elapsed,
+      current.duration_ms
+    );
+    paintPosition(position, current.duration_ms);
+  }, TICK_MS);
+}
+
+// paintPosition updates only the counter and the rim, which is all that changes
+// between readings. Rebuilding the face every second on a MediaTek SoC would be
+// wasteful for no visible difference.
+function paintPosition(positionMs, durationMs) {
+  elapsedEl.textContent = formatTime(positionMs);
+  setArc(arcEl, progressFraction(positionMs, durationMs));
+}
+
 export function onState(source, data) {
-  if (source !== "spotify" || !root) {
+  if (!root) {
+    return;
+  }
+
+  // The panel tells every face when the link changes. A stalled feed must stop
+  // the counter rather than let it run away from the truth.
+  if (source === "connection") {
+    if (data && data.state === "live" && current && current.playing !== false) {
+      startTicking();
+    } else {
+      stopTicking();
+    }
+    return;
+  }
+
+  if (source !== "spotify") {
     return;
   }
 
@@ -184,10 +259,23 @@ export function onState(source, data) {
   arcEl.classList.toggle("is-warn", paused);
   arcEl.classList.remove("is-off");
 
-  setArc(arcEl, progressFraction(data.position_ms, data.duration_ms));
+  // Resync: this reading is the truth, and the counter carries on from here
+  // until the next one arrives.
+  current = data;
+  syncedAt = Date.now();
+  paintPosition(data.position_ms, data.duration_ms);
+
+  if (paused) {
+    stopTicking();
+  } else {
+    startTicking();
+  }
 }
 
 export function teardown() {
+  stopTicking();
+  current = null;
+  syncedAt = 0;
   root = null;
   artHost = null;
   titleEl = null;
