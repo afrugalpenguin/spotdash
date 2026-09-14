@@ -294,3 +294,75 @@ body {
     animation: none !important;
   }
 }
+
+/* Telemetry face. Four gauges on the rim carry the reading you take from
+ * across the room; the numbers are for when you have actually looked. */
+.gauge-readout {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  z-index: 2;
+}
+
+.gauge-name {
+  font-size: 14px;
+  color: var(--muted);
+  letter-spacing: 0.04em;
+}
+
+.gauge-value {
+  font-size: 30px;
+  font-weight: 300;
+  line-height: 1;
+  color: var(--text);
+}
+
+.gauge-value[data-severity="warn"] {
+  color: var(--warn);
+}
+
+.gauge-value[data-severity="alert"] {
+  color: var(--alert);
+}
+
+.gauge-value[data-severity="absent"] {
+  color: #3d4a4c;
+  font-size: 22px;
+}
+
+.telemetry-centre {
+  width: 170px;
+  max-width: 170px;
+}
+
+.telemetry-temperature {
+  font-size: 46px;
+  font-weight: 200;
+  line-height: 1;
+  margin: 0;
+  color: var(--text);
+}
+
+.telemetry-temperature[data-severity="alert"] {
+  color: var(--alert);
+}
+
+.telemetry-temperature[data-severity="absent"] {
+  font-size: 30px;
+  color: #3d4a4c;
+}
+
+.telemetry-power {
+  font-size: 19px;
+  color: var(--muted);
+  margin: 8px 0 0;
+}
+
+.telemetry-notice {
+  font-size: 13px;
+  color: var(--warn);
+  margin: 8px 0 0;
+}

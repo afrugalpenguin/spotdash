@@ -703,18 +703,74 @@ is both safer and more predictable.
 
 ## 7. Telemetry face
 
-Status: not yet verified.
+Status: verified on 2026-09-14.
 
-What must be shown:
+### Tests
 
-- Radial gauges for CPU, RAM, GPU, and VRAM, with temperature and power centred.
-- Colour thresholds: amber above 80 percent, red above 95 percent, and red above
-  83 C for GPU temperature.
-- The face renders correctly against the degraded, GPU-null payload.
+Written before the code this time, unlike the JavaScript in item 5.
 
 ```
-Not yet verified.
+$ cd web && node --test app.test.js telemetry.test.js
+tests 28
+pass 28
+fail 0
 ```
+
+The threshold tests are the ones that matter, and they are written around the
+boundaries rather than through the middle: 80 is ok and 80.1 is amber, 95 is
+amber and 95.1 is red, 83C is ok and 83.1C is red. A gauge that stays calm while
+a card sits at 97 percent is worse than no gauge.
+
+There is also a test that a missing reading is neither ok nor alarming but a
+third thing, absent. An unavailable GPU rendering as a calm empty gauge would be
+a lie; rendering it as a red alarm would be a different lie.
+
+```
+$ go vet ./... && gofmt -l .
+$ go test -race -count=1 ./...
+ok      .../agent/internal/server                 1.9s
+ok      .../agent/internal/sources                1.510s
+ok      .../agent/internal/sources/clock          1.154s
+ok      .../agent/internal/sources/telemetry      1.465s
+ok      .../agent/internal/state                  1.341s
+```
+
+### The thresholds on screen
+
+Rendered at 480x480 and reviewed as screenshots, not assumed.
+
+Under load, with CPU 91, RAM 84, GPU 99, VRAM 97 and the card at 86C: the CPU
+and RAM quadrants render amber, the GPU and VRAM quadrants red, and the centre
+temperature red at `86` with `285 W` beneath it. Every threshold in the plan
+lands on the colour it should.
+
+Idle, against the real agent and the real card:
+
+```
+$ chrome --headless=new --window-size=480,480 \
+    --screenshot=tele-live.png "http://127.0.0.1:8765/?token=<token>&face=telemetry"
+```
+
+rendered `cpu 4%`, `ram 52%`, `gpu 15%`, `vram 22%`, `29` degrees and `20 W`,
+with all four quadrant arcs teal. Those values came from the running agent
+reading the actual machine.
+
+### The degraded payload
+
+With `gpu` null, the face renders `cpu 13%` and `ram 51%` live in teal, the GPU
+and VRAM readouts as a dimmed `n/a` over empty tracks, the centre as `n/a`, and
+the reason stated as `no gpu reading` in amber.
+
+Stating the reason matters. Two empty gauges alone would leave the viewer to
+infer why, and the most natural inference, that the GPU is simply idle, is
+wrong.
+
+### The rim, again
+
+The gauges hang on the same geometry the clock sweeps for seconds and the status
+face splits per source, so the three faces read as one instrument rather than
+three unrelated screens. Adding the telemetry face needed one new function in
+the rim module and nothing else.
 
 ## 8. Tray integration and graceful shutdown
 

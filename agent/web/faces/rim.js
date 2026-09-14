@@ -90,3 +90,68 @@ export function createSegmentedRim(count) {
 
   return { svg, segments };
 }
+
+// createGaugeRim splits the rim into count equal arcs, each with its own unlit
+// track, and returns a setter per arc.
+//
+// The clock sweeps the whole rim, the status face segments it per source, and
+// the telemetry face hangs one gauge on each quarter. Same geometry every time,
+// so the panel reads as one instrument rather than three unrelated screens.
+export function createGaugeRim(count) {
+  const svg = document.createElementNS(SVG_NS, "svg");
+  svg.setAttribute("class", "rim");
+  svg.setAttribute("viewBox", "0 0 480 480");
+  svg.setAttribute("aria-hidden", "true");
+
+  const gauges = [];
+  if (count <= 0) {
+    return { svg, gauges };
+  }
+
+  // A gap between arcs so four gauges read as four, not as one ring with
+  // colour changes.
+  const gap = 16;
+  const span = RIM_CIRCUMFERENCE / count - gap;
+
+  for (let i = 0; i < count; i += 1) {
+    const rotation = -90 + (360 / count) * i + gap / 2 / (RIM_CIRCUMFERENCE / 360);
+
+    const track = document.createElementNS(SVG_NS, "circle");
+    track.setAttribute("class", "rim-track");
+    track.setAttribute("cx", "240");
+    track.setAttribute("cy", "240");
+    track.setAttribute("r", String(RIM_RADIUS));
+    track.setAttribute("transform", `rotate(${rotation} 240 240)`);
+    track.setAttribute(
+      "stroke-dasharray",
+      `${span} ${RIM_CIRCUMFERENCE - span}`
+    );
+
+    const arc = document.createElementNS(SVG_NS, "circle");
+    arc.setAttribute("class", "rim-arc");
+    arc.setAttribute("cx", "240");
+    arc.setAttribute("cy", "240");
+    arc.setAttribute("r", String(RIM_RADIUS));
+    arc.setAttribute("transform", `rotate(${rotation} 240 240)`);
+    arc.setAttribute("stroke-dasharray", `0 ${RIM_CIRCUMFERENCE}`);
+
+    svg.appendChild(track);
+    svg.appendChild(arc);
+
+    gauges.push({
+      track,
+      arc,
+      // set fills this gauge to the given fraction, 0 to 1.
+      set(fraction) {
+        const clamped = Math.max(0, Math.min(1, Number(fraction) || 0));
+        const lit = span * clamped;
+        arc.setAttribute(
+          "stroke-dasharray",
+          `${lit} ${RIM_CIRCUMFERENCE - lit}`
+        );
+      },
+    });
+  }
+
+  return { svg, gauges };
+}

@@ -276,10 +276,36 @@ manager shows exactly one face at a time, switches on a tap in the left half
 Faces are independent. A face that throws is contained and reported rather than
 taking the panel down.
 
-Phase 1 faces: `telemetry`, `clock`, `status`. The `status` face lists every
+Phase 1 faces: `clock`, `telemetry`, `status`, in that tap order. The clock
+comes first because it is what the panel shows most of the time, and status last
+because it is the debug face. The `status` face lists every
 source with its status, last update, and last error, along with agent uptime and
 WebSocket connection state. It is the debug face and the fallback whenever the
 WebSocket is down, so there is always something truthful on screen.
+
+### The rim
+
+Every face draws quantity on a circular track just inside the edge, and detail
+in the centre. The clock sweeps seconds around it, the status face splits it
+into one segment per source coloured by health, and the telemetry face hangs
+four gauges on its quarters.
+
+That is the one deliberately bold idea in the UI, and it is load bearing rather
+than decorative: system health, track progress and machine load are all readable
+from across the room without reading a word. It also means the faces read as one
+instrument rather than three unrelated screens, and a new face gets the language
+for free.
+
+### Colour
+
+The resting signal is a cool teal and the alert colours are warm, amber above 80
+percent and red above 95, or above 83C for GPU temperature. The cool resting
+state is chosen so that a warning is unmistakable at a glance rather than a hue
+judgement.
+
+A missing reading is a third state, not zero. An unavailable GPU renders as
+absent, with the reason stated, because a calm empty gauge and a red alarm are
+both wrong in different directions.
 
 ### Layout
 
