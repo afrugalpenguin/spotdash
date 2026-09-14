@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=480, height=480, initial-scale=1, user-scalable=no"
+    />
+    <meta name="color-scheme" content="dark" />
+    <title>spotdash</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <div id="panel">
+      <div id="faces"></div>
+      <div id="connection" data-state="connecting"></div>
+    </div>
+    <script type="module">
+      import { start } from "./app.js";
+      start();
+    </script>
+  </body>
+</html>

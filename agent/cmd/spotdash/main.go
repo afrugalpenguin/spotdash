@@ -108,6 +108,8 @@ func run() error {
 		Logger:  log,
 	})
 
+	srv.HandleStatic()
+
 	httpServer := &http.Server{
 		Addr:              cfg.Listen,
 		Handler:           srv.Handler(),

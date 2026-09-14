@@ -372,18 +372,135 @@ Not yet verified.
 
 ## 5. Static UI, status and clock faces, dev.html
 
-Status: not yet verified.
+Status: verified on 2026-09-14. Brought forward ahead of item 4 so the layout
+could be reviewed before live data was wired underneath it. The one acceptance
+point that needs the socket, the clock face updating live, is verified in item 4.
 
-What must be shown:
-
-- The UI is served from the embedded filesystem and requires the token.
-- The `clock` face updates live from the WebSocket.
-- The `status` face lists sources, statuses, uptime, and connection state.
-- `dev.html` renders all faces with injected fake state and no agent running.
+### Tests
 
 ```
-Not yet verified.
+$ go test ./internal/server/
+ok      github.com/afrugalpenguin/spotdash/agent/internal/server        0.281s
+
+$ cd web && node --test app.test.js
+tests 16
+pass 16
+fail 0
 ```
+
+The Go tests were written first, as everywhere else. The JavaScript tests were
+not: they were written after the code, so they were never seen failing for the
+right reason. To establish they test something, two were checked by mutation and
+then restored:
+
+```
+$ # readToken no longer strips the token from the URL
+FAIL: readToken takes the token out of the URL
+pass 15   fail 1
+
+$ # uptime of zero reports "0s" instead of "unknown"
+FAIL: uptime of zero reads as unknown rather than a restart
+pass 15   fail 1
+
+$ # both mutations reverted
+pass 16   fail 0
+```
+
+### Serving the embedded UI
+
+```
+$ curl -o /dev/null -w '%{http_code}' http://127.0.0.1:8765/
+401
+$ curl -o /dev/null -w '%{http_code}' http://127.0.0.1:8765/app.js
+401
+
+$ curl -H 'Authorization: Bearer <token>' http://127.0.0.1:8765/
+200 text/html; charset=utf-8
+$ curl -H 'Authorization: Bearer <token>' http://127.0.0.1:8765/app.js
+200 text/javascript; charset=utf-8
+$ curl -H 'Authorization: Bearer <token>' http://127.0.0.1:8765/style.css
+200 text/css; charset=utf-8
+$ curl -H 'Authorization: Bearer <token>' http://127.0.0.1:8765/faces/clock.js
+200 text/javascript; charset=utf-8
+```
+
+The content types are set from an explicit table rather than by
+`mime.TypeByExtension`. On Windows that consults the registry, where `.js` is
+routinely registered as `text/plain`, and a module served as `text/plain` is
+refused by the browser. The panel then renders blank with nothing to indicate
+why.
+
+### How a browser actually loads the panel
+
+A browser cannot set a header when navigating, and the stylesheet and modules
+the page then requests carry neither a header nor a query string. Verified with
+a cookie jar, which is exactly what a browser does:
+
+```
+$ curl -i -c jar.txt "http://127.0.0.1:8765/?token=<token>"
+HTTP/1.1 200 OK
+Cache-Control: no-store
+Content-Type: text/html; charset=utf-8
+Set-Cookie: spotdash_session=<token>; Path=/; HttpOnly; SameSite=Strict
+
+$ curl -b jar.txt http://127.0.0.1:8765/app.js
+200
+$ curl -b jar.txt http://127.0.0.1:8765/style.css
+200
+$ curl -b jar.txt http://127.0.0.1:8765/faces/clock.js
+200
+```
+
+No `Expires` and no `Max-Age`, so the cookie lives for the browser session and
+is never written to disk. A forged cookie value is rejected, and a request that
+authenticated by header is given no cookie at all. Both are covered by tests.
+
+### The faces against the real agent
+
+Screenshots taken with headless Chrome at exactly 480x480, against the running
+agent with `clock` enabled:
+
+```
+$ chrome --headless=new --window-size=480,480 --virtual-time-budget=4000 \
+    --screenshot=agent-status.png "http://127.0.0.1:8765/?token=<token>&face=status"
+```
+
+The status face rendered `clock  ok  1s`, `up 15s`, `link connecting`, with a
+full teal rim for the single healthy source. Those values came from the running
+agent through `/health`, not from fixtures.
+
+The clock face rendered `--:--` and `waiting for the agent`, which is correct
+for this item: the clock reading arrives over the socket, and the socket is
+item 4.
+
+### dev.html with no agent running
+
+```
+$ cd agent/web && python -m http.server 8099
+$ curl -o /dev/null -w '%{http_code}' http://127.0.0.1:8099/dev.html
+200
+```
+
+Every face was rendered against every state and reviewed as a screenshot:
+`running`, `sleeping`, `one source degraded`, `source disabled`,
+`agent unreachable`, and `nothing reported`. Confirmed by eye:
+
+- The sleep state renders true black with one dim dot and nothing else.
+- The status face is fully readable while disconnected, with stale ages, the
+  last error, and a red connection dot.
+- The empty state reads `no sources reported yet` rather than rendering nothing.
+- The segmented rim shows one arc per source, amber for the degraded one.
+
+`dev.html` takes `?face=` and `?state=` so a particular combination can be
+reopened directly, which is how the screenshots above were captured.
+
+### Two review findings, both fixed
+
+Reviewing the screenshots rather than assuming they were right caught two
+things. The status face showed `up 0s` when the agent was unreachable, which
+reads as a restart that did not happen; zero now renders as `unknown`. And the
+face carried a `sources` heading above a list that was self-evidently a list of
+sources, which has been removed.
 
 ## 6. Telemetry source, including the NVML degraded path
 

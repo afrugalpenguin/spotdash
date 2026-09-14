@@ -1,0 +1,296 @@
+/* spotdash panel styles.
+ *
+ * Target is a 480x480 circular LCD on a weak SoC, viewed at about 60cm. That
+ * rules out webfonts, shadows, blurs, and anything that repaints continuously.
+ * Everything is drawn with flat colour and SVG strokes. */
+
+:root {
+  /* True black, not a tinted near-black. The sleep state needs real black, and
+   * a dark room needs no glare. */
+  --black: #000000;
+  /* The unlit rim track. Visible enough to read as a track, dim enough to
+   * disappear when nothing is on it. */
+  --track: #17211f;
+  --text: #edf1ee;
+  --muted: #76878a;
+  /* Resting signal. Cool on purpose: the alert colours below are warm, so a
+   * warning is unmistakable at a glance rather than a hue judgement. */
+  --live: #62c8b4;
+  --warn: #f0a63c;
+  --alert: #e04e3c;
+
+  --panel: 480px;
+  /* Content has to fit the inscribed square of the circle, 480/sqrt(2). */
+  --safe: 320px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  background: var(--black);
+  color: var(--text);
+  overflow: hidden;
+  /* No webfont. A panel that depends on fetching a font renders wrong exactly
+   * when the network is down, which is when you are looking at it. */
+  font-family: ui-sans-serif, system-ui, "Segoe UI", Roboto, "Helvetica Neue",
+    Arial, sans-serif;
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
+  -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+}
+
+#panel {
+  position: relative;
+  width: var(--panel);
+  height: var(--panel);
+  border-radius: 50%;
+  clip-path: circle(50% at 50% 50%);
+  background: var(--black);
+  overflow: hidden;
+}
+
+/* The rim. One SVG per face, absolutely positioned so face content can sit on
+ * top of it without affecting layout. */
+.rim {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+.rim-track {
+  fill: none;
+  stroke: var(--track);
+  stroke-width: 6;
+}
+
+.rim-arc {
+  fill: none;
+  stroke: var(--live);
+  stroke-width: 6;
+  stroke-linecap: butt;
+}
+
+.rim-arc.is-warn {
+  stroke: var(--warn);
+}
+
+.rim-arc.is-alert {
+  stroke: var(--alert);
+}
+
+.rim-arc.is-off {
+  stroke: var(--track);
+}
+
+/* Face content sits in the inscribed square. */
+.face {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: var(--safe);
+  max-width: var(--safe);
+  text-align: center;
+}
+
+/* Tap zones. Left half previous, right half next. No hover states: there is no
+ * pointer on the device. */
+.zone {
+  position: absolute;
+  top: 0;
+  height: 100%;
+  width: 50%;
+  z-index: 3;
+  background: transparent;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+}
+
+.zone-prev {
+  left: 0;
+}
+
+.zone-next {
+  right: 0;
+}
+
+.zone:focus-visible {
+  outline: 2px solid var(--live);
+  outline-offset: -4px;
+}
+
+/* Connection indicator, present on every face. */
+#connection {
+  position: absolute;
+  left: 50%;
+  bottom: 26px;
+  transform: translateX(-50%);
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--muted);
+  z-index: 2;
+}
+
+#connection[data-state="live"] {
+  background: var(--live);
+}
+
+#connection[data-state="connecting"] {
+  background: var(--warn);
+}
+
+#connection[data-state="down"] {
+  background: var(--alert);
+}
+
+/* Clock face */
+.clock-time {
+  font-size: 120px;
+  font-weight: 200;
+  letter-spacing: -0.02em;
+  line-height: 1;
+  margin: 0;
+}
+
+.clock-date {
+  font-size: 24px;
+  font-weight: 400;
+  color: var(--muted);
+  margin: 14px 0 0;
+}
+
+/* Sleep. The panel goes to real black with one dim dot, so it reads as resting
+ * rather than as a dead screen. */
+#panel[data-sleep="true"] .clock-time,
+#panel[data-sleep="true"] .clock-date,
+#panel[data-sleep="true"] .rim,
+#panel[data-sleep="true"] #connection {
+  display: none;
+}
+
+.sleep-dot {
+  display: none;
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #1c2422;
+}
+
+#panel[data-sleep="true"] .sleep-dot {
+  display: block;
+}
+
+/* Status face. This is the debug face, so it is dense by design: completeness
+ * beats glanceability here. Rows share a left edge because a list is scanned,
+ * not read. */
+.status {
+  text-align: left;
+  font-size: 17px;
+  line-height: 1.35;
+}
+
+.status-list {
+  list-style: none;
+  margin: 0 0 12px;
+  padding: 0;
+}
+
+.status-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 3px 0;
+}
+
+.status-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.status-value {
+  flex: 0 0 auto;
+  color: var(--live);
+}
+
+.status-value[data-status="degraded"] {
+  color: var(--warn);
+}
+
+.status-value[data-status="disabled"] {
+  color: var(--muted);
+}
+
+.status-value[data-status="unknown"] {
+  color: var(--muted);
+}
+
+.status-age {
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-size: 14px;
+  min-width: 44px;
+  text-align: right;
+}
+
+.status-error {
+  color: var(--alert);
+  font-size: 14px;
+  margin: 0 0 6px;
+  padding-left: 2px;
+  overflow-wrap: anywhere;
+}
+
+.status-footer {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--muted);
+  font-size: 14px;
+  border-top: 1px solid var(--track);
+  padding-top: 8px;
+}
+
+.status-footer strong {
+  color: var(--text);
+  font-weight: 500;
+}
+
+.status-empty {
+  color: var(--muted);
+  text-align: center;
+  padding: 10px 0;
+}
+
+/* A face that throws is contained and reported rather than taking the panel
+ * down. */
+.face-error {
+  color: var(--alert);
+  font-size: 15px;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    transition: none !important;
+    animation: none !important;
+  }
+}
