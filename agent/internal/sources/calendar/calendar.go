@@ -33,9 +33,10 @@ const DefaultNotifyMinutes = 15
 // show_seconds is not set.
 const DefaultShowSeconds = 45
 
-// AgendaSize is how many events the face shows in total: the primary
-// next-up event plus this many more below it.
-const AgendaSize = 3
+// AgendaSize is how many events the face knows about in total: the primary
+// next-up event plus this many more below it, in a scrollable list, since
+// the circular panel cannot show them all at once.
+const AgendaSize = 8
 
 // Reading is what the calendar source publishes. An empty Title means no
 // upcoming event, a normal state the face shows as idle rather than an

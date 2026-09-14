@@ -195,10 +195,47 @@ body {
   margin: 14px 0 0;
 }
 
+/* Overview face: the clock's own time/date above, this next-up line below.
+ * Hidden entirely (not just empty) when there is nothing scheduled, so an
+ * idle calendar costs no vertical space under the date. */
+.overview-next {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin: 20px 0 0;
+  font-size: 17px;
+  max-width: 280px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.overview-next-title {
+  color: var(--text);
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.overview-next-countdown {
+  margin-top: 4px;
+  font-size: 15px;
+  color: var(--live);
+}
+
+.overview-next-countdown.is-warn {
+  color: var(--warn);
+}
+
+.overview-next-countdown.is-alert {
+  color: var(--alert);
+}
+
 /* Sleep. The panel goes to real black with one dim dot, so it reads as resting
  * rather than as a dead screen. */
 #panel[data-sleep="true"] .clock-time,
 #panel[data-sleep="true"] .clock-date,
+#panel[data-sleep="true"] .overview-next,
 #panel[data-sleep="true"] .rim,
 #panel[data-sleep="true"] #connection {
   display: none;
@@ -405,12 +442,35 @@ body {
   margin: 8px 0 0;
 }
 
-/* Calendar face. One event, not an agenda: title, start time, countdown, all
- * in one card, the way a single event reads in a calendar app's day view
- * rather than as bare text floating in the circle. The rim fills as the
- * event approaches within its lookahead window; the card's border and the
- * countdown's colour step through the same live/warn/alert vocabulary the
- * telemetry gauges use, so the whole face reads "how urgent" at a glance. */
+/* Calendar face. The primary event in one card, the way a single event
+ * reads in a calendar app's day view rather than as bare text floating in
+ * the circle, with a short scrollable agenda underneath. The rim fills as
+ * the event approaches within its lookahead window; the card's border and
+ * the countdown's colour step through the same live/warn/alert vocabulary
+ * the telemetry gauges use, so the whole face reads "how urgent" at a
+ * glance. */
+.calendar {
+  /* Overrides .face, the same reasoning and the same fix .spotify uses:
+   * .face centres its content with transform, which creates a new CSS
+   * stacking context and traps any z-index set on a descendant (such as
+   * .calendar-agenda, which needs to out-rank .zone to receive scroll
+   * gestures) inside it, unable to actually compete with a sibling of
+   * .face like .zone. Positioned and centred without transform instead,
+   * so a descendant's z-index means what it says. */
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: var(--panel);
+  max-width: none;
+  height: var(--panel);
+  transform: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+
 .calendar-pill {
   box-sizing: border-box;
   width: 100%;
@@ -485,9 +545,24 @@ body {
 /* The rest of the agenda: quieter than the pill, and taking no space at all
  * when there is nothing after the primary event. */
 .calendar-agenda {
+  /* Needs its own stacking order for the same reason .spotify-controls
+   * does: the panel's left/right face-switch tap zones (.zone) are
+   * z-index 3 and would otherwise sit above this and swallow the scroll
+   * gesture before it ever reaches the list underneath. */
+  position: relative;
+  z-index: 6;
   list-style: none;
   width: 100%;
   max-width: 280px;
+  /* Bounded and scrollable rather than growing with however many events
+   * the source sends: the pill above already uses most of the circle's
+   * safe area, and AgendaSize allows up to 7 entries here. Touch scroll on
+   * an overflow:auto element is native WebView behaviour, nothing to wire
+   * up. The visible ~2.5 rows is a deliberate hint that there is more
+   * below, the same way a partially cut-off list item reads anywhere else. */
+  max-height: 98px;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
   margin: 14px auto 0;
   padding: 0;
 }
@@ -495,6 +570,12 @@ body {
 .calendar-agenda-row {
   display: flex;
   align-items: baseline;
+  /* Left-aligned within the row, deliberately not centred: the row's own
+   * box is already centred on screen (.calendar-agenda's max-width and
+   * margin: auto), but centring each row's content independently on top
+   * of that would stagger the left edge by however long each title is,
+   * which reads as messy rather than tidy. A shared left edge for the
+   * time column reads as one aligned list instead. */
   /* Not flex gap: see the note on .status-row. */
   padding: 7px 6px;
   border-top: 1px solid rgba(237, 241, 238, 0.08);

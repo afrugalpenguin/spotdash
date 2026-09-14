@@ -36,7 +36,7 @@ func TestStaticServesTheFaceModules(t *testing.T) {
 	srv, _ := newTestServer(t)
 	srv.HandleStatic()
 
-	for _, path := range []string{"/app.js", "/style.css", "/faces/clock.js", "/faces/status.js", "/faces/telemetry.js", "/faces/rim.js", "/dev.html", "/settings.html", "/settings.js"} {
+	for _, path := range []string{"/app.js", "/style.css", "/faces/clock.js", "/faces/overview.js", "/faces/status.js", "/faces/telemetry.js", "/faces/rim.js", "/dev.html", "/settings.html", "/settings.js"} {
 		rec := do(t, srv, http.MethodGet, path, "Bearer "+testToken)
 		if rec.Code != http.StatusOK {
 			t.Errorf("GET %s returned %d, want 200", path, rec.Code)
