@@ -29,6 +29,11 @@ type Options struct {
 type Server struct {
 	opts      Options
 	protected *http.ServeMux
+	// open holds routes a source has explicitly asked to be reachable without
+	// the bearer token, such as an OAuth callback. Separate from protected
+	// rather than a flag on the same mux, so registering one open route can
+	// never accidentally open another pattern too.
+	open *http.ServeMux
 	// socket is mounted outside the token middleware because it authenticates
 	// differently: its token arrives as a WebSocket subprotocol, which the
 	// generic check cannot see.
@@ -45,6 +50,7 @@ func New(opts Options) *Server {
 	return &Server{
 		opts:      opts,
 		protected: http.NewServeMux(),
+		open:      http.NewServeMux(),
 		log:       log,
 	}
 }
@@ -54,17 +60,43 @@ func (s *Server) Handle(pattern string, h http.Handler) {
 	s.protected.Handle(pattern, h)
 }
 
+// HandleOpen registers a route reachable without the bearer token.
+//
+// This exists for the rare case where whatever calls the route cannot carry
+// the token at all, such as a browser following an external OAuth redirect
+// into a freshly opened tab. The handler is responsible for protecting itself
+// by whatever means fits, since the bearer token cannot be that means here.
+func (s *Server) HandleOpen(pattern string, h http.Handler) {
+	s.open.Handle(pattern, h)
+}
+
 // Handler returns the complete HTTP handler for the agent.
 func (s *Server) Handler() http.Handler {
-	root := http.NewServeMux()
-	root.HandleFunc("/health", s.handleHealth)
-	if s.socket != nil {
-		root.Handle("/ws", s.socket)
-	}
-	// Everything else sits behind auth, including paths that match nothing, so
-	// an unauthenticated caller cannot map which routes exist.
-	root.Handle("/", s.requireToken(s.protected))
-	return root
+	protected := s.requireToken(s.protected)
+
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/health" {
+			s.handleHealth(w, r)
+			return
+		}
+		if s.socket != nil && r.URL.Path == "/ws" {
+			s.socket.ServeHTTP(w, r)
+			return
+		}
+
+		// ServeMux.Handler looks up a route without running it and reports back
+		// which pattern matched, empty when nothing did. That is what lets an
+		// open route be tried without a bare "/" on this mux swallowing every
+		// request meant for the protected one below.
+		if h, pattern := s.open.Handler(r); pattern != "" {
+			h.ServeHTTP(w, r)
+			return
+		}
+
+		// Everything else sits behind auth, including paths that match nothing,
+		// so an unauthenticated caller cannot map which routes exist.
+		protected.ServeHTTP(w, r)
+	})
 }
 
 type healthSource struct {

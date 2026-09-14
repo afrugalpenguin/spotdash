@@ -54,6 +54,56 @@ empty token. Open `http://localhost:8765/?token=<your token>` in a browser.
 `config.json` holds a shared secret and is excluded by `.gitignore`. Keep it
 that way.
 
+## Connecting Spotify
+
+`spotify` has two modes, set with the required `mode` key (no default).
+
+**Mock**, no account or network needed:
+
+```json
+"spotify": {
+  "enabled": true,
+  "interval_ms": 1000,
+  "mode": "mock",
+  "track": "Track name",
+  "artist": "Artist name",
+  "album": "Album name",
+  "duration_ms": 342000,
+  "layout": "fill"
+}
+```
+
+**API**, the real thing. Setup:
+
+1. Create an app at <https://developer.spotify.com/dashboard>, tick **Web API**.
+2. Add redirect URI `http://127.0.0.1:8765/spotify/callback` exactly (match
+   your `listen` port if it differs).
+3. New apps start in Development Mode with a login allowlist. Add your own
+   account under **Users Management** before connecting.
+4. Copy the **Client ID**. No client secret needed, this uses PKCE.
+
+```json
+"spotify": {
+  "enabled": true,
+  "interval_ms": 5000,
+  "mode": "api",
+  "client_id": "your client id",
+  "redirect_uri": "http://127.0.0.1:8765/spotify/callback",
+  "state_file": "spotify_state.json",
+  "layout": "fill"
+}
+```
+
+`state_file` holds the refresh token, written by the agent. Keep it next to
+`config.json` and out of git, same as the token.
+
+With the agent running, open `http://<agent host>:<port>/spotify/connect` in a
+browser (token as `?token=`, or already set as a session cookie from the
+panel). Completing consent lands on a page that says **Connected**.
+
+Scope is read-only, no play or pause from the panel. If the connection drops,
+`/health` and the status face show why and link back to `/spotify/connect`.
+
 ## Web UI without the agent
 
 `agent/web/dev.html` renders the UI inside a 480x480 circle in a desktop

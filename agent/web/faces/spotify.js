@@ -72,10 +72,14 @@ export function advancePosition(positionMs, elapsedMs, durationMs) {
   return next < 0 ? 0 : next;
 }
 
+// The cover filling the panel is the default: it has the most presence and is
+// the one worth building the real art pipeline around. The disc layout, which
+// keeps type on flat black, is still available with ?layout=disc for a bright
+// or busy sleeve where the scrim struggles.
 function layoutFromQuery(search) {
-  return new URLSearchParams(search || "").get("layout") === "fill"
-    ? "fill"
-    : "disc";
+  return new URLSearchParams(search || "").get("layout") === "disc"
+    ? "disc"
+    : "fill";
 }
 
 export function render(container, state) {
@@ -235,6 +239,16 @@ export function onState(source, data) {
 
   if (source !== "spotify") {
     return;
+  }
+
+  // The agent is the source of truth for layout, since the real device loads
+  // one fixed URL with no way to attach a query parameter. Applied whenever a
+  // reading says so, playing or not, so switching it in config takes effect
+  // immediately rather than only once something starts playing. Left alone
+  // when absent, which keeps the query-param default for local development
+  // without an agent.
+  if (data && data.layout) {
+    root.dataset.layout = data.layout;
   }
 
   if (!isPlayable(data)) {

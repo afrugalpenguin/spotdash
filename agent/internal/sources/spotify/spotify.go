@@ -28,6 +28,15 @@ const Name = "spotify"
 // on every track change. That keeps the device dumb and the token in one place.
 const artPath = "/art/spotify"
 
+// connectPath starts a fresh authorization attempt. Requires the bearer
+// token, like everything else that is not the callback itself.
+const connectPath = "/spotify/connect"
+
+// callbackPath is where Spotify redirects back to after consent. This one
+// cannot require the token: the browser tab Spotify opens is freshly
+// navigated and carries none. See auth.go for what protects it instead.
+const callbackPath = "/spotify/callback"
+
 // Reading is what the spotify source publishes.
 type Reading struct {
 	Title  string `json:"title"`
@@ -38,16 +47,51 @@ type Reading struct {
 	PositionMS int64  `json:"position_ms"`
 	DurationMS int64  `json:"duration_ms"`
 	Playing    bool   `json:"playing"`
+	// Layout is "fill" or "disc". Sent on every reading rather than left to a
+	// URL query parameter, because the shell loads one fixed URL on the real
+	// device with no way to attach one. Which layout reads better depends on
+	// the room and the sleeve, and that can only be judged with the actual
+	// panel in front of you, so it is a config setting you can flip without a
+	// rebuild rather than a choice baked in here.
+	Layout string `json:"layout"`
+}
+
+const (
+	layoutFill = "fill"
+	layoutDisc = "disc"
+)
+
+// normalizeLayout validates the configured layout, defaulting to "fill" when
+// unset. An invalid value is rejected at construction, the same as everywhere
+// else in this codebase a bad config value is: better to refuse to start than
+// silently fall back to a default the user did not ask for.
+func normalizeLayout(value string) (string, error) {
+	switch value {
+	case "":
+		return layoutFill, nil
+	case layoutFill, layoutDisc:
+		return value, nil
+	default:
+		return "", fmt.Errorf(`"layout" is %q, want "fill" or "disc"`, value)
+	}
 }
 
 type settings struct {
-	Mode       string `json:"mode"`
+	Mode   string `json:"mode"`
+	Layout string `json:"layout"`
+
+	// mode: "mock"
 	Track      string `json:"track"`
 	Artist     string `json:"artist"`
 	Album      string `json:"album"`
 	DurationMS int64  `json:"duration_ms"`
 	ArtFile    string `json:"art_file"`
 	Paused     bool   `json:"paused"`
+
+	// mode: "api"
+	ClientID    string `json:"client_id"`
+	RedirectURI string `json:"redirect_uri"`
+	StateFile   string `json:"state_file"`
 }
 
 // Source reports the currently playing track.
@@ -59,8 +103,16 @@ type Source struct {
 	now func() time.Time
 }
 
-// New builds the spotify source.
-func New(cfg config.Source) (*Source, error) {
+// New builds the spotify source: a mock that plays a configured track, or the
+// real provider talking to the Spotify API.
+//
+// Building sources.Source directly rather than *Source to accommodate the two
+// concrete implementations.
+func New(cfg config.Source) (interface {
+	Name() string
+	Poll(context.Context) (any, error)
+	Interval() time.Duration
+}, error) {
 	var s settings
 	if len(cfg.Settings) > 0 {
 		if err := json.Unmarshal(cfg.Settings, &s); err != nil {
@@ -68,24 +120,33 @@ func New(cfg config.Source) (*Source, error) {
 		}
 	}
 
+	layout, err := normalizeLayout(s.Layout)
+	if err != nil {
+		return nil, err
+	}
+	s.Layout = layout
+
 	switch s.Mode {
 	case "":
-		return nil, fmt.Errorf(`"mode" is required: use "mock" to play a configured track, or "api" once that is built`)
+		return nil, fmt.Errorf(`"mode" is required: use "mock" to play a configured track, or "api" to connect a real account`)
 	case "mock":
-		if s.Track == "" {
-			return nil, fmt.Errorf(`"mode" is "mock" but no "track" is configured, so there is nothing to play`)
-		}
-		if s.DurationMS <= 0 {
-			return nil, fmt.Errorf(`"duration_ms" is %d, want a positive length for the configured track`, s.DurationMS)
-		}
+		return newMockSource(cfg.Interval(), s)
 	case "api":
-		return nil, fmt.Errorf(`"mode" is "api", which is not implemented yet: the account plumbing is phase 2 work`)
+		return newAPISourceFromSettings(cfg.Interval(), s)
 	default:
 		return nil, fmt.Errorf(`"mode" is %q, want "mock" or "api"`, s.Mode)
 	}
+}
 
+func newMockSource(interval time.Duration, s settings) (*Source, error) {
+	if s.Track == "" {
+		return nil, fmt.Errorf(`"mode" is "mock" but no "track" is configured, so there is nothing to play`)
+	}
+	if s.DurationMS <= 0 {
+		return nil, fmt.Errorf(`"duration_ms" is %d, want a positive length for the configured track`, s.DurationMS)
+	}
 	return &Source{
-		interval: cfg.Interval(),
+		interval: interval,
 		settings: s,
 		now:      time.Now,
 	}, nil
@@ -117,6 +178,7 @@ func (s *Source) Poll(_ context.Context) (any, error) {
 		Album:      s.settings.Album,
 		DurationMS: s.settings.DurationMS,
 		Playing:    !s.settings.Paused,
+		Layout:     s.settings.Layout,
 	}
 	if s.settings.ArtFile != "" {
 		reading.ArtURL = artPath

@@ -173,6 +173,48 @@ not fatal. Not every card reports power draw, and a driver can refuse a single
 metric while serving the rest; losing the whole GPU over a missing wattage would
 be the wrong trade.
 
+### Spotify
+
+Two providers, one `Reading` shape, selected by the required `mode` setting.
+No default: running the mock unintentionally would be worse than refusing to
+start.
+
+- `mode: "mock"`, plays a configured track, no network.
+- `mode: "api"`, real Spotify Web API.
+
+**Auth**: Authorization Code with PKCE, no client secret. Settings:
+`client_id`, `redirect_uri` (must match the Spotify app exactly), `state_file`.
+
+- `GET /spotify/connect` starts a fresh attempt and redirects to Spotify.
+  Requires the bearer token.
+- `GET /spotify/callback` is the OAuth redirect target. Can't require the
+  token, since a fresh browser tab has none. Protected instead by a
+  single-use `state` value with a 10 minute expiry, the loopback-redirect
+  model RFC 8252 describes.
+
+Both routes are optional interfaces (`RouteProvider`, `OpenRouteProvider`) a
+source can implement, the same pattern as `AssetProvider` for album art.
+
+**Storage**: refresh token in `state_file`, not `config.json`. Config is
+hand-edited; this file is agent-written. Atomic write, temp file then rename.
+Mode 0600, though NTFS does not enforce POSIX permissions, so on Windows this
+is no stronger than `config.json`'s existing exposure.
+
+**Scope**: `user-read-currently-playing`, `user-read-playback-state`. No write
+scope, so no play or pause from the panel yet.
+
+**Polling**: `GET /me/player/currently-playing`, default 5s interval. Access
+token refreshed before expiry, or once on a 401. No content or a non-track
+item means nothing playing, a success with an empty reading. Not connected or
+revoked is a failure, with a `/spotify/connect` hint in the error.
+
+**Art**: fetched once per track, cached to one file next to `state_file`,
+served from the agent's own origin rather than a direct CDN hit from the
+device. Re-fetched only when the track ID changes.
+
+**Layout**: `"fill"` or `"disc"`, default `"fill"`, set via config rather than
+a URL parameter since the shell loads one fixed URL with no way to attach one.
+
 ### State and transport
 
 The state store holds the latest value per source with its timestamp and status.
