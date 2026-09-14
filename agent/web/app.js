@@ -41,6 +41,16 @@ let socket = null;
 let backoffMs = BACKOFF_MIN_MS;
 let reconnectTimer = null;
 
+// Auto-switch on an imminent calendar event. urgentKey identifies the event
+// currently holding the panel, so a reading that is still the same urgent
+// event (just a lower countdown) does not retrigger the switch on every
+// poll; a different key (a new event went urgent, or the same title moved to
+// a different start time) does. urgentHoldTimer and urgentReturnTo track the
+// pending revert; both are null when no auto-switch is in flight.
+let urgentKey = "";
+let urgentHoldTimer = null;
+let urgentReturnTo = null;
+
 // readToken takes the token from the query string, holds it in memory, and
 // removes it from the visible URL. It is never written to storage: a kiosk
 // panel that persists a bearer token is a panel that leaks it to anyone who
@@ -101,6 +111,57 @@ export function showFace(index) {
     currentFace = null;
     reportFaceError(err);
   }
+}
+
+// handleCalendarUrgency switches to the calendar face when a reading says an
+// event is urgent, holds it for the reading's own show_seconds, then returns
+// to whatever face was showing before. Overrides sleep for the duration: an
+// imminent event is worth waking the panel for, the same as it is worth
+// interrupting whatever face was up.
+//
+// urgentKey guards against retriggering on every poll while the same event
+// stays urgent; a genuinely new urgent event (different title or start time)
+// gets its own switch.
+function handleCalendarUrgency(data) {
+  if (!data || !data.urgent) {
+    return;
+  }
+  const key = `${data.title}|${data.start_label}`;
+  if (key === urgentKey) {
+    return;
+  }
+  urgentKey = key;
+
+  const calendarIndex = FACES.findIndex((face) => face.title === "calendar");
+  if (calendarIndex === -1) {
+    return;
+  }
+
+  if (urgentHoldTimer !== null) {
+    window.clearTimeout(urgentHoldTimer);
+  } else {
+    // Only remember where to return to on the first switch of a hold; a
+    // retrigger mid-hold (a different event going urgent while the panel is
+    // already showing this one) must not overwrite it with "calendar".
+    urgentReturnTo = currentIndex;
+  }
+
+  showFace(calendarIndex);
+  if (panel) {
+    panel.dataset.sleep = "false";
+  }
+
+  const holdMs = (data.show_seconds || 45) * 1000;
+  urgentHoldTimer = window.setTimeout(() => {
+    urgentHoldTimer = null;
+    // Only revert if the panel is still showing the face this hold put it
+    // on. If someone tapped away during the hold, leave them where they are
+    // rather than yanking them back.
+    if (currentIndex === calendarIndex && urgentReturnTo !== null) {
+      showFace(urgentReturnTo);
+    }
+    urgentReturnTo = null;
+  }, holdMs);
 }
 
 // reportFaceError contains a broken face rather than letting it take the panel
@@ -219,6 +280,16 @@ function connect() {
     }
     applyMessage(message);
     notifyFace(message.source, message.data);
+    if (message.source === "calendar") {
+      handleCalendarUrgency(message.data);
+    }
+    // The clock face writes panel.dataset.sleep on every one of its own
+    // ticks, which would otherwise put a sleeping panel back to sleep a
+    // second after an urgent switch woke it. Reassert the override for as
+    // long as the hold is active, regardless of which source just updated.
+    if (urgentHoldTimer !== null && panel) {
+      panel.dataset.sleep = "false";
+    }
   });
 
   socket.addEventListener("close", () => {

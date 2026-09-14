@@ -215,6 +215,39 @@ device. Re-fetched only when the track ID changes.
 **Layout**: `"fill"` or `"disc"`, default `"fill"`, set via config rather than
 a URL parameter since the shell loads one fixed URL with no way to attach one.
 
+### Calendar
+
+Same two-provider shape as Spotify: `mode: "mock"` for a configured sample
+event, `mode: "ics"` for a real feed. No OAuth: an ICS feed is a URL, which
+Outlook publishes natively and any future replacement calendar only needs to
+serve the same way.
+
+Shows exactly one thing, the next-up event: title, location (whatever the
+feed's own `LOCATION` field says, e.g. "Microsoft Teams Meeting"), start
+time, and a countdown that ticks locally between polls the same way spotify's
+position does. No agenda, no multi-calendar merge, no editing.
+
+**Parsing** (`ics.go`): a minimal hand-rolled RFC 5545 reader, not a library.
+Reads `SUMMARY`, `LOCATION`, `DTSTART` (UTC, a named `TZID`, or floating
+local time) and whether `RRULE` is present. Recurring and all-day events are
+excluded from next-up selection rather than guessed at: this parser does not
+expand recurrence rules, so a recurring event's own `DTSTART` is just its
+first-ever occurrence, almost always in the past, and showing that as
+"next up" would be actively wrong rather than merely incomplete. A daily
+standup will not appear here until RRULE expansion is built. `time/tzdata` is
+embedded so a named `TZID` resolves without depending on the host machine
+having its own timezone database, matching the single-static-binary design.
+
+**Auto-switch**: the source itself decides urgency, not the client. Each
+reading carries `urgent` (true once the event is within `notify_minutes` of
+its `config.Source` block, default 15) and `show_seconds` (default 45). The
+client (`app.js`) switches to the calendar face the moment a reading with a
+new `urgent` event arrives, forces the sleep window off for the duration
+even during the clock's configured sleep hours, holds for `show_seconds`,
+then returns to whatever face was showing, unless the viewer has already
+tapped away. Deciding "urgent" server-side keeps the threshold in one place
+and out of the client entirely.
+
 ### State and transport
 
 The state store holds the latest value per source with its timestamp and status.

@@ -391,16 +391,42 @@ body {
   margin: 8px 0 0;
 }
 
-/* Calendar face. One event, not an agenda: title, start time, countdown. The
- * rim fills as the event approaches within its lookahead window and steps
- * through the same live/warn/alert vocabulary the telemetry gauges use. */
+/* Calendar face. One event, not an agenda: title, start time, countdown, all
+ * in one card, the way a single event reads in a calendar app's day view
+ * rather than as bare text floating in the circle. The rim fills as the
+ * event approaches within its lookahead window; the card's border and the
+ * countdown's colour step through the same live/warn/alert vocabulary the
+ * telemetry gauges use, so the whole face reads "how urgent" at a glance. */
+.calendar-pill {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 280px;
+  margin: 0 auto;
+  padding: 30px 26px;
+  border-radius: 36px;
+  background: var(--track);
+  border: 1px solid rgba(237, 241, 238, 0.08);
+}
+
+.calendar-pill.is-idle {
+  background: transparent;
+  border-color: transparent;
+}
+
+.calendar-pill.is-warn {
+  border-color: var(--warn);
+}
+
+.calendar-pill.is-alert {
+  border-color: var(--alert);
+}
+
 .calendar-title {
-  font-size: 32px;
+  font-size: 28px;
   font-weight: 300;
   letter-spacing: -0.01em;
   line-height: 1.15;
   margin: 0;
-  max-width: 300px;
   /* Real event titles overrun the safe area same as track names do. */
   display: -webkit-box;
   -webkit-line-clamp: 2;
@@ -409,20 +435,26 @@ body {
 }
 
 .calendar-title.calendar-idle {
-  font-size: 24px;
+  font-size: 22px;
   font-weight: 300;
   color: var(--muted);
   -webkit-line-clamp: 1;
 }
 
+.calendar-location {
+  font-size: 14px;
+  color: var(--muted);
+  margin: 6px 0 0;
+}
+
 .calendar-time {
-  font-size: 17px;
+  font-size: 16px;
   color: var(--muted);
   margin: 10px 0 0;
 }
 
 .calendar-countdown {
-  font-size: 22px;
+  font-size: 20px;
   font-weight: 400;
   color: var(--live);
   margin: 14px 0 0;

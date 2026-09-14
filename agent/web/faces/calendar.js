@@ -22,7 +22,9 @@ const ALERT_MINUTES = 5;
 const WARN_MINUTES = 15;
 
 let arcEl = null;
+let pillEl = null;
 let titleEl = null;
+let locationEl = null;
 let timeEl = null;
 let countdownEl = null;
 let current = null; // the last reading, for the ticker to interpolate from
@@ -41,9 +43,21 @@ export function render(container, state) {
   const face = document.createElement("div");
   face.className = "face calendar";
 
+  // Title, time and countdown sit together in one card, the way a single
+  // event reads in a calendar app's day view, rather than as bare text
+  // floating in the circle.
+  pillEl = document.createElement("div");
+  pillEl.className = "calendar-pill";
+
   titleEl = document.createElement("p");
   titleEl.className = "calendar-title calendar-idle";
   titleEl.textContent = "Nothing scheduled";
+
+  // Whatever the calendar itself put in the event's location, shown exactly
+  // as the source gave it rather than reformatted, the same way spotify's
+  // artist and album lines pass their fields through untouched.
+  locationEl = document.createElement("p");
+  locationEl.className = "calendar-location";
 
   timeEl = document.createElement("p");
   timeEl.className = "calendar-time";
@@ -51,9 +65,11 @@ export function render(container, state) {
   countdownEl = document.createElement("p");
   countdownEl.className = "calendar-countdown";
 
-  face.appendChild(titleEl);
-  face.appendChild(timeEl);
-  face.appendChild(countdownEl);
+  pillEl.appendChild(titleEl);
+  pillEl.appendChild(locationEl);
+  pillEl.appendChild(timeEl);
+  pillEl.appendChild(countdownEl);
+  face.appendChild(pillEl);
   container.appendChild(face);
 
   const existing = state && state.sources && state.sources.calendar;
@@ -68,8 +84,10 @@ function showIdle() {
   stopTicking();
   current = null;
   if (!titleEl) return;
+  pillEl.className = "calendar-pill is-idle";
   titleEl.className = "calendar-title calendar-idle";
   titleEl.textContent = "Nothing scheduled";
+  locationEl.textContent = "";
   timeEl.textContent = "";
   countdownEl.textContent = "";
   countdownEl.className = "calendar-countdown";
@@ -99,6 +117,7 @@ function paint(minutesUntil) {
   const level = urgency(minutesUntil);
   countdownEl.textContent = formatCountdown(minutesUntil);
   countdownEl.className = `calendar-countdown is-${level}`;
+  pillEl.className = `calendar-pill is-${level}`;
 
   const fraction = 1 - Math.min(Math.max(minutesUntil, 0), LOOKAHEAD_MINUTES) / LOOKAHEAD_MINUTES;
   setArc(arcEl, fraction);
@@ -148,6 +167,7 @@ export function onState(source, data) {
 
   titleEl.className = "calendar-title";
   titleEl.textContent = data.title;
+  locationEl.textContent = data.location || "";
   timeEl.textContent = data.start_label || "";
 
   paint(Math.round(data.minutes_until));
@@ -158,7 +178,9 @@ export function teardown() {
   stopTicking();
   current = null;
   arcEl = null;
+  pillEl = null;
   titleEl = null;
+  locationEl = null;
   timeEl = null;
   countdownEl = null;
 }
