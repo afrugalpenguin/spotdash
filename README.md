@@ -137,6 +137,21 @@ no other input.
 On the real device, set the shell as the default launcher so the panel survives
 a reboot without anyone touching it.
 
+## Starting the agent automatically
+
+`agent\tools\autostart.ps1` registers a scheduled task that starts the agent
+at logon, tray icon included. Not a Windows service: a service runs with no
+desktop session, so there would be no tray and no way to open the UI.
+
+```powershell
+cd agent
+.\tools\autostart.ps1 -Install     # register and start
+.\tools\autostart.ps1 -Status      # check it
+.\tools\autostart.ps1 -Uninstall   # remove it
+```
+
+Refuses to install without a `config.json` already in place.
+
 ## Security posture
 
 Phase 1 uses a shared bearer token over plain HTTP on a trusted LAN. There is no
