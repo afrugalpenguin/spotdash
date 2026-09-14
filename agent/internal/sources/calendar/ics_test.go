@@ -177,6 +177,71 @@ func TestNextUpEventExpandsASupportedRecurringEvent(t *testing.T) {
 	}
 }
 
+func TestUpcomingEventsReturnsChronologicalOrder(t *testing.T) {
+	now := time.Date(2026, 1, 1, 8, 0, 0, 0, time.UTC)
+	events := []icsEvent{
+		{Summary: "third", Start: now.Add(3 * time.Hour)},
+		{Summary: "past", Start: now.Add(-time.Hour)},
+		{Summary: "first", Start: now.Add(15 * time.Minute)},
+		{Summary: "second", Start: now.Add(2 * time.Hour)},
+	}
+
+	got := upcomingEvents(events, now, 3)
+
+	if len(got) != 3 {
+		t.Fatalf("got %d events, want 3", len(got))
+	}
+	wantOrder := []string{"first", "second", "third"}
+	for i, want := range wantOrder {
+		if got[i].Summary != want {
+			t.Errorf("position %d = %q, want %q", i, got[i].Summary, want)
+		}
+	}
+}
+
+func TestUpcomingEventsRespectsTheLimit(t *testing.T) {
+	now := time.Date(2026, 1, 1, 8, 0, 0, 0, time.UTC)
+	events := []icsEvent{
+		{Summary: "a", Start: now.Add(time.Hour)},
+		{Summary: "b", Start: now.Add(2 * time.Hour)},
+		{Summary: "c", Start: now.Add(3 * time.Hour)},
+	}
+
+	got := upcomingEvents(events, now, 2)
+
+	if len(got) != 2 {
+		t.Fatalf("got %d events, want 2", len(got))
+	}
+}
+
+func TestUpcomingEventsGivesEachRecurringSeriesOnlyOneEntry(t *testing.T) {
+	now := time.Date(2026, 3, 10, 10, 0, 0, 0, time.UTC)
+	events := []icsEvent{
+		{Summary: "daily standup", Start: date(2026, 1, 1, 9, 0), RRule: "FREQ=DAILY"},
+		{Summary: "one-off", Start: now.Add(48 * time.Hour)},
+	}
+
+	got := upcomingEvents(events, now, 5)
+
+	if len(got) != 2 {
+		t.Fatalf("got %d events, want 2 (one occurrence per series, not several)", len(got))
+	}
+	if got[0].Summary != "daily standup" || got[1].Summary != "one-off" {
+		t.Errorf("got %q then %q", got[0].Summary, got[1].Summary)
+	}
+}
+
+func TestUpcomingEventsWithFewerThanLimitReturnsWhatItHas(t *testing.T) {
+	now := time.Date(2026, 1, 1, 8, 0, 0, 0, time.UTC)
+	events := []icsEvent{{Summary: "only one", Start: now.Add(time.Hour)}}
+
+	got := upcomingEvents(events, now, 3)
+
+	if len(got) != 1 {
+		t.Fatalf("got %d events, want 1", len(got))
+	}
+}
+
 func TestNextUpEventWithNoCandidatesReturnsFalse(t *testing.T) {
 	now := time.Date(2026, 1, 1, 8, 0, 0, 0, time.UTC)
 	events := []icsEvent{
