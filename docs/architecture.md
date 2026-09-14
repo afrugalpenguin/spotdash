@@ -387,12 +387,28 @@ manager shows exactly one face at a time, switches on a tap in the left half
 Faces are independent. A face that throws is contained and reported rather than
 taking the panel down.
 
-Phase 1 faces: `clock`, `telemetry`, `status`, in that tap order. The clock
-comes first because it is what the panel shows most of the time, and status last
-because it is the debug face. The `status` face lists every
-source with its status, last update, and last error, along with agent uptime and
-WebSocket connection state. It is the debug face and the fallback whenever the
-WebSocket is down, so there is always something truthful on screen.
+Current faces, in tap order: `overview`, `calendar`, `spotify`, `telemetry`,
+`status`. `overview` comes first because it is what the panel shows most of
+the time: time, date, and the next-up calendar event together, replacing a
+separate standalone `clock` face once `overview` covered everything it did.
+`clock.js` still exists and is still used by `dev.html`'s own preview
+harness, just not in the shipped face rotation. `status` stays last because
+it is the debug face: it lists every source with its status, last update,
+and last error, along with agent uptime and WebSocket connection state, and
+is the fallback whenever the WebSocket is down, so there is always something
+truthful on screen.
+
+**A CSS gotcha worth knowing before adding interactive content to a face**:
+`.face` centres its content with `transform: translate(-50%, -50%)`, which
+creates a new CSS stacking context. Any `z-index` set on a descendant (such
+as scrollable content that needs to out-rank `.zone`, the face-switch tap
+zones) is trapped inside that context and can never actually win against a
+*sibling* of `.face` like `.zone`, no matter how high the z-index. `.spotify`
+and `.calendar` both override `.face` with `transform: none` and their own
+full-panel positioning for exactly this reason, the same fix in both cases:
+without it, `.calendar-agenda`'s scroll gestures were silently swallowed by
+`.zone` sitting on top of the entire face, found only by testing a real
+swipe on the emulator rather than by reading the CSS.
 
 ### The rim
 

@@ -5,15 +5,18 @@
 // that object once in render and are told when something changed, so no face
 // has to re-read or copy it.
 
-import * as clockFace from "./faces/clock.js";
+import * as overviewFace from "./faces/overview.js";
 import * as spotifyFace from "./faces/spotify.js";
 import * as calendarFace from "./faces/calendar.js";
 import * as telemetryFace from "./faces/telemetry.js";
 import * as statusFace from "./faces/status.js";
 
-// Order is the order tapping cycles through. Clock first because it is what the
-// panel shows most of the time, status last because it is the debug face.
-const FACES = [clockFace, spotifyFace, calendarFace, telemetryFace, statusFace];
+// Order is the order tapping cycles through. Overview first because it is
+// what the panel shows most of the time (time, date, and what's next, all
+// at once), status last because it is the debug face. The standalone clock
+// face was retired once overview existed: overview shows everything clock
+// did, plus the next event, so there was nothing left only clock offered.
+const FACES = [overviewFace, calendarFace, spotifyFace, telemetryFace, statusFace];
 const FACE_NAMES = FACES.map((face) => face.title);
 
 // Reconnection backoff. Starts fast because the common case is the agent
