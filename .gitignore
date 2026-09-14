@@ -1,0 +1,36 @@
+# Secrets. config.json holds the shared bearer token and must never be committed.
+config.json
+agent/config.json
+
+# Go build output
+/agent/spotdash
+/agent/spotdash.exe
+/agent/dist/
+*.exe
+*.test
+*.out
+
+# Agent runtime output
+*.log
+agent/logs/
+
+# Android / Gradle
+shell/.gradle/
+shell/build/
+shell/app/build/
+shell/local.properties
+shell/captures/
+*.apk
+*.aab
+*.keystore
+*.jks
+
+# Editors and OS
+.idea/
+.vscode/
+*.iml
+Thumbs.db
+desktop.ini
+
+# Local planning notes, not part of the project
+spotdash-kickoff-prompt.md
