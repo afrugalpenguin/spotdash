@@ -233,18 +233,26 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
-/* Hour and minute hands are tapered polygons (see createHand in clock.js),
- * so fill carries them rather than stroke. */
+/* Plain straight hands, rounded tip, running only outward from the hub -
+ * no taper, no back-tail. Width is what separates hour from minute from
+ * second, not shape. */
 .clock-hand {
-  fill: var(--text);
+  stroke: var(--text);
+  stroke-linecap: round;
   transition: transform 0.2s ease-out;
+}
+
+.clock-hand-hour {
+  stroke-width: 8;
+}
+
+.clock-hand-minute {
+  stroke-width: 5;
 }
 
 .clock-hand-second {
   stroke: var(--live);
   stroke-width: 2;
-  stroke-linecap: round;
-  fill: none;
   /* The second hand jumps once a second, same as the rim's own seconds arc
    * on the digital face; easing it would make it lag a real reading. */
   transition: none;

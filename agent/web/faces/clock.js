@@ -97,27 +97,14 @@ function createNumeral(numeral) {
   return text;
 }
 
-// A hand is a slim kite rather than a plain stroked line: widest at a short
-// tail below centre, tapering to a point at its tip. That taper, not the
-// tick count, is most of what separates a watch face from a diagram of one.
-function createHand(className, length, baseWidth, tail) {
-  const hand = document.createElementNS(SVG_NS, "polygon");
-  hand.setAttribute("class", className);
-  hand.setAttribute(
-    "points",
-    `0,${tail} ${-baseWidth},0 0,${-length} ${baseWidth},0`
-  );
-  return hand;
-}
-
-// The second hand stays a plain thin line rather than a tapered polygon:
-// tapering reads well on the two slow hands, but a wide taper on the one
-// that sweeps every second would flicker distractingly instead of ticking.
-function createSecondHand(className, length) {
+// A hand is a plain straight stroke with a rounded tip, running only from
+// the centre outward - no back-tail, no taper. Width is what tells hour
+// from minute from second apart, the same as a real clock's hands.
+function createHand(className, length) {
   const hand = document.createElementNS(SVG_NS, "line");
   hand.setAttribute("class", className);
   hand.setAttribute("x1", "0");
-  hand.setAttribute("y1", "16");
+  hand.setAttribute("y1", "0");
   hand.setAttribute("x2", "0");
   hand.setAttribute("y2", String(-length));
   return hand;
@@ -155,14 +142,11 @@ export function render(container, state) {
       hands.appendChild(createNumeral(numeral));
     }
 
-    hourHand = createHand("clock-hand clock-hand-hour", HAND_RADII.hour, 7, 14);
-    minuteHand = createHand("clock-hand clock-hand-minute", HAND_RADII.minute, 5, 16);
-    secondHand = createSecondHand("clock-hand clock-hand-second", HAND_RADII.second);
+    hourHand = createHand("clock-hand clock-hand-hour", HAND_RADII.hour);
+    minuteHand = createHand("clock-hand clock-hand-minute", HAND_RADII.minute);
+    secondHand = createHand("clock-hand clock-hand-second", HAND_RADII.second);
     hands.appendChild(hourHand);
     hands.appendChild(minuteHand);
-    setHand(hourHand, 0);
-    setHand(minuteHand, 0);
-    setHand(secondHand, 0);
     hands.appendChild(secondHand);
 
     const hub = document.createElementNS(SVG_NS, "circle");
