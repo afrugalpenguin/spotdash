@@ -10,6 +10,7 @@ import {
   formatTime,
   progressFraction,
   isPlayable,
+  playPauseAction,
 } from "./faces/spotify.js";
 
 test("a track position formats as minutes and seconds", () => {
@@ -71,4 +72,9 @@ test("advancing copes with a missing duration", () => {
 test("advancing never returns a negative position", () => {
   assert.equal(advancePosition(0, -5000, 342000), 0);
   assert.equal(advancePosition(null, 1000, 342000), 1000);
+});
+
+test("the play/pause action toggles based on current state", () => {
+  assert.equal(playPauseAction(true), "pause");
+  assert.equal(playPauseAction(false), "resume");
 });

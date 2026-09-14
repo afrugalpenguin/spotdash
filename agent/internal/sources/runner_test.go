@@ -296,3 +296,73 @@ func TestFailingSourceDoesNotSpin(t *testing.T) {
 		t.Errorf("a failing source polled %d more times in 100ms, backoff is not being applied", extra)
 	}
 }
+
+func TestPollNowSkipsTheWaitForTheNextTick(t *testing.T) {
+	// This is what a control action needs: the reading a user just changed
+	// (skip, pause) has to reach the panel immediately, not after however long
+	// is left on a slow interval. Waiting up to the interval after a tap reads
+	// as the tap not having worked.
+	store := state.New()
+	store.Register("fake", state.StatusDegraded, "")
+	calls := make(chan struct{}, 10)
+	src := &fakeSource{
+		name:     "fake",
+		interval: time.Hour, // long enough that only PollNow could trigger a second poll in this test
+		poll: func(context.Context, int) (any, error) {
+			calls <- struct{}{}
+			return "reading", nil
+		},
+	}
+
+	runner := startRunner(t, store, src)
+
+	<-calls // the immediate poll on start
+	runner.PollNow("fake")
+
+	select {
+	case <-calls:
+		// A second poll arrived without waiting anywhere near the hour interval.
+	case <-time.After(2 * time.Second):
+		t.Fatal("PollNow did not trigger an immediate second poll")
+	}
+}
+
+func TestPollNowOnAnUnknownSourceIsANoOp(t *testing.T) {
+	store := state.New()
+	runner := NewRunner(store, discardLogger())
+
+	// Must not panic or block when nothing by that name is running.
+	runner.PollNow("does-not-exist")
+}
+
+func TestPollNowCoalescesRapidCalls(t *testing.T) {
+	// Several taps in quick succession should not queue up a poll per tap; one
+	// pending immediate poll is enough; the rest are redundant.
+	store := state.New()
+	store.Register("fake", state.StatusDegraded, "")
+	calls := make(chan struct{}, 20)
+	src := &fakeSource{
+		name:     "fake",
+		interval: time.Hour,
+		poll: func(context.Context, int) (any, error) {
+			select {
+			case calls <- struct{}{}:
+			default:
+			}
+			return "reading", nil
+		},
+	}
+
+	runner := startRunner(t, store, src)
+	<-calls // drain the immediate poll on start
+
+	for i := 0; i < 5; i++ {
+		runner.PollNow("fake")
+	}
+
+	// Give it a moment to process, then confirm it did not spin.
+	time.Sleep(200 * time.Millisecond)
+	if got := src.callCount(); got > 4 {
+		t.Errorf("callCount = %d after 5 rapid PollNow calls, want a small, bounded number", got)
+	}
+}

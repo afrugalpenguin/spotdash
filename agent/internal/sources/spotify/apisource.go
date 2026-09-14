@@ -2,6 +2,8 @@ package spotify
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -18,6 +20,18 @@ type accessTokenSource interface {
 // currentlyPlayingFetcher is satisfied by *apiClient.
 type currentlyPlayingFetcher interface {
 	fetchCurrentlyPlaying(ctx context.Context, accessToken string) (*nowPlaying, error)
+}
+
+// playbackController is satisfied by *apiClient. Deliberately these four
+// methods and no others: volume, seek, shuffle, repeat, device transfer and
+// queueing are all part of the same OAuth scope but are not exposed here. The
+// scope grants what Spotify allows the app to do; this interface is what the
+// agent actually offers a caller with nothing but the LAN token.
+type playbackController interface {
+	pause(ctx context.Context, accessToken string) error
+	resume(ctx context.Context, accessToken string) error
+	next(ctx context.Context, accessToken string) error
+	previous(ctx context.Context, accessToken string) error
 }
 
 // artDownloader fetches raw image bytes from a URL.
@@ -55,6 +69,7 @@ type apiSource struct {
 
 	tokens   accessTokenSource
 	playback currentlyPlayingFetcher
+	control  playbackController
 	art      artDownloader
 
 	artCachePath string
@@ -63,6 +78,17 @@ type apiSource struct {
 
 	// Exposed so the app wiring can mount the OAuth routes.
 	auth *authManager
+
+	// repoll asks the runner to poll this source again immediately, bypassing
+	// the wait for its next scheduled tick. Set by the app wiring via
+	// SetRepoll once the runner exists; nil until then, and nil is a safe,
+	// silent no-op rather than something callers have to check for.
+	repoll func()
+}
+
+// SetRepoll implements sources.RepollRegistrar.
+func (s *apiSource) SetRepoll(fn func()) {
+	s.repoll = fn
 }
 
 // newAPISourceFromSettings validates api-mode settings and builds the real
@@ -89,11 +115,13 @@ func newAPISourceFromSettings(interval time.Duration, s settings) (*apiSource, e
 		return nil, fmt.Errorf("loading the saved spotify connection: %w", err)
 	}
 
+	api := newAPIClient()
 	return &apiSource{
 		interval:     interval,
 		layout:       s.Layout,
 		tokens:       auth,
-		playback:     newAPIClient(),
+		playback:     api,
+		control:      api,
 		art:          &httpArtDownloader{http: &http.Client{Timeout: 10 * time.Second}},
 		artCachePath: filepath.Join(filepath.Dir(s.StateFile), "spotify_art.jpg"),
 		auth:         auth,
@@ -113,9 +141,10 @@ func (s *apiSource) Assets() map[string]string {
 	return map[string]string{artPath: s.artCachePath}
 }
 
-// Routes registers the page that starts a fresh authorization. Requires the
-// bearer token, the same as everything else on the agent that is not
-// /health or the OAuth callback itself.
+// Routes registers the page that starts a fresh authorization, and the
+// playback transport endpoint. Both require the bearer token, the same as
+// everything else on the agent that is not /health or the OAuth callback
+// itself.
 func (s *apiSource) Routes() map[string]http.Handler {
 	return map[string]http.Handler{
 		connectPath: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -126,7 +155,66 @@ func (s *apiSource) Routes() map[string]http.Handler {
 			}
 			http.Redirect(w, r, authorizeURL, http.StatusFound)
 		}),
+		controlPath: http.HandlerFunc(s.handleControl),
 	}
+}
+
+// controlRequest is the body POST /spotify/control expects.
+type controlRequest struct {
+	Action string `json:"action"`
+}
+
+// handleControl runs one playback command. Deliberately exactly four actions:
+// pause, resume, next, previous. Nothing else is wired to playbackController,
+// which is the actual enforcement of the narrow control surface, not just a
+// convention.
+func (s *apiSource) handleControl(w http.ResponseWriter, r *http.Request) {
+	var body controlRequest
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	token, err := s.tokens.accessToken(r.Context())
+	if err != nil {
+		http.Error(w, s.connectionError(err).Error(), http.StatusServiceUnavailable)
+		return
+	}
+
+	var action func(context.Context, string) error
+	switch body.Action {
+	case "pause":
+		action = s.control.pause
+	case "resume":
+		action = s.control.resume
+	case "next":
+		action = s.control.next
+	case "previous":
+		action = s.control.previous
+	default:
+		http.Error(w, `"action" must be one of pause, resume, next, previous`, http.StatusBadRequest)
+		return
+	}
+
+	if err := action(r.Context(), token); err != nil {
+		status := http.StatusBadGateway
+		switch {
+		case errors.Is(err, errNoActiveDevice):
+			status = http.StatusConflict
+		case errors.Is(err, errPremiumRequired):
+			status = http.StatusForbidden
+		}
+		http.Error(w, err.Error(), status)
+		return
+	}
+
+	// The whole point of a transport control: the panel reflects the change
+	// right away rather than whenever the next scheduled poll happens to land.
+	if s.repoll != nil {
+		s.repoll()
+	}
+
+	w.WriteHeader(http.StatusOK)
 }
 
 // OpenRoutes registers the OAuth callback, which must be reachable without

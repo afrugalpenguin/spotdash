@@ -473,6 +473,67 @@ body {
   overflow: hidden;
 }
 
+/* Transport row: previous, play/pause, next. Sits under the title in normal
+ * flex flow, but needs its own stacking order: the panel's left/right
+ * face-switch tap zones (.zone) are z-index 3 and would otherwise swallow a
+ * tap meant for a button underneath them. position: relative is required for
+ * z-index to apply to a flex child at all. */
+.spotify-controls {
+  position: relative;
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  margin: 14px 0 0;
+}
+
+.spotify-control {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 52px;
+  height: 52px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.spotify-control svg {
+  fill: currentColor;
+  pointer-events: none;
+}
+
+/* No permanent button chrome, matching the panel's quiet-except-the-rim
+ * design elsewhere; a faint fill on tap is enough confirmation that
+ * something was pressed. */
+.spotify-control:active {
+  background: rgba(237, 241, 238, 0.12);
+}
+
+/* Same reasoning as .zone: a tap leaves the button focused and the WebView
+ * draws its own ring, which lingers after the tap ends. Keyboard focus still
+ * gets one, since that is navigation rather than a touch artefact. */
+.spotify-control:focus {
+  outline: none;
+}
+
+.spotify-control:focus-visible {
+  outline: 2px solid var(--live);
+  outline-offset: 2px;
+}
+
+/* A tap that Spotify rejected, most commonly no active device. Brief and
+ * unmissable, since there is nowhere else on the panel for a one-off error
+ * like this to show up. */
+.spotify-control.is-denied {
+  color: var(--alert);
+}
+
 .spotify-artist {
   font-size: 21px;
   color: #b9c6c3;

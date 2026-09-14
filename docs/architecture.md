@@ -200,8 +200,10 @@ hand-edited; this file is agent-written. Atomic write, temp file then rename.
 Mode 0600, though NTFS does not enforce POSIX permissions, so on Windows this
 is no stronger than `config.json`'s existing exposure.
 
-**Scope**: `user-read-currently-playing`, `user-read-playback-state`. No write
-scope, so no play or pause from the panel yet.
+**Scope**: `user-read-currently-playing`, `user-read-playback-state`,
+`user-modify-playback-state`. The write scope was added for playback control
+below; an existing connection made before it must reconnect via
+`/spotify/connect` to pick it up.
 
 **Polling**: `GET /me/player/currently-playing`, default 5s interval. Access
 token refreshed before expiry, or once on a 401. No content or a non-track
@@ -214,6 +216,25 @@ device. Re-fetched only when the track ID changes.
 
 **Layout**: `"fill"` or `"disc"`, default `"fill"`, set via config rather than
 a URL parameter since the shell loads one fixed URL with no way to attach one.
+
+**Playback control**: `POST /spotify/control` with `{"action": "..."}`, one of
+`pause`, `resume`, `next`, `previous`. Nothing else, no volume, seek,
+shuffle, repeat, device transfer or queueing, even though the OAuth scope
+technically allows them. The `playbackController` interface only exposes
+these four methods, so that is the actual enforced ceiling on what a leaked
+LAN token can do, not just a convention.
+
+Errors map to status: no active device is 409, Premium required is 403,
+anything else is 502. On success the source asks the runner to poll it again
+immediately (`RepollRegistrar`, `PollNow`) rather than wait out the interval,
+so the panel reflects the change in well under a second instead of up to 5s
+later. Confirmed live: control POST round trip about 150 to 300ms, new track
+on the socket about 0.3 to 0.4s after that.
+
+UI: a previous, play/pause, next row under the track title
+(`.spotify-controls` in the face module). Play/pause applies its known
+outcome to the icon immediately rather than waiting for the next reading; a
+denied action, such as no active device, flashes the button briefly.
 
 ### State and transport
 

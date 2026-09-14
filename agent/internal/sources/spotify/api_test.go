@@ -2,6 +2,7 @@ package spotify
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -196,5 +197,162 @@ func TestFetchSurfacesAnUnexpectedStatus(t *testing.T) {
 
 	if err == nil {
 		t.Fatal("fetchCurrentlyPlaying should return an error on 503")
+	}
+}
+
+// --- Playback control ---
+
+func fakeControlServer(t *testing.T, handler http.HandlerFunc) *apiClient {
+	t.Helper()
+	srv, client := fakeAPIServer(t, handler)
+	_ = srv
+	return client
+}
+
+func TestPauseSendsTheRightRequest(t *testing.T) {
+	var method, path, auth string
+	client := fakeControlServer(t, func(w http.ResponseWriter, r *http.Request) {
+		method, path, auth = r.Method, r.URL.Path, r.Header.Get("Authorization")
+		w.WriteHeader(http.StatusNoContent)
+	})
+
+	err := client.pause(context.Background(), "test-token")
+
+	if err != nil {
+		t.Fatalf("pause returned an error: %v", err)
+	}
+	if method != http.MethodPut {
+		t.Errorf("method = %q, want PUT", method)
+	}
+	if path != "/v1/me/player/pause" {
+		t.Errorf("path = %q", path)
+	}
+	if auth != "Bearer test-token" {
+		t.Errorf("Authorization = %q", auth)
+	}
+}
+
+func TestResumeSendsTheRightRequest(t *testing.T) {
+	var method, path string
+	client := fakeControlServer(t, func(w http.ResponseWriter, r *http.Request) {
+		method, path = r.Method, r.URL.Path
+		w.WriteHeader(http.StatusNoContent)
+	})
+
+	if err := client.resume(context.Background(), "test-token"); err != nil {
+		t.Fatalf("resume returned an error: %v", err)
+	}
+	if method != http.MethodPut || path != "/v1/me/player/play" {
+		t.Errorf("method/path = %s %s, want PUT /v1/me/player/play", method, path)
+	}
+}
+
+func TestNextSendsTheRightRequest(t *testing.T) {
+	var method, path string
+	client := fakeControlServer(t, func(w http.ResponseWriter, r *http.Request) {
+		method, path = r.Method, r.URL.Path
+		w.WriteHeader(http.StatusNoContent)
+	})
+
+	if err := client.next(context.Background(), "test-token"); err != nil {
+		t.Fatalf("next returned an error: %v", err)
+	}
+	if method != http.MethodPost || path != "/v1/me/player/next" {
+		t.Errorf("method/path = %s %s, want POST /v1/me/player/next", method, path)
+	}
+}
+
+func TestPreviousSendsTheRightRequest(t *testing.T) {
+	var method, path string
+	client := fakeControlServer(t, func(w http.ResponseWriter, r *http.Request) {
+		method, path = r.Method, r.URL.Path
+		w.WriteHeader(http.StatusNoContent)
+	})
+
+	if err := client.previous(context.Background(), "test-token"); err != nil {
+		t.Fatalf("previous returned an error: %v", err)
+	}
+	if method != http.MethodPost || path != "/v1/me/player/previous" {
+		t.Errorf("method/path = %s %s, want POST /v1/me/player/previous", method, path)
+	}
+}
+
+func TestControlReportsNoActiveDevice(t *testing.T) {
+	// The real, common failure mode: nothing is currently playing anywhere, so
+	// there is no device for the command to reach. Worth a clear message rather
+	// than a bare "HTTP 404".
+	client := fakeControlServer(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+		json.NewEncoder(w).Encode(map[string]any{
+			"error": map[string]any{"status": 404, "message": "Device not found", "reason": "NO_ACTIVE_DEVICE"},
+		})
+	})
+
+	err := client.pause(context.Background(), "token")
+
+	if !errors.Is(err, errNoActiveDevice) {
+		t.Errorf("err = %v, want errNoActiveDevice", err)
+	}
+}
+
+func TestControlReportsPremiumRequired(t *testing.T) {
+	// Playback control is a Spotify Premium feature. A free account gets a 403
+	// with this specific reason, worth surfacing rather than a generic failure.
+	client := fakeControlServer(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+		json.NewEncoder(w).Encode(map[string]any{
+			"error": map[string]any{"status": 403, "message": "Player command failed: Premium required", "reason": "PREMIUM_REQUIRED"},
+		})
+	})
+
+	err := client.resume(context.Background(), "token")
+
+	if !errors.Is(err, errPremiumRequired) {
+		t.Errorf("err = %v, want errPremiumRequired", err)
+	}
+}
+
+func TestControlReportsExpiredToken(t *testing.T) {
+	client := fakeControlServer(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+	})
+
+	err := client.next(context.Background(), "token")
+
+	if !errors.Is(err, errAccessTokenExpired) {
+		t.Errorf("err = %v, want errAccessTokenExpired", err)
+	}
+}
+
+func TestControlSurfacesAnUnrecognisedFailure(t *testing.T) {
+	client := fakeControlServer(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+		json.NewEncoder(w).Encode(map[string]any{
+			"error": map[string]any{"status": 403, "message": "Restricted", "reason": "SOMETHING_NEW"},
+		})
+	})
+
+	err := client.previous(context.Background(), "token")
+
+	if err == nil {
+		t.Fatal("previous should fail on an unrecognised 403")
+	}
+	if errors.Is(err, errNoActiveDevice) || errors.Is(err, errPremiumRequired) || errors.Is(err, errAccessTokenExpired) {
+		t.Error("an unrecognised reason should not be misreported as one of the known ones")
+	}
+}
+
+func TestControlTreatsAny2xxAsSuccess(t *testing.T) {
+	// Found live: Spotify's actual behaviour is not consistently 204 across
+	// these endpoints. /v1/me/player/play returned a bare 200 in practice,
+	// which the first version of this code wrongly treated as a failure.
+	for _, status := range []int{http.StatusOK, http.StatusNoContent} {
+		client := fakeControlServer(t, func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(status)
+		})
+
+		if err := client.resume(context.Background(), "token"); err != nil {
+			t.Errorf("status %d: resume returned an error: %v", status, err)
+		}
 	}
 }

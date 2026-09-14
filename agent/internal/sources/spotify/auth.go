@@ -13,10 +13,17 @@ import (
 // authorizeEndpoint is Spotify's consent page.
 const authorizeEndpoint = "https://accounts.spotify.com/authorize"
 
-// scope requests read-only access to what is currently playing. No write
-// scope: play and pause from the panel would be the first write path in the
-// system, and that boundary is not crossed here.
-const scope = "user-read-currently-playing user-read-playback-state"
+// scope requests read access to what is currently playing, plus the one write
+// scope needed for the transport controls: pause, resume, next, previous.
+// Nothing broader. user-modify-playback-state also covers volume, seek,
+// shuffle, repeat, device transfer, and queueing, none of which this agent
+// exposes; the control surface actually reachable is limited to those four
+// actions by internal/sources/spotify/apisource.go, not by the scope alone.
+//
+// Anyone already connected before this scope was added does not have it.
+// Spotify grants scopes at consent time, so the first control attempt on an
+// old connection fails until they reconnect through /spotify/connect.
+const scope = "user-read-currently-playing user-read-playback-state user-modify-playback-state"
 
 // pendingAttemptTTL bounds how long a beginAuth attempt stays valid. Someone
 // who opens the consent page and walks away should not leave a permanently

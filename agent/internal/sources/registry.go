@@ -52,6 +52,15 @@ type OpenRouteProvider interface {
 	OpenRoutes() map[string]http.Handler
 }
 
+// RepollRegistrar is an optional extra a source may implement to ask for an
+// immediate re-poll after it changes something itself, such as a playback
+// control action. A source has no reference to the runner that schedules it,
+// so the registry hands it a function rather than the source reaching for the
+// runner directly.
+type RepollRegistrar interface {
+	SetRepoll(fn func())
+}
+
 // Factory builds a source from its config block.
 type Factory func(cfg config.Source) (Source, error)
 

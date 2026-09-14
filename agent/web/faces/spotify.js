@@ -19,6 +19,11 @@ let totalEl = null;
 let stateEl = null;
 let arcEl = null;
 let shownArt = "";
+let controlsEl = null;
+let playPauseIconEl = null;
+let currentlyPlaying = false;
+
+const SVG_NS = "http://www.w3.org/2000/svg";
 
 // The agent polls Spotify rather than being pushed to, and it cannot poll every
 // second without being rate limited, so readings arrive every few seconds. The
@@ -56,6 +61,12 @@ export function isPlayable(data) {
   return Boolean(data && typeof data.title === "string" && data.title !== "");
 }
 
+// playPauseAction is which control action the toggle button sends next, given
+// whether playback is currently reported as playing.
+export function playPauseAction(playing) {
+  return playing ? "pause" : "resume";
+}
+
 // advancePosition moves the counter on by the time elapsed, looping back to the
 // start at the end of the track.
 //
@@ -70,6 +81,74 @@ export function advancePosition(positionMs, elapsedMs, durationMs) {
   const by = typeof elapsedMs === "number" && Number.isFinite(elapsedMs) ? elapsedMs : 0;
   const next = (from + by) % durationMs;
   return next < 0 ? 0 : next;
+}
+
+// svgIcon builds one small flat icon from a list of path "d" attributes.
+function svgIcon(paths) {
+  const svg = document.createElementNS(SVG_NS, "svg");
+  svg.setAttribute("viewBox", "0 0 24 24");
+  svg.setAttribute("width", "22");
+  svg.setAttribute("height", "22");
+  for (const d of paths) {
+    const path = document.createElementNS(SVG_NS, "path");
+    path.setAttribute("d", d);
+    svg.appendChild(path);
+  }
+  return svg;
+}
+
+// Standard transport glyphs, drawn as flat triangles and bars rather than
+// text or emoji, so they scale cleanly and take colour from CSS like every
+// other mark on the panel.
+function previousIcon() {
+  return svgIcon(["M6 5h2v14H6z", "M20 5L9 12l11 7z"]);
+}
+function nextIcon() {
+  return svgIcon(["M16 5h2v14h-2z", "M4 5l11 7-11 7z"]);
+}
+function playIcon() {
+  return svgIcon(["M6 4l14 8-14 8z"]);
+}
+function pauseIcon() {
+  return svgIcon(["M5 4h5v16H5z", "M14 4h5v16h-5z"]);
+}
+
+// buildControlButton makes one round tap target holding an icon. Sized well
+// past the usual 44px touch-target minimum, since the real device's
+// digitiser is less precise than the emulator's.
+function buildControlButton(label, icon) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "spotify-control";
+  button.setAttribute("aria-label", label);
+  button.appendChild(icon);
+  return button;
+}
+
+// sendControl posts one transport command and reports whether it was
+// accepted. Awaited rather than applied optimistically before the response:
+// a control action is a fast LAN round trip plus one Spotify call, so the
+// wait is short, and it avoids a separate "revert on failure" state machine
+// for what is otherwise a simple toggle.
+async function sendControl(action) {
+  try {
+    const response = await fetch("/spotify/control", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action }),
+    });
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
+// flashDenied gives brief visual feedback that a tap registered but the
+// action failed (most commonly: no active device), since there is nowhere
+// else on the panel a one-off error like this can show up.
+function flashDenied(button) {
+  button.classList.add("is-denied");
+  setTimeout(() => button.classList.remove("is-denied"), 600);
 }
 
 // The cover filling the panel is the default: it has the most presence and is
@@ -104,6 +183,40 @@ export function render(container, state) {
   titleEl = document.createElement("p");
   titleEl.className = "spotify-title";
 
+  // The transport row: previous, play/pause, next. Positioned in normal flow
+  // directly under the title in both layouts, but it needs a stacking order
+  // above the panel's left/right face-switch tap zones (.zone, z-index 3) or
+  // a tap here would switch faces instead of hitting the button. position:
+  // relative is required for z-index to take effect on a flex child.
+  controlsEl = document.createElement("div");
+  controlsEl.className = "spotify-controls";
+
+  const prevBtn = buildControlButton("previous track", previousIcon());
+  playPauseIconEl = playIcon();
+  const playPauseBtn = buildControlButton("play or pause", playPauseIconEl);
+  const nextBtn = buildControlButton("next track", nextIcon());
+
+  prevBtn.addEventListener("click", async () => {
+    if (!(await sendControl("previous"))) flashDenied(prevBtn);
+  });
+  nextBtn.addEventListener("click", async () => {
+    if (!(await sendControl("next"))) flashDenied(nextBtn);
+  });
+  playPauseBtn.addEventListener("click", async () => {
+    const action = playPauseAction(currentlyPlaying);
+    if (await sendControl(action)) {
+      // Known outcome, applied at once rather than waiting for the next poll:
+      // a transport button that lags behind its own tap reads as broken.
+      setPlayingIcon(!currentlyPlaying);
+    } else {
+      flashDenied(playPauseBtn);
+    }
+  });
+
+  controlsEl.appendChild(prevBtn);
+  controlsEl.appendChild(playPauseBtn);
+  controlsEl.appendChild(nextBtn);
+
   artistEl = document.createElement("p");
   artistEl.className = "spotify-artist";
 
@@ -121,6 +234,7 @@ export function render(container, state) {
   stateEl.className = "spotify-state";
 
   content.appendChild(titleEl);
+  content.appendChild(controlsEl);
   content.appendChild(artistEl);
   content.appendChild(albumEl);
   content.appendChild(times);
@@ -152,6 +266,8 @@ function showIdle() {
   root.dataset.art = "none";
   artHost.innerHTML = "";
   shownArt = "";
+  // Nothing to target: no active playback for a control action to reach.
+  controlsEl.hidden = true;
   titleEl.className = "spotify-idle";
   titleEl.textContent = "Nothing playing";
   artistEl.textContent = "";
@@ -213,6 +329,16 @@ function startTicking() {
   }, TICK_MS);
 }
 
+// setPlayingIcon swaps the toggle button between play and pause glyphs and
+// records which one is showing, so the next tap knows which action to send.
+function setPlayingIcon(playing) {
+  currentlyPlaying = playing;
+  if (!playPauseIconEl) return;
+  const replacement = playing ? pauseIcon() : playIcon();
+  playPauseIconEl.replaceWith(replacement);
+  playPauseIconEl = replacement;
+}
+
 // paintPosition updates only the counter and the rim, which is all that changes
 // between readings. Rebuilding the face every second on a MediaTek SoC would be
 // wasteful for no visible difference.
@@ -258,6 +384,7 @@ export function onState(source, data) {
 
   setArt(data.art_url || "");
 
+  controlsEl.hidden = false;
   titleEl.className = "spotify-title";
   titleEl.textContent = data.title;
   artistEl.textContent = data.artist || "";
@@ -268,6 +395,10 @@ export function onState(source, data) {
   // Paused changes form rather than only adding a word, so the answer to "is it
   // playing" arrives before anything is read.
   const paused = data.playing === false;
+  // The reading is the truth. A play/pause tap already applied its own known
+  // outcome locally; this brings the icon back in line with whatever
+  // actually happened, including a change made from outside the panel.
+  setPlayingIcon(!paused);
   root.classList.toggle("is-paused", paused);
   stateEl.textContent = paused ? "paused" : "";
   arcEl.classList.toggle("is-warn", paused);
@@ -300,6 +431,9 @@ export function teardown() {
   stateEl = null;
   arcEl = null;
   shownArt = "";
+  controlsEl = null;
+  playPauseIconEl = null;
+  currentlyPlaying = false;
 }
 
 export const title = "spotify";
