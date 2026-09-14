@@ -106,6 +106,48 @@ connection drops, `/health` and the status face show why and link back to
 `/spotify/connect`. A connection made before playback control was added needs
 one more visit to `/spotify/connect` to pick up the extra permission.
 
+## Connecting a calendar
+
+`calendar` has two modes, set with the required `mode` key (no default).
+
+**Mock**, no feed needed:
+
+```json
+"calendar": {
+  "enabled": true,
+  "interval_ms": 5000,
+  "mode": "mock",
+  "title": "Standup with the team",
+  "location": "Microsoft Teams Meeting",
+  "start_in_minutes": 12,
+  "notify_minutes": 15,
+  "show_seconds": 45
+}
+```
+
+**ICS**, a real feed URL. Outlook: Calendar settings > Shared calendars >
+Publish a calendar, copy the ICS link. Keep it secret; anyone with the link
+can read the calendar.
+
+```json
+"calendar": {
+  "enabled": true,
+  "interval_ms": 45000,
+  "mode": "ics",
+  "feed_url": "https://outlook.office365.com/owa/calendar/.../calendar.ics",
+  "notify_minutes": 15,
+  "show_seconds": 45
+}
+```
+
+`notify_minutes` (default 15) is how far out an event counts as imminent;
+crossing it switches the panel to the calendar face automatically, waking it
+even during the clock's sleep window. `show_seconds` (default 45) is how
+long that switch holds before returning to whatever face was showing.
+
+Recurring and all-day events do not appear as next-up yet: see
+`docs/architecture.md`.
+
 ## Web UI without the agent
 
 `agent/web/dev.html` renders the UI inside a 480x480 circle in a desktop

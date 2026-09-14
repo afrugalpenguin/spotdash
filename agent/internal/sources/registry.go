@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/afrugalpenguin/spotdash/agent/internal/config"
+	"github.com/afrugalpenguin/spotdash/agent/internal/sources/calendar"
 	"github.com/afrugalpenguin/spotdash/agent/internal/sources/clock"
 	"github.com/afrugalpenguin/spotdash/agent/internal/sources/spotify"
 	"github.com/afrugalpenguin/spotdash/agent/internal/sources/telemetry"
@@ -69,6 +70,7 @@ var errTestConstruction = errors.New("construction failed")
 
 // factories is the one place a new source has to be mentioned.
 var factories = map[string]Factory{
+	calendar.Name:  adapt(calendar.New),
 	clock.Name:     adapt(clock.New),
 	spotify.Name:   adapt(spotify.New),
 	telemetry.Name: adapt(telemetry.New),

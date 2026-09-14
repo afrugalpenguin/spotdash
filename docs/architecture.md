@@ -217,24 +217,38 @@ device. Re-fetched only when the track ID changes.
 **Layout**: `"fill"` or `"disc"`, default `"fill"`, set via config rather than
 a URL parameter since the shell loads one fixed URL with no way to attach one.
 
-**Playback control**: `POST /spotify/control` with `{"action": "..."}`, one of
-`pause`, `resume`, `next`, `previous`. Nothing else, no volume, seek,
-shuffle, repeat, device transfer or queueing, even though the OAuth scope
-technically allows them. The `playbackController` interface only exposes
-these four methods, so that is the actual enforced ceiling on what a leaked
-LAN token can do, not just a convention.
+### Calendar
 
-Errors map to status: no active device is 409, Premium required is 403,
-anything else is 502. On success the source asks the runner to poll it again
-immediately (`RepollRegistrar`, `PollNow`) rather than wait out the interval,
-so the panel reflects the change in well under a second instead of up to 5s
-later. Confirmed live: control POST round trip about 150 to 300ms, new track
-on the socket about 0.3 to 0.4s after that.
+Same two-provider shape as Spotify: `mode: "mock"` for a configured sample
+event, `mode: "ics"` for a real feed. No OAuth: an ICS feed is a URL, which
+Outlook publishes natively and any future replacement calendar only needs to
+serve the same way.
 
-UI: a previous, play/pause, next row under the track title
-(`.spotify-controls` in the face module). Play/pause applies its known
-outcome to the icon immediately rather than waiting for the next reading; a
-denied action, such as no active device, flashes the button briefly.
+Shows exactly one thing, the next-up event: title, location (whatever the
+feed's own `LOCATION` field says, e.g. "Microsoft Teams Meeting"), start
+time, and a countdown that ticks locally between polls the same way spotify's
+position does. No agenda, no multi-calendar merge, no editing.
+
+**Parsing** (`ics.go`): a minimal hand-rolled RFC 5545 reader, not a library.
+Reads `SUMMARY`, `LOCATION`, `DTSTART` (UTC, a named `TZID`, or floating
+local time) and whether `RRULE` is present. Recurring and all-day events are
+excluded from next-up selection rather than guessed at: this parser does not
+expand recurrence rules, so a recurring event's own `DTSTART` is just its
+first-ever occurrence, almost always in the past, and showing that as
+"next up" would be actively wrong rather than merely incomplete. A daily
+standup will not appear here until RRULE expansion is built. `time/tzdata` is
+embedded so a named `TZID` resolves without depending on the host machine
+having its own timezone database, matching the single-static-binary design.
+
+**Auto-switch**: the source itself decides urgency, not the client. Each
+reading carries `urgent` (true once the event is within `notify_minutes` of
+its `config.Source` block, default 15) and `show_seconds` (default 45). The
+client (`app.js`) switches to the calendar face the moment a reading with a
+new `urgent` event arrives, forces the sleep window off for the duration
+even during the clock's configured sleep hours, holds for `show_seconds`,
+then returns to whatever face was showing, unless the viewer has already
+tapped away. Deciding "urgent" server-side keeps the threshold in one place
+and out of the client entirely.
 
 ### State and transport
 
