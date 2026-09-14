@@ -9,7 +9,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { handAngles } from "./faces/clock.js";
+import { handAngles, tickMarks } from "./faces/clock.js";
 
 test("twelve o'clock exactly points every hand at the top", () => {
   const angles = handAngles("00:00", 0);
@@ -43,4 +43,19 @@ test("the hour hand wraps a 24 hour reading onto a 12 hour face", () => {
 test("an unparseable time reads as twelve o'clock rather than throwing", () => {
   assert.deepEqual(handAngles("", 0), { hour: 0, minute: 0, second: 0 });
   assert.deepEqual(handAngles("--:--", 0), { hour: 0, minute: 0, second: 0 });
+});
+
+test("tickMarks places twelve ticks, thirty degrees apart", () => {
+  const ticks = tickMarks();
+
+  assert.equal(ticks.length, 12);
+  assert.deepEqual(ticks.map((t) => t.angle), [0, 30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330]);
+});
+
+test("tickMarks marks twelve, three, six and nine as major", () => {
+  const major = tickMarks()
+    .filter((t) => t.major)
+    .map((t) => t.angle);
+
+  assert.deepEqual(major, [0, 90, 180, 270]);
 });

@@ -6,7 +6,7 @@
 // The rim arc is the same structural device every other face uses: the rim
 // carries the quantity, the centre carries the reading.
 
-import { createRim, RIM_CIRCUMFERENCE, setArc } from "./rim.js";
+import { createRim, RIM_CIRCUMFERENCE, RIM_RADIUS, setArc } from "./rim.js";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 // Centre and radius match the rim's own 480x480 viewBox and RIM_RADIUS, so
@@ -43,6 +43,32 @@ export function handAngles(time, seconds) {
   };
 }
 
+// tickMarks returns the twelve hour positions as degrees clockwise from
+// twelve o'clock, each flagged major at 12/3/6/9 (drawn longer and bolder,
+// the same weight distinction a real clock face uses) so bare hands on an
+// empty rim read as a clock rather than a windmill.
+export function tickMarks() {
+  const ticks = [];
+  for (let i = 0; i < 12; i += 1) {
+    const angle = i * 30;
+    ticks.push({ angle, major: angle % 90 === 0 });
+  }
+  return ticks;
+}
+
+function createTick(tick) {
+  const outer = RIM_RADIUS - 6;
+  const length = tick.major ? 24 : 14;
+  const mark = document.createElementNS(SVG_NS, "line");
+  mark.setAttribute("class", tick.major ? "clock-tick clock-tick-major" : "clock-tick");
+  mark.setAttribute("x1", String(CENTER));
+  mark.setAttribute("y1", String(CENTER - outer));
+  mark.setAttribute("x2", String(CENTER));
+  mark.setAttribute("y2", String(CENTER - outer + length));
+  mark.setAttribute("transform", `rotate(${tick.angle} ${CENTER} ${CENTER})`);
+  return mark;
+}
+
 function createHand(className, length) {
   const hand = document.createElementNS(SVG_NS, "line");
   hand.setAttribute("class", className);
@@ -73,6 +99,10 @@ export function render(container, state) {
     hands.setAttribute("class", "clock-hands");
     hands.setAttribute("viewBox", "0 0 480 480");
     hands.setAttribute("aria-hidden", "true");
+
+    for (const tick of tickMarks()) {
+      hands.appendChild(createTick(tick));
+    }
 
     hourHand = createHand("clock-hand clock-hand-hour", HAND_RADII.hour);
     minuteHand = createHand("clock-hand clock-hand-minute", HAND_RADII.minute);

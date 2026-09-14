@@ -213,6 +213,16 @@ body {
   pointer-events: none;
 }
 
+.clock-tick {
+  stroke: var(--muted);
+  stroke-width: 2;
+}
+
+.clock-tick-major {
+  stroke: var(--text);
+  stroke-width: 4;
+}
+
 .clock-hand {
   stroke: var(--text);
   stroke-linecap: round;
