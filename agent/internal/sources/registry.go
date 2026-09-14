@@ -14,6 +14,7 @@ import (
 
 	"github.com/afrugalpenguin/spotdash/agent/internal/config"
 	"github.com/afrugalpenguin/spotdash/agent/internal/sources/clock"
+	"github.com/afrugalpenguin/spotdash/agent/internal/sources/spotify"
 	"github.com/afrugalpenguin/spotdash/agent/internal/sources/telemetry"
 )
 
@@ -22,6 +23,16 @@ type Source interface {
 	Name() string
 	Poll(ctx context.Context) (any, error)
 	Interval() time.Duration
+}
+
+// AssetProvider is an optional extra a source may implement when it wants the
+// agent to serve files on its behalf, such as album art.
+//
+// Opt-in rather than part of the Source contract: a source with nothing to
+// serve implements nothing, and the registry stays unaware of what any
+// particular source needs.
+type AssetProvider interface {
+	Assets() map[string]string
 }
 
 // Factory builds a source from its config block.
@@ -33,6 +44,7 @@ var errTestConstruction = errors.New("construction failed")
 // factories is the one place a new source has to be mentioned.
 var factories = map[string]Factory{
 	clock.Name:     adapt(clock.New),
+	spotify.Name:   adapt(spotify.New),
 	telemetry.Name: adapt(telemetry.New),
 }
 

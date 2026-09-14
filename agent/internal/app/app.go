@@ -221,6 +221,22 @@ func (a *App) startSession(cfg *config.Config) (*session, error) {
 		Logger:  a.log,
 	})
 	srv.HandleWebSocket()
+
+	// A source may ask the agent to serve files for it, which is how album art
+	// reaches the panel from the machine next to it rather than from a CDN.
+	// Registered before the static handler, which takes the root.
+	for _, src := range built {
+		provider, ok := src.(sources.AssetProvider)
+		if !ok {
+			continue
+		}
+		for urlPath, filePath := range provider.Assets() {
+			path := filePath
+			srv.HandleFile(urlPath, func() string { return path })
+			a.log.Debug("serving source asset", "source", src.Name(), "path", urlPath, "file", path)
+		}
+	}
+
 	srv.HandleStatic()
 
 	httpServer := &http.Server{
