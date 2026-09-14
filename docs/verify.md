@@ -259,17 +259,101 @@ Records go to stderr and to the rotating file at the same time.
 
 ## 3. Source registry and the clock source
 
-Status: not yet verified.
+Status: verified on 2026-09-14.
 
-What must be shown:
-
-- The registry starts one goroutine for the enabled `clock` source.
-- `GET /health` reports `clock` as `ok` with a recent last-update time.
-- Disabling `clock` in config makes `/health` report it as `disabled`.
+### Unit tests
 
 ```
-Not yet verified.
+$ go vet ./... && gofmt -l .
+$ go test ./...
+?       github.com/afrugalpenguin/spotdash/agent/cmd/spotdash          [no test files]
+ok      github.com/afrugalpenguin/spotdash/agent/internal/config        0.230s
+ok      github.com/afrugalpenguin/spotdash/agent/internal/logging       0.212s
+ok      github.com/afrugalpenguin/spotdash/agent/internal/server        0.282s
+ok      github.com/afrugalpenguin/spotdash/agent/internal/sources       0.430s
+ok      github.com/afrugalpenguin/spotdash/agent/internal/sources/clock 0.218s
+ok      github.com/afrugalpenguin/spotdash/agent/internal/state         0.184s
+
+$ go test -race -count=1 ./...
+?       github.com/afrugalpenguin/spotdash/agent/cmd/spotdash          [no test files]
+ok      github.com/afrugalpenguin/spotdash/agent/internal/config        1.317s
+ok      github.com/afrugalpenguin/spotdash/agent/internal/logging       1.282s
+ok      github.com/afrugalpenguin/spotdash/agent/internal/server        1.375s
+ok      github.com/afrugalpenguin/spotdash/agent/internal/sources       1.470s
+ok      github.com/afrugalpenguin/spotdash/agent/internal/sources/clock 1.159s
+ok      github.com/afrugalpenguin/spotdash/agent/internal/state         1.129s
 ```
+
+The runner tests cover the parts that are hard to eyeball: a panic in `Poll`
+recorded as an error with the source recovering on a later poll, one source
+panicking while another keeps reporting `ok`, `Poll` receiving a context with a
+deadline, the backoff curve growing and capping without overflowing, and a
+failing source not spinning. The clock tests cover the sleep window on both
+sides of every boundary, including the midnight crossing.
+
+### Registry fail-closed paths
+
+```
+$ ./spotdash.exe -config bad.json   # {"sources":{"spotify":{"enabled":true,...}}}
+spotdash: config names an unknown source "spotify"
+exit=1
+
+$ ./spotdash.exe -config bad.json   # {"sources":{"clok":{"enabled":false,...}}}
+spotdash: config names an unknown source "clok"
+exit=1
+
+$ ./spotdash.exe -config bad.json   # clock with "sleep_start":"25:00"
+spotdash: source "clock": "sleep_start" "25:00": hour 25 is out of range, want 0 to 23
+exit=1
+```
+
+The middle case is the one worth keeping. The source is disabled, so nothing
+would have run either way, but `clok` is how a working clock face silently stops
+appearing.
+
+### Clock source running
+
+Config: `clock` enabled at `interval_ms` 1000.
+
+```
+$ curl -s http://127.0.0.1:8765/health
+{"version":"0.1.0-item3","uptime_seconds":5.2572229,"sources":{"clock":{"status":"ok","last_update":"2026-09-14T08:15:10Z"}}}
+
+$ sleep 3 && curl -s http://127.0.0.1:8765/health
+{"version":"0.1.0-item3","uptime_seconds":8.343657199999999,"sources":{"clock":{"status":"ok","last_update":"2026-09-14T08:15:13Z"}}}
+```
+
+`clock` reports `ok` and `last_update` advances from `:10` to `:13`, so it is
+being polled rather than reporting a single startup reading.
+
+Per-poll debug logging, one record per second as configured:
+
+```
+$ grep -c "source poll ok" spotdash.log
+15
+$ grep "source poll ok" spotdash.log | tail -3
+time=2026-09-14T09:15:17.622+01:00 level=DEBUG msg="source poll ok" source=clock duration=0s
+time=2026-09-14T09:15:18.623+01:00 level=DEBUG msg="source poll ok" source=clock duration=0s
+time=2026-09-14T09:15:19.623+01:00 level=DEBUG msg="source poll ok" source=clock duration=0s
+```
+
+### Disabled source
+
+Same config with `"enabled": false`:
+
+```
+$ curl -s http://127.0.0.1:8766/health
+{"version":"0.1.0-item3","uptime_seconds":5.7123188,"sources":{"clock":{"status":"disabled"}}}
+
+$ grep "sources started" spotdash.log
+time=2026-09-14T09:15:33.032+01:00 level=INFO msg="sources started" count=0
+
+$ grep -c "source poll ok" spotdash.log
+0
+```
+
+Reported as `disabled`, no goroutine started, and no polls. A disabled source
+costs nothing at runtime rather than being polled and discarded.
 
 ## 4. WebSocket broadcast
 

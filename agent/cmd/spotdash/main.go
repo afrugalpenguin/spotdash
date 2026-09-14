@@ -17,6 +17,7 @@ import (
 	"github.com/afrugalpenguin/spotdash/agent/internal/config"
 	"github.com/afrugalpenguin/spotdash/agent/internal/logging"
 	"github.com/afrugalpenguin/spotdash/agent/internal/server"
+	"github.com/afrugalpenguin/spotdash/agent/internal/sources"
 	"github.com/afrugalpenguin/spotdash/agent/internal/state"
 )
 
@@ -79,10 +80,18 @@ func run() error {
 		"log_level", cfg.LogLevel,
 	)
 
+	// Built before anything starts listening, so a source that cannot be
+	// constructed stops the agent rather than producing a face that never
+	// populates.
+	built, err := sources.Build(cfg)
+	if err != nil {
+		return err
+	}
+
 	store := state.New()
 	for _, name := range cfg.SourceNames() {
 		if cfg.Sources[name].Enabled {
-			// Enabled but not yet producing data. The registry flips this to ok
+			// Enabled but not yet producing data. The runner flips this to ok
 			// on the first successful poll.
 			store.Register(name, state.StatusDegraded, "awaiting first poll")
 		} else {
@@ -108,6 +117,10 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	runner := sources.NewRunner(store, log)
+	runner.Start(ctx, built)
+	log.Info("sources started", "count", len(built))
+
 	errCh := make(chan error, 1)
 	go func() {
 		log.Info("listening", "addr", cfg.Listen)
@@ -120,6 +133,10 @@ func run() error {
 
 	select {
 	case err := <-errCh:
+		// The listener failed, so the sources have nothing to feed. Stop them
+		// before returning.
+		stop()
+		runner.Wait()
 		return err
 	case <-ctx.Done():
 		log.Info("shutdown requested")
@@ -130,6 +147,11 @@ func run() error {
 	if err := httpServer.Shutdown(shutdownCtx); err != nil {
 		return fmt.Errorf("shutting down http server: %w", err)
 	}
+
+	// The context is already cancelled here, so every source goroutine is on
+	// its way out. Wait for them so shutdown is actually complete when this
+	// returns.
+	runner.Wait()
 	log.Info("stopped cleanly")
 	return nil
 }
