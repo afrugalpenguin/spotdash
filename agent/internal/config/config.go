@@ -26,6 +26,12 @@ const (
 
 var validLogLevels = []string{"debug", "info", "warn", "error"}
 
+// KnownFaces are the faces the panel can show, by the title each face
+// module in agent/web/faces exports. Kept here, not just in app.js, so a
+// typo or a stale name in hidden_faces is a startup error rather than a
+// setting that silently does nothing.
+var KnownFaces = []string{"overview", "clock", "calendar", "spotify", "telemetry", "status"}
+
 // accentColorPattern is the only shape accent_color is allowed to take: a
 // 6-digit hex colour with its leading #, exactly what an
 // <input type="color"> produces. Anything else is rejected rather than
@@ -85,7 +91,11 @@ type Config struct {
 	// absent value keeps the built-in default the stylesheet ships with.
 	// Changed from the tray's settings page rather than usually hand-edited,
 	// which is why it round-trips through Save rather than only Load.
-	AccentColor string            `json:"accent_color,omitempty"`
+	AccentColor string `json:"accent_color,omitempty"`
+	// HiddenFaces are face titles (see KnownFaces) left out of the tap
+	// rotation. Optional: an absent or empty list shows every face, the
+	// same as before this setting existed. Changed from the settings page.
+	HiddenFaces []string          `json:"hidden_faces,omitempty"`
 	Sources     map[string]Source `json:"sources"`
 }
 
@@ -194,6 +204,16 @@ func (c *Config) Validate() error {
 	}
 	if c.AccentColor != "" && !accentColorPattern.MatchString(c.AccentColor) {
 		return fmt.Errorf(`"accent_color" is %q, want a 6-digit hex colour such as "#4e9eea"`, c.AccentColor)
+	}
+	hidden := make(map[string]bool, len(c.HiddenFaces))
+	for _, face := range c.HiddenFaces {
+		if !contains(KnownFaces, face) {
+			return fmt.Errorf(`"hidden_faces" names %q, want one of %s`, face, strings.Join(KnownFaces, ", "))
+		}
+		hidden[face] = true
+	}
+	if len(hidden) >= len(KnownFaces) {
+		return errors.New(`"hidden_faces" cannot hide every face: the panel would have nothing to show`)
 	}
 	for _, name := range c.SourceNames() {
 		src := c.Sources[name]

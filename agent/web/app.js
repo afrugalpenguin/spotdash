@@ -6,18 +6,36 @@
 // has to re-read or copy it.
 
 import * as overviewFace from "./faces/overview.js";
+import * as clockFace from "./faces/clock.js";
 import * as spotifyFace from "./faces/spotify.js";
 import * as calendarFace from "./faces/calendar.js";
 import * as telemetryFace from "./faces/telemetry.js";
 import * as statusFace from "./faces/status.js";
 
-// Order is the order tapping cycles through. Overview first because it is
-// what the panel shows most of the time (time, date, and what's next, all
-// at once), status last because it is the debug face. The standalone clock
-// face was retired once overview existed: overview shows everything clock
-// did, plus the next event, so there was nothing left only clock offered.
-const FACES = [overviewFace, calendarFace, spotifyFace, telemetryFace, statusFace];
-const FACE_NAMES = FACES.map((face) => face.title);
+// Every face that exists, in the order tapping cycles through when none are
+// hidden. Overview first because it is what the panel shows most of the
+// time (time, date, and what's next, all at once); clock right after it for
+// whoever prefers the plain, uncombined face; status last because it is the
+// debug face. Titles here have to match config.KnownFaces on the agent
+// side, which is what actually validates hidden_faces.
+const ALL_FACES = [overviewFace, clockFace, calendarFace, spotifyFace, telemetryFace, statusFace];
+
+// The active subset, filtered by state.hiddenFaces via syncFaces(). Plain
+// `let` rather than const: which faces are active can change at runtime,
+// from the settings page, without a page reload.
+let FACES = ALL_FACES;
+let FACE_NAMES = FACES.map((face) => face.title);
+
+// visibleFaces filters allFaces down to whatever is not named in
+// hiddenTitles. Falls back to allFaces if that would hide every face:
+// config.Validate already refuses to save a hidden_faces that hides
+// everything, but this stays defensive against, say, an old cached /health
+// response briefly disagreeing with a config that has since changed.
+export function visibleFaces(allFaces, hiddenTitles) {
+  const hidden = new Set(hiddenTitles || []);
+  const visible = allFaces.filter((face) => !hidden.has(face.title));
+  return visible.length > 0 ? visible : allFaces;
+}
 
 // Reconnection backoff. Starts fast because the common case is the agent
 // restarting, and settles slowly because the other case is the agent being
@@ -42,6 +60,7 @@ export const state = {
   uptimeSeconds: 0,
   version: "",
   accentColor: "",
+  hiddenFaces: [],
   sources: {},
   lastError: "",
 };
@@ -250,6 +269,7 @@ export function applyHealth(health) {
   state.uptimeSeconds = health.uptime_seconds || 0;
   state.version = health.version || "";
   state.accentColor = health.accent_color || "";
+  state.hiddenFaces = health.hidden_faces || [];
 
   const reported = health.sources || {};
   for (const name of Object.keys(reported)) {
@@ -274,6 +294,32 @@ function applyAccentColor() {
   document.documentElement.style.setProperty("--live", state.accentColor);
 }
 
+// syncFaces applies state.hiddenFaces to the active FACES list, live,
+// without a page reload - the same "settings page saves, panel picks it up
+// on its next /health poll" pattern the accent colour already uses. A
+// no-op, deliberately, whenever the visible set has not actually changed:
+// this runs on every health poll (every few seconds), and rebuilding the
+// current face's DOM that often for no reason would reset things like the
+// calendar agenda's scroll position and interrupt spotify's ticking timer.
+function syncFaces() {
+  const next = visibleFaces(ALL_FACES, state.hiddenFaces);
+  const sameSet =
+    next.length === FACES.length && next.every((face, i) => face === FACES[i]);
+  if (sameSet) {
+    return;
+  }
+
+  const currentTitle = currentFace ? currentFace.title : null;
+  FACES = next;
+  FACE_NAMES = FACES.map((face) => face.title);
+
+  // Stay on the same face if it is still visible, otherwise land on
+  // whatever is now first rather than an index that may no longer mean the
+  // same face, or may not exist at all in a shorter list.
+  const stillVisible = FACES.findIndex((face) => face.title === currentTitle);
+  showFace(stillVisible === -1 ? 0 : stillVisible);
+}
+
 async function pollHealth() {
   try {
     const response = await fetch("/health", { cache: "no-store" });
@@ -282,6 +328,7 @@ async function pollHealth() {
     }
     applyHealth(await response.json());
     applyAccentColor();
+    syncFaces();
     state.lastError = "";
   } catch (err) {
     state.lastError = err && err.message ? err.message : String(err);

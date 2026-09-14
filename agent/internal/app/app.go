@@ -233,11 +233,12 @@ func (a *App) startSession(cfg *config.Config) (*session, error) {
 		Store:       store,
 		Logger:      a.log,
 		AccentColor: cfg.AccentColor,
+		HiddenFaces: cfg.HiddenFaces,
 	})
 	srv.HandleWebSocket()
 	// Agent-level, not tied to any one source, so it is registered directly
 	// here rather than through a source's RouteProvider.
-	srv.Handle("/settings/accent", http.HandlerFunc(a.handleAccentSettings))
+	srv.Handle("/settings", http.HandlerFunc(a.handleSettings))
 
 	// A source may ask the agent to serve files for it, which is how album art
 	// reaches the panel from the machine next to it rather than from a CDN.
@@ -316,38 +317,43 @@ func (a *App) startSession(cfg *config.Config) (*session, error) {
 	}, nil
 }
 
-// accentSettingsBody is both the GET response and the POST request for
-// /settings/accent. One field today; the shape is generic enough that a
-// second setting is an added field here, not a restructure.
-type accentSettingsBody struct {
-	AccentColor string `json:"accent_color"`
+// settingsBody is both the GET response and the POST request for /settings.
+// Two fields today; the shape is generic enough that a third setting is an
+// added field here, not a restructure.
+type settingsBody struct {
+	AccentColor string   `json:"accent_color"`
+	HiddenFaces []string `json:"hidden_faces"`
 }
 
-// handleAccentSettings backs the settings page: GET reports the currently
-// configured accent colour, POST changes it. Requires the bearer token, the
-// same as everything else that is not /health or an OAuth callback.
-func (a *App) handleAccentSettings(w http.ResponseWriter, r *http.Request) {
+// handleSettings backs the settings page: GET reports the currently
+// configured values, POST changes them, together. Requires the bearer
+// token, the same as everything else that is not /health or an OAuth
+// callback.
+func (a *App) handleSettings(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
 		a.mu.Lock()
-		current := ""
+		var current settingsBody
 		if a.current != nil {
-			current = a.current.cfg.AccentColor
+			current = settingsBody{
+				AccentColor: a.current.cfg.AccentColor,
+				HiddenFaces: a.current.cfg.HiddenFaces,
+			}
 		}
 		a.mu.Unlock()
-		writeJSON(w, accentSettingsBody{AccentColor: current})
+		writeJSON(w, current)
 
 	case http.MethodPost:
-		var body accentSettingsBody
+		var body settingsBody
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			http.Error(w, "invalid request body", http.StatusBadRequest)
 			return
 		}
-		if err := a.saveAccentColor(body.AccentColor); err != nil {
+		if err := a.saveSettings(body); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		writeJSON(w, accentSettingsBody{AccentColor: body.AccentColor})
+		writeJSON(w, body)
 
 		// Reload rebuilds the whole session, including the listener this very
 		// request arrived on. Calling it synchronously, before responding,
@@ -359,7 +365,7 @@ func (a *App) handleAccentSettings(w http.ResponseWriter, r *http.Request) {
 		// out and this handler has returned.
 		time.AfterFunc(200*time.Millisecond, func() {
 			if err := a.Reload(); err != nil {
-				a.log.Error("reload after saving accent colour failed", "error", err)
+				a.log.Error("reload after saving settings failed", "error", err)
 			}
 		})
 
@@ -368,19 +374,18 @@ func (a *App) handleAccentSettings(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// saveAccentColor writes the new colour to config.json and reloads, the same
-// as choosing "Reload config" from the tray after a hand edit would. Based
-// on a fresh read of the file rather than the in-memory config, so a manual
-// edit made since this session started is not clobbered by this one field.
-// saveAccentColor validates and writes the new colour to config.json.
-// Applying it live is the caller's job (a scheduled Reload), since doing
-// that here would run it inside the same request this save was made from.
-func (a *App) saveAccentColor(value string) error {
+// saveSettings validates and writes the new values to config.json. Applying
+// them live is the caller's job (a scheduled Reload), since doing that here
+// would run it inside the same request this save was made from. Based on a
+// fresh read of the file rather than the in-memory config, so a manual edit
+// made since this session started is not clobbered by this one save.
+func (a *App) saveSettings(body settingsBody) error {
 	cfg, err := config.Load(a.configPath)
 	if err != nil {
 		return err
 	}
-	cfg.AccentColor = value
+	cfg.AccentColor = body.AccentColor
+	cfg.HiddenFaces = body.HiddenFaces
 	if err := cfg.Validate(); err != nil {
 		return err
 	}

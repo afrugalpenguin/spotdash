@@ -261,6 +261,46 @@ func TestLoadRejectsAMalformedAccentColor(t *testing.T) {
 	}
 }
 
+func TestLoadAcceptsValidHiddenFaces(t *testing.T) {
+	cfg, err := Load(writeConfig(t, `{
+  "listen": "127.0.0.1:9000",
+  "token": "s3cret",
+  "hidden_faces": ["clock", "telemetry"],
+  "sources": {}
+}`))
+	if err != nil {
+		t.Fatalf("Load returned an error for valid hidden_faces: %v", err)
+	}
+	if len(cfg.HiddenFaces) != 2 || cfg.HiddenFaces[0] != "clock" || cfg.HiddenFaces[1] != "telemetry" {
+		t.Errorf("HiddenFaces = %v, want [clock telemetry]", cfg.HiddenFaces)
+	}
+}
+
+func TestLoadRejectsAnUnknownFaceName(t *testing.T) {
+	_, err := Load(writeConfig(t, `{
+  "listen": "127.0.0.1:9000",
+  "token": "s3cret",
+  "hidden_faces": ["clock", "weather"],
+  "sources": {}
+}`))
+	if err == nil {
+		t.Fatal("Load accepted an unknown face name, want an error")
+	}
+}
+
+func TestLoadRejectsHidingEveryFace(t *testing.T) {
+	all := `["` + strings.Join(KnownFaces, `", "`) + `"]`
+	_, err := Load(writeConfig(t, `{
+  "listen": "127.0.0.1:9000",
+  "token": "s3cret",
+  "hidden_faces": `+all+`,
+  "sources": {}
+}`))
+	if err == nil {
+		t.Fatal("Load accepted hiding every face, want an error: the panel would show nothing")
+	}
+}
+
 func TestSaveRoundTripsEveryFieldIncludingSourceSettings(t *testing.T) {
 	path := writeConfig(t, validConfig)
 	cfg, err := Load(path)
