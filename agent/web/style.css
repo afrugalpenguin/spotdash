@@ -570,7 +570,12 @@ body {
 .calendar-agenda-row {
   display: flex;
   align-items: baseline;
-  justify-content: center;
+  /* Left-aligned within the row, deliberately not centred: the row's own
+   * box is already centred on screen (.calendar-agenda's max-width and
+   * margin: auto), but centring each row's content independently on top
+   * of that would stagger the left edge by however long each title is,
+   * which reads as messy rather than tidy. A shared left edge for the
+   * time column reads as one aligned list instead. */
   /* Not flex gap: see the note on .status-row. */
   padding: 7px 6px;
   border-top: 1px solid rgba(237, 241, 238, 0.08);
@@ -584,9 +589,8 @@ body {
 }
 
 .calendar-agenda-title {
-  flex: 0 1 auto;
+  flex: 1 1 auto;
   min-width: 0;
-  max-width: 190px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
