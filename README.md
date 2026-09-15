@@ -1,16 +1,16 @@
 # spotdash
 
 [![Go version](https://img.shields.io/badge/Go-1.26%2B-00ADD8?logo=go&logoColor=white)](agent/go.mod)
-[![Go Report Card](https://goreportcard.com/badge/github.com/afrugalpenguin/spotdash/agent)](https://goreportcard.com/report/github.com/afrugalpenguin/spotdash/agent)
 [![License: MIT](https://img.shields.io/github/license/afrugalpenguin/spotdash)](LICENSE)
 
-I had a first-gen Amazon Echo Spot doing nothing on a shelf, so I put
-LineageOS on it and turned it into a desk dashboard. A Windows tray agent
+Inspired by [this $4 thrift-store Echo Spot rebuild](https://www.reddit.com/r/amazonecho/comments/1wen63x/i_turned_a_4_thrift_store_echo_spot_that_i_found/),
+I picked up my own first-gen Amazon Echo Spot, put LineageOS on it, and
+turned it into a desk dashboard. A Windows tray agent
 collects machine telemetry, Spotify, and calendar data, serves a circular
 480x480 web UI over the LAN, and pushes updates over a WebSocket. The Spot
 just runs a kiosk WebView pointed at it.
 
-All the logic lives in the agent. The Spot is a dumb panel.
+All the logic lives in the agent. The Spot is just a panel.
 
 ## Faces
 
