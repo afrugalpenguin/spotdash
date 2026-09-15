@@ -260,6 +260,7 @@ export function onState(source, data) {
     timeEl.textContent = data.time || "--:--";
   }
   setArc(arcEl, (seconds % 60) / 60);
+  paintNext();
 }
 
 function paintNext() {
