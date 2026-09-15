@@ -291,10 +291,12 @@ body {
   }
 }
 
-/* Overview face: the clock's own time/date above, this next-up line below.
+/* The clock face's next-up line, shown under the date when calendar
+ * integration is on (hide_next_event false) and something is upcoming.
  * Hidden entirely (not just empty) when there is nothing scheduled, so an
  * idle calendar costs no vertical space under the date. */
-.overview-next {
+.overview-next,
+.clock-next {
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -305,7 +307,8 @@ body {
   margin-right: auto;
 }
 
-.overview-next-title {
+.overview-next-title,
+.clock-next-title {
   color: var(--text);
   max-width: 100%;
   overflow: hidden;
@@ -313,19 +316,27 @@ body {
   white-space: nowrap;
 }
 
-.overview-next-countdown {
+.overview-next-countdown,
+.clock-next-countdown {
   margin-top: 4px;
   font-size: 15px;
   color: var(--live);
 }
 
-.overview-next-countdown.is-warn {
+.overview-next-countdown.is-warn,
+.clock-next-countdown.is-warn {
   color: var(--warn);
 }
 
-.overview-next-countdown.is-alert {
+.overview-next-countdown.is-alert,
+.clock-next-countdown.is-alert {
   color: var(--alert);
 }
+
+/* TEMPORARY: the .overview-next* selectors above alias the old overview.js
+ * class names alongside the new .clock-next* ones so both faces keep
+ * working during the merge. Drop the .overview-next* halves once
+ * overview.js is deleted (plan Task 7). */
 
 /* Sleep. The panel goes to real black with one dim dot, so it reads as resting
  * rather than as a dead screen. */
@@ -333,6 +344,7 @@ body {
 #panel[data-sleep="true"] .clock-date,
 #panel[data-sleep="true"] .clock-hands,
 #panel[data-sleep="true"] .overview-next,
+#panel[data-sleep="true"] .clock-next,
 #panel[data-sleep="true"] .rim,
 #panel[data-sleep="true"] #connection {
   display: none;

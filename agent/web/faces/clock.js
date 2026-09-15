@@ -7,6 +7,7 @@
 // carries the quantity, the centre carries the reading.
 
 import { createRim, RIM_CIRCUMFERENCE, RIM_RADIUS, setArc } from "./rim.js";
+import { urgency, formatCountdown } from "./calendar.js";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 // Centre and radius match the rim's own 480x480 viewBox and RIM_RADIUS, so
@@ -22,6 +23,18 @@ let style = "digital";
 let hourHand = null;
 let minuteHand = null;
 let secondHand = null;
+
+let nextEl = null;
+let nextTitleEl = null;
+let nextCountdownEl = null;
+
+// The calendar reading, kept only so paintNext can recompute the countdown
+// on every clock tick (once a second) rather than running a second local
+// ticker: the clock source already provides that heartbeat for free.
+// Ported from the old overview.js face.
+let calendarData = null;
+let calendarSyncedAt = 0;
+let hideNextEvent = false;
 
 // handAngles turns a "HH:MM" reading and a seconds count into degrees of
 // clockwise rotation from twelve o'clock, one per hand. Pure so the sweep
@@ -126,6 +139,7 @@ function setHand(hand, degrees) {
 export function render(container, state) {
   container.innerHTML = "";
   style = (state && state.clockStyle) === "analogue" ? "analogue" : "digital";
+  hideNextEvent = Boolean(state && state.hideNextEvent);
 
   const rim = createRim();
   arcEl = style === "digital" ? rim.arc : null;
@@ -180,8 +194,18 @@ export function render(container, state) {
     dateEl.className = "clock-date";
     dateEl.textContent = "waiting for the agent";
 
+    nextEl = document.createElement("p");
+    nextEl.className = "clock-next";
+    nextTitleEl = document.createElement("span");
+    nextTitleEl.className = "clock-next-title";
+    nextCountdownEl = document.createElement("span");
+    nextCountdownEl.className = "clock-next-countdown";
+    nextEl.appendChild(nextTitleEl);
+    nextEl.appendChild(nextCountdownEl);
+
     face.appendChild(timeEl);
     face.appendChild(dateEl);
+    face.appendChild(nextEl);
     container.appendChild(face);
   }
 
@@ -193,9 +217,20 @@ export function render(container, state) {
   if (existing && existing.data) {
     onState("clock", existing.data);
   }
+  const calendar = state && state.sources && state.sources.calendar;
+  if (calendar && calendar.data) {
+    onState("calendar", calendar.data);
+  }
 }
 
 export function onState(source, data) {
+  if (source === "calendar") {
+    calendarData = data && data.title ? data : null;
+    calendarSyncedAt = Date.now();
+    paintNext();
+    return;
+  }
+
   if (source !== "clock" || !data) {
     return;
   }
@@ -227,6 +262,23 @@ export function onState(source, data) {
   setArc(arcEl, (seconds % 60) / 60);
 }
 
+function paintNext() {
+  if (!nextEl) return;
+
+  if (hideNextEvent || !calendarData) {
+    nextEl.hidden = true;
+    return;
+  }
+
+  const elapsedMinutes = (Date.now() - calendarSyncedAt) / 60000;
+  const minutesUntil = Math.round(calendarData.minutes_until - elapsedMinutes);
+
+  nextEl.hidden = false;
+  nextTitleEl.textContent = calendarData.title;
+  nextCountdownEl.textContent = formatCountdown(minutesUntil);
+  nextCountdownEl.className = `clock-next-countdown is-${urgency(minutesUntil)}`;
+}
+
 export function teardown() {
   const panel = document.getElementById("panel");
   if (panel) {
@@ -238,6 +290,10 @@ export function teardown() {
   hourHand = null;
   minuteHand = null;
   secondHand = null;
+  nextEl = null;
+  nextTitleEl = null;
+  nextCountdownEl = null;
+  calendarData = null;
 }
 
 export const title = "clock";
