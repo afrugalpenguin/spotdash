@@ -7,6 +7,7 @@
 // carries the quantity, the centre carries the reading.
 
 import { createRim, RIM_CIRCUMFERENCE, RIM_RADIUS, setArc } from "./rim.js";
+import { urgency, formatCountdown } from "./calendar.js";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 // Centre and radius match the rim's own 480x480 viewBox and RIM_RADIUS, so
@@ -22,6 +23,20 @@ let style = "digital";
 let hourHand = null;
 let minuteHand = null;
 let secondHand = null;
+
+let nextEl = null;
+let nextTitleEl = null;
+let nextCountdownEl = null;
+let analogueNextEl = null;
+let infoEl = null;
+
+// The calendar reading, kept only so paintNext can recompute the countdown
+// on every clock tick (once a second) rather than running a second local
+// ticker: the clock source already provides that heartbeat for free.
+// Ported from the old overview.js face.
+let calendarData = null;
+let calendarSyncedAt = 0;
+let hideNextEvent = false;
 
 // handAngles turns a "HH:MM" reading and a seconds count into degrees of
 // clockwise rotation from twelve o'clock, one per hand. Pure so the sweep
@@ -66,6 +81,14 @@ export function hourNumerals() {
     numerals.push({ label: String(i === 0 ? 12 : i), angle: i * 30 });
   }
   return numerals;
+}
+
+// compactNextEventLabel is the analogue face's one-line next-up text: no
+// room for a stacked title-then-countdown block in the hub-to-numeral gap,
+// so both live on one line, joined by a middle dot the way a watch's
+// complications get abbreviated.
+export function compactNextEventLabel(title, minutesUntil) {
+  return `${title} · ${formatCountdown(minutesUntil)}`;
 }
 
 function createTick(tick) {
@@ -126,6 +149,7 @@ function setHand(hand, degrees) {
 export function render(container, state) {
   container.innerHTML = "";
   style = (state && state.clockStyle) === "analogue" ? "analogue" : "digital";
+  hideNextEvent = Boolean(state && state.hideNextEvent);
 
   const rim = createRim();
   arcEl = style === "digital" ? rim.arc : null;
@@ -161,13 +185,25 @@ export function render(container, state) {
     container.appendChild(hands);
 
     // Not wrapped in .face: .face is positioned and sized for the digital
-    // layout's centred text block, but this date sits low in the circle,
-    // clear of the hands, the same way .rim and #connection are positioned
-    // straight off #panel rather than through .face.
+    // layout's centred text block, but this info sits low in the circle
+    // (or, once a next event is showing, in the open disc between the hub
+    // and the numeral ring), clear of the hands, the same way .rim and
+    // #connection are positioned straight off #panel rather than through
+    // .face.
+    const info = document.createElement("div");
+    info.className = "clock-analogue-info";
+
     dateEl = document.createElement("p");
-    dateEl.className = "clock-date clock-date-analogue";
+    dateEl.className = "clock-date-analogue";
     dateEl.textContent = "waiting for the agent";
-    container.appendChild(dateEl);
+    info.appendChild(dateEl);
+
+    analogueNextEl = document.createElement("p");
+    analogueNextEl.className = "clock-analogue-next";
+    info.appendChild(analogueNextEl);
+
+    container.appendChild(info);
+    infoEl = info;
   } else {
     const face = document.createElement("div");
     face.className = "face";
@@ -180,8 +216,18 @@ export function render(container, state) {
     dateEl.className = "clock-date";
     dateEl.textContent = "waiting for the agent";
 
+    nextEl = document.createElement("p");
+    nextEl.className = "clock-next";
+    nextTitleEl = document.createElement("span");
+    nextTitleEl.className = "clock-next-title";
+    nextCountdownEl = document.createElement("span");
+    nextCountdownEl.className = "clock-next-countdown";
+    nextEl.appendChild(nextTitleEl);
+    nextEl.appendChild(nextCountdownEl);
+
     face.appendChild(timeEl);
     face.appendChild(dateEl);
+    face.appendChild(nextEl);
     container.appendChild(face);
   }
 
@@ -193,9 +239,20 @@ export function render(container, state) {
   if (existing && existing.data) {
     onState("clock", existing.data);
   }
+  const calendar = state && state.sources && state.sources.calendar;
+  if (calendar && calendar.data) {
+    onState("calendar", calendar.data);
+  }
 }
 
 export function onState(source, data) {
+  if (source === "calendar") {
+    calendarData = data && data.title ? data : null;
+    calendarSyncedAt = Date.now();
+    paintNext();
+    return;
+  }
+
   if (source !== "clock" || !data) {
     return;
   }
@@ -218,6 +275,7 @@ export function onState(source, data) {
     setHand(hourHand, angles.hour);
     setHand(minuteHand, angles.minute);
     setHand(secondHand, angles.second);
+    paintNext();
     return;
   }
 
@@ -225,6 +283,50 @@ export function onState(source, data) {
     timeEl.textContent = data.time || "--:--";
   }
   setArc(arcEl, (seconds % 60) / 60);
+  paintNext();
+}
+
+function paintNext() {
+  if (style === "analogue") {
+    paintAnalogueNext();
+  } else {
+    paintDigitalNext();
+  }
+}
+
+function paintDigitalNext() {
+  if (!nextEl) return;
+
+  if (hideNextEvent || !calendarData) {
+    nextEl.hidden = true;
+    return;
+  }
+
+  const elapsedMinutes = (Date.now() - calendarSyncedAt) / 60000;
+  const minutesUntil = Math.round(calendarData.minutes_until - elapsedMinutes);
+
+  nextEl.hidden = false;
+  nextTitleEl.textContent = calendarData.title;
+  nextCountdownEl.textContent = formatCountdown(minutesUntil);
+  nextCountdownEl.className = `clock-next-countdown is-${urgency(minutesUntil)}`;
+}
+
+function paintAnalogueNext() {
+  if (!analogueNextEl || !infoEl) return;
+
+  if (hideNextEvent || !calendarData) {
+    infoEl.classList.remove("has-next");
+    analogueNextEl.hidden = true;
+    return;
+  }
+
+  const elapsedMinutes = (Date.now() - calendarSyncedAt) / 60000;
+  const minutesUntil = Math.round(calendarData.minutes_until - elapsedMinutes);
+
+  infoEl.classList.add("has-next");
+  analogueNextEl.hidden = false;
+  analogueNextEl.textContent = compactNextEventLabel(calendarData.title, minutesUntil);
+  analogueNextEl.className = `clock-analogue-next is-${urgency(minutesUntil)}`;
 }
 
 export function teardown() {
@@ -238,6 +340,12 @@ export function teardown() {
   hourHand = null;
   minuteHand = null;
   secondHand = null;
+  nextEl = null;
+  nextTitleEl = null;
+  nextCountdownEl = null;
+  analogueNextEl = null;
+  infoEl = null;
+  calendarData = null;
 }
 
 export const title = "clock";

@@ -437,6 +437,35 @@ func TestSettingsPostSavesClockStyle(t *testing.T) {
 	}
 }
 
+func TestSettingsPostSavesHideNextEvent(t *testing.T) {
+	port := freePort(t)
+	agent, path := startApp(t, configFor(port, "first-token"))
+
+	status, respBody := postJSON(t, agent.baseURL()+"/settings", "first-token", `{"hide_next_event":true}`)
+	if status != http.StatusOK {
+		t.Fatalf("POST /settings = %d, want 200: %s", status, respBody)
+	}
+
+	saved, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("reloading config.json: %v", err)
+	}
+	if !saved.HideNextEvent {
+		t.Error("config.json hide_next_event = false, want true")
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		if strings.Contains(healthBody(t, agent.baseURL()), `"hide_next_event":true`) {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("/health never reported the new hide_next_event after saving")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
 func TestSettingsPostRejectsAnUnknownClockStyle(t *testing.T) {
 	port := freePort(t)
 	agent, _ := startApp(t, configFor(port, "first-token"))

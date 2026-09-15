@@ -354,6 +354,35 @@ func TestLoadRejectsAnUnknownClockStyle(t *testing.T) {
 	}
 }
 
+func TestLoadDefaultsHideNextEventToFalse(t *testing.T) {
+	cfg, err := Load(writeConfig(t, `{
+  "listen": "127.0.0.1:9000",
+  "token": "s3cret",
+  "sources": {}
+}`))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.HideNextEvent {
+		t.Error("HideNextEvent = true, want the default of false")
+	}
+}
+
+func TestLoadAcceptsHideNextEventTrue(t *testing.T) {
+	cfg, err := Load(writeConfig(t, `{
+  "listen": "127.0.0.1:9000",
+  "token": "s3cret",
+  "hide_next_event": true,
+  "sources": {}
+}`))
+	if err != nil {
+		t.Fatalf("Load returned an error for a valid hide_next_event: %v", err)
+	}
+	if !cfg.HideNextEvent {
+		t.Error("HideNextEvent = false, want true")
+	}
+}
+
 func TestSaveRoundTripsEveryFieldIncludingSourceSettings(t *testing.T) {
 	path := writeConfig(t, validConfig)
 	cfg, err := Load(path)

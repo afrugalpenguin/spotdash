@@ -30,10 +30,9 @@ var validLogLevels = []string{"debug", "info", "warn", "error"}
 // module in agent/web/faces exports. Kept here, not just in app.js, so a
 // typo or a stale name in hidden_faces is a startup error rather than a
 // setting that silently does nothing.
-var KnownFaces = []string{"overview", "clock", "calendar", "spotify", "telemetry", "status"}
+var KnownFaces = []string{"clock", "calendar", "spotify", "telemetry", "status"}
 
-// ClockStyles are the shapes the clock face (standalone or the clock portion
-// of overview) is allowed to draw in.
+// ClockStyles are the shapes the clock face is allowed to draw in.
 var ClockStyles = []string{"digital", "analogue"}
 
 // accentColorPattern is the only shape accent_color is allowed to take: a
@@ -102,8 +101,15 @@ type Config struct {
 	HiddenFaces []string `json:"hidden_faces,omitempty"`
 	// ClockStyle is "digital" or "analogue", how the clock face draws.
 	// Defaults to "digital" when absent. Changed from the settings page.
-	ClockStyle string            `json:"clock_style,omitempty"`
-	Sources    map[string]Source `json:"sources"`
+	ClockStyle string `json:"clock_style,omitempty"`
+	// HideNextEvent hides the clock face's next-up calendar line. Inverted
+	// (a plain bool defaulting to true cannot be told apart from "absent"
+	// on decode, the same reason HiddenFaces is a negative list rather
+	// than a positive one), so its Go zero value of false is already the
+	// correct default: the next event shows unless this says otherwise.
+	// Changed from the settings page.
+	HideNextEvent bool              `json:"hide_next_event,omitempty"`
+	Sources       map[string]Source `json:"sources"`
 }
 
 // SourceNames returns the configured source names in a stable order, so logs

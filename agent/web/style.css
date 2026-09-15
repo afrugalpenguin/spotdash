@@ -275,14 +275,54 @@ body {
 
 /* The date is all .face holds in analogue mode (the hands take the centre),
  * so it sits low in the circle rather than dead centre, clear of the hands
- * at every hour. */
-.clock-date-analogue {
+ * at every hour - unless a next event is showing, in which case
+ * .clock-analogue-info.has-next moves the whole block inward instead. */
+.clock-analogue-info {
   position: absolute;
   left: 50%;
   bottom: 100px;
   transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  margin: 0;
+}
+
+/* Moved into the open disc between the hub and the numeral ring, centred
+ * in its lower half - furthest from the ticks and numerals, closest to
+ * where a real watch's date-wheel complication sits. The hands (drawn
+ * earlier in the DOM, so this renders on top of them) visibly sweep
+ * behind this text as they pass, same as a watch complication. */
+.clock-analogue-info.has-next {
+  bottom: auto;
+  top: 300px;
+  transform: translate(-50%, -50%);
+}
+
+.clock-date-analogue {
+  font-size: 24px;
+  font-weight: 400;
+  color: var(--muted);
   margin: 0;
   white-space: nowrap;
+}
+
+.clock-analogue-next {
+  margin: 0;
+  font-size: 13px;
+  max-width: 220px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.clock-analogue-next.is-warn {
+  color: var(--warn);
+}
+
+.clock-analogue-next.is-alert {
+  color: var(--alert);
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -291,10 +331,11 @@ body {
   }
 }
 
-/* Overview face: the clock's own time/date above, this next-up line below.
+/* The clock face's next-up line, shown under the date when calendar
+ * integration is on (hide_next_event false) and something is upcoming.
  * Hidden entirely (not just empty) when there is nothing scheduled, so an
  * idle calendar costs no vertical space under the date. */
-.overview-next {
+.clock-next {
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -305,7 +346,7 @@ body {
   margin-right: auto;
 }
 
-.overview-next-title {
+.clock-next-title {
   color: var(--text);
   max-width: 100%;
   overflow: hidden;
@@ -313,17 +354,17 @@ body {
   white-space: nowrap;
 }
 
-.overview-next-countdown {
+.clock-next-countdown {
   margin-top: 4px;
   font-size: 15px;
   color: var(--live);
 }
 
-.overview-next-countdown.is-warn {
+.clock-next-countdown.is-warn {
   color: var(--warn);
 }
 
-.overview-next-countdown.is-alert {
+.clock-next-countdown.is-alert {
   color: var(--alert);
 }
 
@@ -332,7 +373,8 @@ body {
 #panel[data-sleep="true"] .clock-time,
 #panel[data-sleep="true"] .clock-date,
 #panel[data-sleep="true"] .clock-hands,
-#panel[data-sleep="true"] .overview-next,
+#panel[data-sleep="true"] .clock-analogue-info,
+#panel[data-sleep="true"] .clock-next,
 #panel[data-sleep="true"] .rim,
 #panel[data-sleep="true"] #connection {
   display: none;

@@ -39,6 +39,9 @@ type Options struct {
 	// Same reasoning as AccentColor and HiddenFaces: cosmetic, not
 	// sensitive, needed before the panel has confirmed anything else.
 	ClockStyle string
+	// HideNextEvent is the configured hide_next_event. Same reasoning as
+	// ClockStyle.
+	HideNextEvent bool
 }
 
 // Server routes HTTP requests for the agent.
@@ -127,6 +130,7 @@ type healthResponse struct {
 	AccentColor   string                  `json:"accent_color,omitempty"`
 	HiddenFaces   []string                `json:"hidden_faces,omitempty"`
 	ClockStyle    string                  `json:"clock_style,omitempty"`
+	HideNextEvent bool                    `json:"hide_next_event,omitempty"`
 	Sources       map[string]healthSource `json:"sources"`
 }
 
@@ -137,6 +141,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 		AccentColor:   s.opts.AccentColor,
 		HiddenFaces:   s.opts.HiddenFaces,
 		ClockStyle:    s.opts.ClockStyle,
+		HideNextEvent: s.opts.HideNextEvent,
 		Sources:       map[string]healthSource{},
 	}
 	for _, entry := range s.opts.Store.Snapshot() {
