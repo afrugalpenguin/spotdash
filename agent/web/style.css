@@ -251,7 +251,10 @@ body {
 }
 
 .clock-hand-second {
-  stroke: var(--live);
+  /* Pale like the other hands, not the live accent colour - the dial reads
+   * as one monochrome instrument rather than the second hand standing out
+   * as a status indicator it isn't. */
+  stroke: var(--text);
   stroke-width: 2;
   /* The second hand jumps once a second, same as the rim's own seconds arc
    * on the digital face; easing it would make it lag a real reading. */
@@ -260,6 +263,14 @@ body {
 
 .clock-hub {
   fill: var(--text);
+}
+
+/* The connection dot's fixed bottom position sits right on the 6 o'clock
+ * tick on this face alone (every other face has open space there); nudge
+ * it up into the gap between the tick and the "6" numeral instead of
+ * moving it panel-wide. */
+#panel:has(.clock-hands) #connection {
+  bottom: 33px;
 }
 
 /* The date is all .face holds in analogue mode (the hands take the centre),

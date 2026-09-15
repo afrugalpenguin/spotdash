@@ -13,7 +13,7 @@ const SVG_NS = "http://www.w3.org/2000/svg";
 // the hands read as pointing at the rim's ticks rather than floating free of
 // them at a different scale.
 const CENTER = 240;
-const HAND_RADII = { hour: 120, minute: 168, second: 184 };
+const HAND_RADII = { hour: 120, minute: 168, second: 200 };
 
 let timeEl = null;
 let dateEl = null;
@@ -81,8 +81,10 @@ function createTick(tick) {
   return mark;
 }
 
-// NUMERAL_RADIUS sits inside the ticks, clear of the minute hand's own
-// length, so nothing on the dial ever overlaps.
+// NUMERAL_RADIUS sits inside the ticks, clear of the hour and minute hands'
+// own lengths. The second hand alone reaches past it, close to the ticks -
+// same as a real watch face, where only the thin second hand sweeps over
+// the numerals.
 const NUMERAL_RADIUS = 184;
 
 function createNumeral(numeral) {

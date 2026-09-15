@@ -115,6 +115,8 @@
     <div class="controls" id="controls">
       <p class="group-label">face</p>
       <div class="controls" id="face-controls"></div>
+      <p class="group-label">clock style</p>
+      <div class="controls" id="clock-style-controls"></div>
       <p class="group-label">state</p>
       <div class="controls" id="scenario-controls"></div>
     </div>
@@ -133,6 +135,7 @@
         version: "0.0.0-preview",
         sources: {},
         lastError: "",
+        clockStyle: "digital",
       };
 
       let currentFace = null;
@@ -374,6 +377,38 @@
         button.addEventListener("click", () => showFace(i));
         faceControls.appendChild(button);
       });
+
+      // The real panel drives this off the agent's config (see
+      // syncClockStyle in app.js); the harness has no agent, so it's a
+      // button group here instead, same as face and scenario.
+      let currentClockStyle = state.clockStyle;
+      function paintClockStyleButtons() {
+        for (const button of document.querySelectorAll("[data-clock-style]")) {
+          button.setAttribute(
+            "aria-pressed",
+            String(button.dataset.clockStyle === currentClockStyle)
+          );
+        }
+      }
+
+      const clockStyleControls = document.getElementById("clock-style-controls");
+      for (const styleName of ["digital", "analogue"]) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.dataset.clockStyle = styleName;
+        button.textContent = styleName;
+        button.addEventListener("click", () => {
+          currentClockStyle = styleName;
+          state.clockStyle = styleName;
+          paintClockStyleButtons();
+          // Only the clock face reads clockStyle, but re-rendering
+          // whichever face is up is simplest and matches showFace's own
+          // re-render-from-state behaviour.
+          showFace(currentIndex);
+        });
+        clockStyleControls.appendChild(button);
+      }
+      paintClockStyleButtons();
 
       const scenarioControls = document.getElementById("scenario-controls");
       for (const name of Object.keys(scenarios)) {
