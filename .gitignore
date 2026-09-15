@@ -34,6 +34,9 @@ shell/captures/
 *.keystore
 *.jks
 
+# Git worktrees used for isolated feature work
+.worktrees/
+
 # Editors and OS
 .idea/
 .vscode/
