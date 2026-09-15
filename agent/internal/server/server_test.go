@@ -124,6 +124,29 @@ func TestHealthReportsTheConfiguredAccentColor(t *testing.T) {
 	}
 }
 
+func TestHealthReportsTheConfiguredHiddenFaces(t *testing.T) {
+	store := state.New()
+	srv := New(Options{
+		Token:       testToken,
+		Version:     "test-version",
+		Started:     time.Now(),
+		Store:       store,
+		HiddenFaces: []string{"clock", "telemetry"},
+	})
+
+	rec := do(t, srv, http.MethodGet, "/health", "")
+
+	var body struct {
+		HiddenFaces []string `json:"hidden_faces"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decoding /health body: %v\nbody: %s", err, rec.Body.String())
+	}
+	if len(body.HiddenFaces) != 2 || body.HiddenFaces[0] != "clock" || body.HiddenFaces[1] != "telemetry" {
+		t.Errorf("hidden_faces = %v, want [clock telemetry]", body.HiddenFaces)
+	}
+}
+
 func TestHealthOmitsAccentColorWhenUnconfigured(t *testing.T) {
 	srv, _ := newTestServer(t)
 

@@ -275,15 +275,15 @@ func postJSON(t *testing.T, url, token string, body string) (int, string) {
 	return resp.StatusCode, string(respBody)
 }
 
-func TestAccentSettingsGetReportsTheConfiguredColour(t *testing.T) {
+func TestSettingsGetReportsTheConfiguredValues(t *testing.T) {
 	port := freePort(t)
 	agent, _ := startApp(t, configFor(port, "first-token"))
 
-	req, _ := http.NewRequest(http.MethodGet, agent.baseURL()+"/settings/accent", nil)
+	req, _ := http.NewRequest(http.MethodGet, agent.baseURL()+"/settings", nil)
 	req.Header.Set("Authorization", "Bearer first-token")
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		t.Fatalf("GET /settings/accent: %v", err)
+		t.Fatalf("GET /settings: %v", err)
 	}
 	defer resp.Body.Close()
 	respBody, _ := io.ReadAll(resp.Body)
@@ -301,22 +301,22 @@ func TestAccentSettingsGetReportsTheConfiguredColour(t *testing.T) {
 	}
 }
 
-func TestAccentSettingsRequiresTheToken(t *testing.T) {
+func TestSettingsRequiresTheToken(t *testing.T) {
 	port := freePort(t)
 	agent, _ := startApp(t, configFor(port, "first-token"))
 
-	if got := get(t, agent.baseURL()+"/settings/accent", ""); got != http.StatusUnauthorized {
-		t.Errorf("GET /settings/accent with no token = %d, want 401", got)
+	if got := get(t, agent.baseURL()+"/settings", ""); got != http.StatusUnauthorized {
+		t.Errorf("GET /settings with no token = %d, want 401", got)
 	}
 }
 
-func TestAccentSettingsPostSavesAndReloads(t *testing.T) {
+func TestSettingsPostSavesAndReloads(t *testing.T) {
 	port := freePort(t)
 	agent, path := startApp(t, configFor(port, "first-token"))
 
-	status, respBody := postJSON(t, agent.baseURL()+"/settings/accent", "first-token", `{"accent_color":"#7c83fd"}`)
+	status, respBody := postJSON(t, agent.baseURL()+"/settings", "first-token", `{"accent_color":"#7c83fd"}`)
 	if status != http.StatusOK {
-		t.Fatalf("POST /settings/accent = %d, want 200: %s", status, respBody)
+		t.Fatalf("POST /settings = %d, want 200: %s", status, respBody)
 	}
 
 	// Written to config.json...
@@ -343,11 +343,11 @@ func TestAccentSettingsPostSavesAndReloads(t *testing.T) {
 	}
 }
 
-func TestAccentSettingsPostRejectsAnInvalidColour(t *testing.T) {
+func TestSettingsPostRejectsAnInvalidColour(t *testing.T) {
 	port := freePort(t)
 	agent, path := startApp(t, configFor(port, "first-token"))
 
-	status, _ := postJSON(t, agent.baseURL()+"/settings/accent", "first-token", `{"accent_color":"not-a-colour"}`)
+	status, _ := postJSON(t, agent.baseURL()+"/settings", "first-token", `{"accent_color":"not-a-colour"}`)
 	if status != http.StatusBadRequest {
 		t.Errorf("POST with an invalid colour = %d, want 400", status)
 	}
@@ -358,5 +358,53 @@ func TestAccentSettingsPostRejectsAnInvalidColour(t *testing.T) {
 	}
 	if saved.AccentColor != "" {
 		t.Errorf("config.json accent_color = %q, want unchanged (empty) after a rejected save", saved.AccentColor)
+	}
+}
+
+func TestSettingsPostSavesHiddenFaces(t *testing.T) {
+	port := freePort(t)
+	agent, path := startApp(t, configFor(port, "first-token"))
+
+	status, respBody := postJSON(t, agent.baseURL()+"/settings", "first-token", `{"hidden_faces":["clock","telemetry"]}`)
+	if status != http.StatusOK {
+		t.Fatalf("POST /settings = %d, want 200: %s", status, respBody)
+	}
+
+	saved, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("reloading config.json: %v", err)
+	}
+	if len(saved.HiddenFaces) != 2 || saved.HiddenFaces[0] != "clock" || saved.HiddenFaces[1] != "telemetry" {
+		t.Errorf("config.json hidden_faces = %v, want [clock telemetry]", saved.HiddenFaces)
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		if strings.Contains(healthBody(t, agent.baseURL()), `"hidden_faces":["clock","telemetry"]`) {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("/health never reported the new hidden_faces after saving")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+func TestSettingsPostRejectsHidingEveryFace(t *testing.T) {
+	port := freePort(t)
+	agent, path := startApp(t, configFor(port, "first-token"))
+
+	all := `["` + strings.Join(config.KnownFaces, `","`) + `"]`
+	status, _ := postJSON(t, agent.baseURL()+"/settings", "first-token", `{"hidden_faces":`+all+`}`)
+	if status != http.StatusBadRequest {
+		t.Errorf("POST hiding every face = %d, want 400", status)
+	}
+
+	saved, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("reloading config.json: %v", err)
+	}
+	if len(saved.HiddenFaces) != 0 {
+		t.Errorf("config.json hidden_faces = %v, want unchanged (empty) after a rejected save", saved.HiddenFaces)
 	}
 }

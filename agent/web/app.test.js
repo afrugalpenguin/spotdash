@@ -18,6 +18,7 @@ import {
   nextBackoff,
   readToken,
   state,
+  visibleFaces,
 } from "./app.js";
 import { formatDuration, relativeAge } from "./faces/status.js";
 import { RIM_CIRCUMFERENCE } from "./faces/rim.js";
@@ -27,6 +28,7 @@ function resetState() {
   state.uptimeSeconds = 0;
   state.version = "";
   state.accentColor = "";
+  state.hiddenFaces = [];
   state.connection = "connecting";
   state.lastError = "";
 }
@@ -160,6 +162,46 @@ test("applyHealth leaves accentColor empty when unconfigured", () => {
   applyHealth({ version: "1.2.3", uptime_seconds: 1 });
 
   assert.equal(state.accentColor, "");
+});
+
+test("applyHealth carries the configured hidden faces", () => {
+  resetState();
+
+  applyHealth({ version: "1.2.3", uptime_seconds: 1, hidden_faces: ["clock", "telemetry"] });
+
+  assert.deepEqual(state.hiddenFaces, ["clock", "telemetry"]);
+});
+
+test("applyHealth leaves hiddenFaces empty when unconfigured", () => {
+  resetState();
+
+  applyHealth({ version: "1.2.3", uptime_seconds: 1 });
+
+  assert.deepEqual(state.hiddenFaces, []);
+});
+
+test("visibleFaces filters out the hidden titles", () => {
+  const faces = [{ title: "a" }, { title: "b" }, { title: "c" }];
+
+  const got = visibleFaces(faces, ["b"]);
+
+  assert.deepEqual(got.map((f) => f.title), ["a", "c"]);
+});
+
+test("visibleFaces keeps everything when nothing is hidden", () => {
+  const faces = [{ title: "a" }, { title: "b" }];
+
+  const got = visibleFaces(faces, []);
+
+  assert.deepEqual(got.map((f) => f.title), ["a", "b"]);
+});
+
+test("visibleFaces falls back to every face rather than returning none", () => {
+  const faces = [{ title: "a" }, { title: "b" }];
+
+  const got = visibleFaces(faces, ["a", "b"]);
+
+  assert.deepEqual(got.map((f) => f.title), ["a", "b"]);
 });
 
 test("applyHealth carries the last error through", () => {

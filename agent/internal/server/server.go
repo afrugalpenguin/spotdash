@@ -30,6 +30,11 @@ type Options struct {
 	// sensitive, and the panel needs it before it necessarily has anything
 	// else confirming the agent is reachable.
 	AccentColor string
+	// HiddenFaces are the configured hidden_faces. Same reasoning as
+	// AccentColor: which faces show is not sensitive, and the panel needs
+	// to know before it necessarily has anything else confirming the agent
+	// is reachable.
+	HiddenFaces []string
 }
 
 // Server routes HTTP requests for the agent.
@@ -116,6 +121,7 @@ type healthResponse struct {
 	Version       string                  `json:"version"`
 	UptimeSeconds float64                 `json:"uptime_seconds"`
 	AccentColor   string                  `json:"accent_color,omitempty"`
+	HiddenFaces   []string                `json:"hidden_faces,omitempty"`
 	Sources       map[string]healthSource `json:"sources"`
 }
 
@@ -124,6 +130,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 		Version:       s.opts.Version,
 		UptimeSeconds: time.Since(s.opts.Started).Seconds(),
 		AccentColor:   s.opts.AccentColor,
+		HiddenFaces:   s.opts.HiddenFaces,
 		Sources:       map[string]healthSource{},
 	}
 	for _, entry := range s.opts.Store.Snapshot() {

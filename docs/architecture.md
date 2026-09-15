@@ -57,6 +57,7 @@ nothing but the glass.
 | `token`        | string | Shared secret. Required. An empty token is a startup failure.  |
 | `log_level`    | string | `debug`, `info`, `warn`, or `error`.                           |
 | `accent_color` | string | `"#rrggbb"`. Optional; absent keeps the stylesheet's own default. Normally set from the tray's Options page rather than hand-edited; see "Settings" below. |
+| `hidden_faces` | array  | Face titles left out of the tap rotation (`config.KnownFaces`). Optional; absent or empty shows every face. Cannot name every face at once. Normally set from the tray's Options page. |
 | `sources`      | object | Source name to settings. Every source has `enabled` and `interval_ms`; sources may add their own keys. |
 
 Validation is strict and total. A missing file, invalid JSON, an unknown
@@ -444,11 +445,14 @@ both wrong in different directions.
 
 ### Settings
 
-`GET/POST /settings/accent`, authenticated the same as everything else that
-is not `/health` or an OAuth callback. GET reports the currently configured
-`accent_color` (empty if unset); POST validates a `"#rrggbb"` value, writes it
-to `config.json` (`config.Save`, atomic, mirrors the pattern spotify's
-`state_file` uses), and reloads.
+`GET/POST /settings`, authenticated the same as everything else that is not
+`/health` or an OAuth callback. GET reports the currently configured
+`accent_color` and `hidden_faces`; POST validates both together (a `"#rrggbb"`
+colour, face titles against `config.KnownFaces`, not every face hidden at
+once), writes them to `config.json` (`config.Save`, atomic, mirrors the
+pattern spotify's `state_file` uses), and reloads. Two fields today; the
+shape is generic enough that a third setting is an added field, not a
+restructure.
 
 The reload is deliberately not synchronous inside the POST handler: `Reload`
 tears down and rebuilds the whole session, including the listener the POST
@@ -458,10 +462,19 @@ deadlock resolved only by the shutdown grace period force-closing the
 connection before the response goes out. `time.AfterFunc` schedules the
 reload a short beat after the response is sent instead.
 
+Both settings are carried on `/health` (cosmetic, not sensitive, and the
+panel needs them before it necessarily has anything else confirming the
+agent is reachable) and applied live client-side on the next poll, no page
+reload needed: `applyAccentColor` sets a CSS custom property, `syncFaces`
+recomputes the active face list from `ALL_FACES` and `state.hiddenFaces`
+and, only if the visible set actually changed, switches to the current
+face's new position (or the first face, if it was the one just hidden).
+Guarded to a no-op otherwise, since this runs on every health poll and
+rebuilding the current face's DOM that often for no reason would reset
+things like the calendar agenda's scroll position.
+
 The page itself (`settings.html`/`settings.js`) is an ordinary static file
-under `agent/web`, served the same way the panel is. One field today, but the
-route and the write-back mechanism are generic enough that a second setting
-is an added field, not a restructure.
+under `agent/web`, served the same way the panel is.
 
 ### Layout
 
