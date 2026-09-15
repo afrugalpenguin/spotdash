@@ -292,12 +292,19 @@ body {
 /* Moved into the open disc between the hub and the numeral ring, centred
  * in its lower half - furthest from the ticks and numerals, closest to
  * where a real watch's date-wheel complication sits. The hands (drawn
- * earlier in the DOM, so this renders on top of them) visibly sweep
- * behind this text as they pass, same as a watch complication. */
+ * earlier in the DOM, so this sits later in paint order, on top of them)
+ * are meant to sweep fully behind this text as they pass, same as a watch
+ * complication - an opaque backing is what actually delivers that: without
+ * one, the div's own background stays transparent, and a hand shows
+ * straight through the empty space around and between the thin glyphs,
+ * reading as "cutting through the text" rather than "behind it". */
 .clock-analogue-info.has-next {
   bottom: auto;
   top: 300px;
   transform: translate(-50%, -50%);
+  background: var(--black);
+  padding: 6px 14px;
+  border-radius: 10px;
 }
 
 .clock-date-analogue {
