@@ -7,19 +7,13 @@
 // that have to agree, the same kind of one-line-per-thing table this
 // codebase already accepts elsewhere (the source factory table, for one).
 //
-// Overview gets its own row under the Clock heading, labelled for what it
-// actually is ("Combined clock/calendar face") rather than sitting in the
-// generic Faces list under its internal title - it is still just another
-// entry in hidden_faces underneath.
-//
-// Clock itself has no toggle at all: it is the panel's non-negotiable
-// fallback face (see config.Validate, which refuses "clock" in
-// hidden_faces), so there is nothing here for a pill to control.
+// clock has no row here (same as before) - there's nothing to toggle, it
+// can't be hidden. Its two settings ("Analogue" and "Show next event")
+// live under the Clock heading instead, built separately below.
 
 import { readToken } from "./app.js";
 
 const FACES = [
-  { title: "overview", label: "Combined clock/calendar face" },
   { title: "calendar", label: "Calendar" },
   { title: "spotify", label: "Spotify" },
   { title: "telemetry", label: "Telemetry" },
@@ -28,14 +22,12 @@ const FACES = [
 
 let accentInput = null;
 let analogueInput = null;
+let nextEventInput = null;
 let saveButton = null;
 let statusEl = null;
 let clockEl = null;
 let facesEl = null;
-// One checkbox per face, keyed by title, built once in start(). Overview's
-// lives under the Clock heading rather than in facesEl, but is registered
-// here the same as every other face so hiddenFaceTitles() does not need to
-// know that.
+// One checkbox per face, keyed by title, built once in start().
 const toggles = new Map();
 
 function setStatus(text, state) {
@@ -80,8 +72,7 @@ function buildToggle(container, id, label) {
 
 function buildFaceToggles() {
   for (const face of FACES) {
-    const container = face.title === "overview" ? clockEl : facesEl;
-    const input = buildToggle(container, `face-${face.title}`, face.label);
+    const input = buildToggle(facesEl, `face-${face.title}`, face.label);
     toggles.set(face.title, input);
   }
 }
@@ -101,6 +92,7 @@ async function loadCurrent() {
       input.checked = !hidden.has(title);
     }
     analogueInput.checked = data.clock_style === "analogue";
+    nextEventInput.checked = !data.hide_next_event;
     if (data.accent_color) {
       return;
     }
@@ -141,6 +133,7 @@ async function save() {
         accent_color: accentInput.value,
         hidden_faces: hidden,
         clock_style: analogueInput.checked ? "analogue" : "digital",
+        hide_next_event: !nextEventInput.checked,
       }),
     });
     if (!response.ok) {
@@ -172,6 +165,7 @@ export function start() {
 
   buildFaceToggles();
   analogueInput = buildToggle(clockEl, "clock-analogue", "Analogue");
+  nextEventInput = buildToggle(clockEl, "clock-next-event", "Show next event");
   saveButton.addEventListener("click", save);
   loadCurrent();
 }
