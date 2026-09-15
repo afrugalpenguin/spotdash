@@ -102,8 +102,15 @@ type Config struct {
 	HiddenFaces []string `json:"hidden_faces,omitempty"`
 	// ClockStyle is "digital" or "analogue", how the clock face draws.
 	// Defaults to "digital" when absent. Changed from the settings page.
-	ClockStyle string            `json:"clock_style,omitempty"`
-	Sources    map[string]Source `json:"sources"`
+	ClockStyle string `json:"clock_style,omitempty"`
+	// HideNextEvent hides the clock face's next-up calendar line. Inverted
+	// (a plain bool defaulting to true cannot be told apart from "absent"
+	// on decode, the same reason HiddenFaces is a negative list rather
+	// than a positive one), so its Go zero value of false is already the
+	// correct default: the next event shows unless this says otherwise.
+	// Changed from the settings page.
+	HideNextEvent bool              `json:"hide_next_event,omitempty"`
+	Sources       map[string]Source `json:"sources"`
 }
 
 // SourceNames returns the configured source names in a stable order, so logs
