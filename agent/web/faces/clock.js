@@ -27,6 +27,8 @@ let secondHand = null;
 let nextEl = null;
 let nextTitleEl = null;
 let nextCountdownEl = null;
+let analogueNextEl = null;
+let infoEl = null;
 
 // The calendar reading, kept only so paintNext can recompute the countdown
 // on every clock tick (once a second) rather than running a second local
@@ -79,6 +81,14 @@ export function hourNumerals() {
     numerals.push({ label: String(i === 0 ? 12 : i), angle: i * 30 });
   }
   return numerals;
+}
+
+// compactNextEventLabel is the analogue face's one-line next-up text: no
+// room for a stacked title-then-countdown block in the hub-to-numeral gap,
+// so both live on one line, joined by a middle dot the way a watch's
+// complications get abbreviated.
+export function compactNextEventLabel(title, minutesUntil) {
+  return `${title} · ${formatCountdown(minutesUntil)}`;
 }
 
 function createTick(tick) {
@@ -175,13 +185,25 @@ export function render(container, state) {
     container.appendChild(hands);
 
     // Not wrapped in .face: .face is positioned and sized for the digital
-    // layout's centred text block, but this date sits low in the circle,
-    // clear of the hands, the same way .rim and #connection are positioned
-    // straight off #panel rather than through .face.
+    // layout's centred text block, but this info sits low in the circle
+    // (or, once a next event is showing, in the open disc between the hub
+    // and the numeral ring), clear of the hands, the same way .rim and
+    // #connection are positioned straight off #panel rather than through
+    // .face.
+    const info = document.createElement("div");
+    info.className = "clock-analogue-info";
+
     dateEl = document.createElement("p");
-    dateEl.className = "clock-date clock-date-analogue";
+    dateEl.className = "clock-date-analogue";
     dateEl.textContent = "waiting for the agent";
-    container.appendChild(dateEl);
+    info.appendChild(dateEl);
+
+    analogueNextEl = document.createElement("p");
+    analogueNextEl.className = "clock-analogue-next";
+    info.appendChild(analogueNextEl);
+
+    container.appendChild(info);
+    infoEl = info;
   } else {
     const face = document.createElement("div");
     face.className = "face";
@@ -253,6 +275,7 @@ export function onState(source, data) {
     setHand(hourHand, angles.hour);
     setHand(minuteHand, angles.minute);
     setHand(secondHand, angles.second);
+    paintNext();
     return;
   }
 
@@ -264,6 +287,14 @@ export function onState(source, data) {
 }
 
 function paintNext() {
+  if (style === "analogue") {
+    paintAnalogueNext();
+  } else {
+    paintDigitalNext();
+  }
+}
+
+function paintDigitalNext() {
   if (!nextEl) return;
 
   if (hideNextEvent || !calendarData) {
@@ -280,6 +311,24 @@ function paintNext() {
   nextCountdownEl.className = `clock-next-countdown is-${urgency(minutesUntil)}`;
 }
 
+function paintAnalogueNext() {
+  if (!analogueNextEl || !infoEl) return;
+
+  if (hideNextEvent || !calendarData) {
+    infoEl.classList.remove("has-next");
+    analogueNextEl.hidden = true;
+    return;
+  }
+
+  const elapsedMinutes = (Date.now() - calendarSyncedAt) / 60000;
+  const minutesUntil = Math.round(calendarData.minutes_until - elapsedMinutes);
+
+  infoEl.classList.add("has-next");
+  analogueNextEl.hidden = false;
+  analogueNextEl.textContent = compactNextEventLabel(calendarData.title, minutesUntil);
+  analogueNextEl.className = `clock-analogue-next is-${urgency(minutesUntil)}`;
+}
+
 export function teardown() {
   const panel = document.getElementById("panel");
   if (panel) {
@@ -294,6 +343,8 @@ export function teardown() {
   nextEl = null;
   nextTitleEl = null;
   nextCountdownEl = null;
+  analogueNextEl = null;
+  infoEl = null;
   calendarData = null;
 }
 

@@ -9,7 +9,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { handAngles, hourNumerals, tickMarks } from "./faces/clock.js";
+import { handAngles, hourNumerals, tickMarks, compactNextEventLabel } from "./faces/clock.js";
 
 test("twelve o'clock exactly points every hand at the top", () => {
   const angles = handAngles("00:00", 0);
@@ -60,6 +60,17 @@ test("tickMarks marks only the twelve hour positions as major", () => {
     .map((t) => t.angle);
 
   assert.deepEqual(major, [0, 30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330]);
+});
+
+test("compactNextEventLabel joins title and countdown with a middle dot", () => {
+  assert.equal(
+    compactNextEventLabel("Standup with the team", 11),
+    "Standup with the team · in 11 min"
+  );
+});
+
+test("compactNextEventLabel formats a countdown already at zero as now", () => {
+  assert.equal(compactNextEventLabel("Standup", 0), "Standup · now");
 });
 
 test("hourNumerals labels twelve through eleven, in clock order", () => {
