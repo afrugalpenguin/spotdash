@@ -390,6 +390,45 @@ func TestSettingsPostSavesHiddenFaces(t *testing.T) {
 	}
 }
 
+func TestSettingsPostSavesClockStyle(t *testing.T) {
+	port := freePort(t)
+	agent, path := startApp(t, configFor(port, "first-token"))
+
+	status, respBody := postJSON(t, agent.baseURL()+"/settings", "first-token", `{"clock_style":"analogue"}`)
+	if status != http.StatusOK {
+		t.Fatalf("POST /settings = %d, want 200: %s", status, respBody)
+	}
+
+	saved, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("reloading config.json: %v", err)
+	}
+	if saved.ClockStyle != "analogue" {
+		t.Errorf("config.json clock_style = %q, want %q", saved.ClockStyle, "analogue")
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		if strings.Contains(healthBody(t, agent.baseURL()), `"clock_style":"analogue"`) {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("/health never reported the new clock_style after saving")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+func TestSettingsPostRejectsAnUnknownClockStyle(t *testing.T) {
+	port := freePort(t)
+	agent, _ := startApp(t, configFor(port, "first-token"))
+
+	status, respBody := postJSON(t, agent.baseURL()+"/settings", "first-token", `{"clock_style":"roman-numerals"}`)
+	if status != http.StatusBadRequest {
+		t.Errorf("POST /settings with an unknown clock_style = %d, want 400: %s", status, respBody)
+	}
+}
+
 func TestSettingsPostRejectsHidingEveryFace(t *testing.T) {
 	port := freePort(t)
 	agent, path := startApp(t, configFor(port, "first-token"))

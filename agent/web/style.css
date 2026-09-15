@@ -195,6 +195,102 @@ body {
   margin: 14px 0 0;
 }
 
+/* Analogue clock face. Hands are a second full-panel SVG, the same absolute
+ * sizing as .rim and deliberately not nested inside .face: .face's
+ * translate(-50%, -50%) creates a stacking context that has already once
+ * silently trapped a descendant's z-index against a sibling (see the
+ * calendar agenda's scroll gesture in docs/architecture.md), so anything
+ * that has to draw across the whole circle sits alongside .face, not
+ * inside it. */
+.clock-hands {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+.clock-tick {
+  stroke: var(--track);
+  stroke-width: 2;
+}
+
+.clock-tick-major {
+  stroke: var(--muted);
+  stroke-width: 2;
+}
+
+/* Upright labels at each hour, the dial's primary markers - the ticks are
+ * secondary texture once these are on, the reverse of the plain-tick-only
+ * first pass of this face. */
+.clock-numeral {
+  fill: var(--text);
+  font-size: 22px;
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Plain straight hands, rounded tip, running only outward from the hub -
+ * no taper, no back-tail. Width is what separates hour from minute from
+ * second, not shape. */
+.clock-hand {
+  stroke: var(--text);
+  stroke-linecap: round;
+  transition: transform 0.2s ease-out;
+}
+
+.clock-hand-hour {
+  stroke-width: 8;
+}
+
+.clock-hand-minute {
+  stroke-width: 5;
+}
+
+.clock-hand-second {
+  /* Pale like the other hands, not the live accent colour - the dial reads
+   * as one monochrome instrument rather than the second hand standing out
+   * as a status indicator it isn't. */
+  stroke: var(--text);
+  stroke-width: 2;
+  /* The second hand jumps once a second, same as the rim's own seconds arc
+   * on the digital face; easing it would make it lag a real reading. */
+  transition: none;
+}
+
+.clock-hub {
+  fill: var(--text);
+}
+
+/* The connection dot's fixed bottom position sits right on the 6 o'clock
+ * tick on this face alone (every other face has open space there); nudge
+ * it up into the gap between the tick and the "6" numeral instead of
+ * moving it panel-wide. */
+#panel:has(.clock-hands) #connection {
+  bottom: 33px;
+}
+
+/* The date is all .face holds in analogue mode (the hands take the centre),
+ * so it sits low in the circle rather than dead centre, clear of the hands
+ * at every hour. */
+.clock-date-analogue {
+  position: absolute;
+  left: 50%;
+  bottom: 100px;
+  transform: translateX(-50%);
+  margin: 0;
+  white-space: nowrap;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .clock-hand {
+    transition: none;
+  }
+}
+
 /* Overview face: the clock's own time/date above, this next-up line below.
  * Hidden entirely (not just empty) when there is nothing scheduled, so an
  * idle calendar costs no vertical space under the date. */
@@ -235,6 +331,7 @@ body {
  * rather than as a dead screen. */
 #panel[data-sleep="true"] .clock-time,
 #panel[data-sleep="true"] .clock-date,
+#panel[data-sleep="true"] .clock-hands,
 #panel[data-sleep="true"] .overview-next,
 #panel[data-sleep="true"] .rim,
 #panel[data-sleep="true"] #connection {

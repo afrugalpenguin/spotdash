@@ -234,6 +234,7 @@ func (a *App) startSession(cfg *config.Config) (*session, error) {
 		Logger:      a.log,
 		AccentColor: cfg.AccentColor,
 		HiddenFaces: cfg.HiddenFaces,
+		ClockStyle:  cfg.ClockStyle,
 	})
 	srv.HandleWebSocket()
 	// Agent-level, not tied to any one source, so it is registered directly
@@ -323,6 +324,7 @@ func (a *App) startSession(cfg *config.Config) (*session, error) {
 type settingsBody struct {
 	AccentColor string   `json:"accent_color"`
 	HiddenFaces []string `json:"hidden_faces"`
+	ClockStyle  string   `json:"clock_style"`
 }
 
 // handleSettings backs the settings page: GET reports the currently
@@ -338,6 +340,7 @@ func (a *App) handleSettings(w http.ResponseWriter, r *http.Request) {
 			current = settingsBody{
 				AccentColor: a.current.cfg.AccentColor,
 				HiddenFaces: a.current.cfg.HiddenFaces,
+				ClockStyle:  a.current.cfg.ClockStyle,
 			}
 		}
 		a.mu.Unlock()
@@ -386,6 +389,7 @@ func (a *App) saveSettings(body settingsBody) error {
 	}
 	cfg.AccentColor = body.AccentColor
 	cfg.HiddenFaces = body.HiddenFaces
+	cfg.ClockStyle = body.ClockStyle
 	if err := cfg.Validate(); err != nil {
 		return err
 	}

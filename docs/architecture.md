@@ -58,6 +58,7 @@ nothing but the glass.
 | `log_level`    | string | `debug`, `info`, `warn`, or `error`.                           |
 | `accent_color` | string | `"#rrggbb"`. Optional; absent keeps the stylesheet's own default. Normally set from the tray's Options page rather than hand-edited; see "Settings" below. |
 | `hidden_faces` | array  | Face titles left out of the tap rotation (`config.KnownFaces`). Optional; absent or empty shows every face. Cannot name every face at once. Normally set from the tray's Options page. |
+| `clock_style`  | string | `"digital"` or `"analogue"`, how the `clock` face draws. Optional; defaults to `"digital"`. Normally set from the tray's Options page. |
 | `sources`      | object | Source name to settings. Every source has `enabled` and `interval_ms`; sources may add their own keys. |
 
 Validation is strict and total. A missing file, invalid JSON, an unknown
@@ -388,16 +389,32 @@ manager shows exactly one face at a time, switches on a tap in the left half
 Faces are independent. A face that throws is contained and reported rather than
 taking the panel down.
 
-Current faces, in tap order: `overview`, `calendar`, `spotify`, `telemetry`,
-`status`. `overview` comes first because it is what the panel shows most of
-the time: time, date, and the next-up calendar event together, replacing a
-separate standalone `clock` face once `overview` covered everything it did.
-`clock.js` still exists and is still used by `dev.html`'s own preview
-harness, just not in the shipped face rotation. `status` stays last because
-it is the debug face: it lists every source with its status, last update,
-and last error, along with agent uptime and WebSocket connection state, and
-is the fallback whenever the WebSocket is down, so there is always something
+Current faces, in tap order: `overview`, `clock`, `calendar`, `spotify`,
+`telemetry`, `status`. `overview` comes first because it is what the panel
+shows most of the time: time, date, and the next-up calendar event together.
+`clock` sits right after it for whoever prefers the plain, uncombined face
+instead, or alongside it: both read the same source and the same
+`clock_style` setting, they just lay it out differently. Any face can be
+hidden from the rotation via `hidden_faces` (see "Settings" below), which is
+how someone who wants only one of `overview`/`clock` gets that without the
+other disappearing from the codebase. `status` stays last because it is the
+debug face: it lists every source with its status, last update, and last
+error, along with agent uptime and WebSocket connection state, and is the
+fallback whenever the WebSocket is down, so there is always something
 truthful on screen.
+
+`clock_style` (`"digital"` or `"analogue"`, default `"digital"`) picks how
+the standalone `clock` face draws: digital text plus the rim's seconds arc,
+or hour/minute/second hands. `overview` stays digital regardless: it also
+carries the next-up line underneath, and an analogue face's hands already
+use the room a digital time display would otherwise have. The hand math
+(`handAngles` in `clock.js`) is pure and unit tested separately from the
+DOM it drives, the same split every other face's non-trivial logic gets.
+Drawn as a second full-panel SVG alongside `.rim` rather than nested inside
+`.face`, for the same reason `.calendar` and `.spotify` already override
+`.face`'s `transform`: anything that has to draw across the whole circle
+needs to sit outside the stacking context `.face`'s `translate(-50%, -50%)`
+creates, not inside it.
 
 **A CSS gotcha worth knowing before adding interactive content to a face**:
 `.face` centres its content with `transform: translate(-50%, -50%)`, which
@@ -447,12 +464,19 @@ both wrong in different directions.
 
 `GET/POST /settings`, authenticated the same as everything else that is not
 `/health` or an OAuth callback. GET reports the currently configured
-`accent_color` and `hidden_faces`; POST validates both together (a `"#rrggbb"`
-colour, face titles against `config.KnownFaces`, not every face hidden at
-once), writes them to `config.json` (`config.Save`, atomic, mirrors the
-pattern spotify's `state_file` uses), and reloads. Two fields today; the
-shape is generic enough that a third setting is an added field, not a
-restructure.
+`accent_color`, `hidden_faces`, and `clock_style`; POST validates all three
+together (a `"#rrggbb"` colour, face titles against `config.KnownFaces`, not
+every face hidden at once, `clock_style` against `config.ClockStyles`),
+writes them to `config.json` (`config.Save`, atomic, mirrors the pattern
+spotify's `state_file` uses), and reloads. The shape is generic enough that
+each new setting is an added field, not a restructure.
+
+The settings page (`settings.html`/`settings.js`) groups `clock_style` with
+the `overview` face toggle under a "Clock" heading, labelled "Analogue" and
+"Combined clock/calendar face" respectively, ahead of the generic "Faces"
+list for the rest. `overview` is still just another entry in `hidden_faces`
+underneath; it gets its own labelled row because "Overview" would not have
+told anyone what ticking it off actually does.
 
 The reload is deliberately not synchronous inside the POST handler: `Reload`
 tears down and rebuilds the whole session, including the listener the POST
@@ -462,16 +486,21 @@ deadlock resolved only by the shutdown grace period force-closing the
 connection before the response goes out. `time.AfterFunc` schedules the
 reload a short beat after the response is sent instead.
 
-Both settings are carried on `/health` (cosmetic, not sensitive, and the
+All three settings are carried on `/health` (cosmetic, not sensitive, and the
 panel needs them before it necessarily has anything else confirming the
 agent is reachable) and applied live client-side on the next poll, no page
 reload needed: `applyAccentColor` sets a CSS custom property, `syncFaces`
 recomputes the active face list from `ALL_FACES` and `state.hiddenFaces`
 and, only if the visible set actually changed, switches to the current
 face's new position (or the first face, if it was the one just hidden).
-Guarded to a no-op otherwise, since this runs on every health poll and
-rebuilding the current face's DOM that often for no reason would reset
-things like the calendar agenda's scroll position.
+`syncClockStyle` re-renders the `clock` face (a full teardown and render,
+not just a new reading) if `state.clockStyle` changed under it and it is
+the face currently showing; digital and analogue are different enough DOM
+(text versus SVG hands) that feeding a style change into whichever shape is
+already on screen is not an option the way a plain reading update is. All
+three are guarded to a no-op when nothing actually changed, since this runs
+on every health poll and rebuilding the current face's DOM that often for
+no reason would reset things like the calendar agenda's scroll position.
 
 The page itself (`settings.html`/`settings.js`) is an ordinary static file
 under `agent/web`, served the same way the panel is.
