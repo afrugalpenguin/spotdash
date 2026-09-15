@@ -81,6 +81,12 @@ copy config.example.json config.json
 go run ./cmd/spotdash
 ```
 
+The example also has `calendar` and `spotify` blocks, switched off with
+placeholder values. Fill one in and set `"enabled": true` to use it (see
+"Spotify and calendar" below). The agent reads `config.json` when it starts,
+and again on **Reload config** in the tray or when the settings page is
+saved. Any other edit needs one of those, or a restart.
+
 Open `http://localhost:8765/?token=<your token>`. The agent won't start
 without a token in `config.json` (which is gitignored, keep it that way).
 

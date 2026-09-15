@@ -12,6 +12,23 @@
     "telemetry": {
       "enabled": true,
       "interval_ms": 2000
+    },
+    "calendar": {
+      "enabled": false,
+      "interval_ms": 300000,
+      "mode": "ics",
+      "feed_url": "https://example.com/replace-with-your-private-calendar-link.ics",
+      "notify_minutes": 15,
+      "show_seconds": 45
+    },
+    "spotify": {
+      "enabled": false,
+      "interval_ms": 5000,
+      "mode": "api",
+      "client_id": "replace-with-your-spotify-client-id",
+      "redirect_uri": "http://127.0.0.1:8765/spotify/callback",
+      "state_file": "spotify_state.json",
+      "layout": "fill"
     }
   }
 }
