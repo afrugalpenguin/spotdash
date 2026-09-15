@@ -1,7 +1,6 @@
 # spotdash
 
 [![Go version](https://img.shields.io/badge/Go-1.26%2B-00ADD8?logo=go&logoColor=white)](agent/go.mod)
-[![Go Report Card](https://goreportcard.com/badge/github.com/afrugalpenguin/spotdash/agent)](https://goreportcard.com/report/github.com/afrugalpenguin/spotdash/agent)
 [![License: MIT](https://img.shields.io/github/license/afrugalpenguin/spotdash)](LICENSE)
 
 Inspired by [this $4 thrift-store Echo Spot rebuild](https://www.reddit.com/r/amazonecho/comments/1wen63x/i_turned_a_4_thrift_store_echo_spot_that_i_found/),
