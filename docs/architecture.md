@@ -64,6 +64,49 @@ Validation is strict and total: missing file, invalid JSON, unknown top-level ke
 
 Log file lives next to the resolved config file.
 
+### Source settings reference
+
+Every source block takes `enabled` (bool) and `interval_ms` (int, required > 0 when enabled), plus whatever's below.
+
+**`clock`** - no required keys.
+
+| Key           | Type   | Default | Notes                                                         |
+| ------------- | ------ | ------- | -------------------------------------------------------------- |
+| `sleep_start` | string | none    | `"HH:MM"`. Must be set together with `sleep_end` or not at all. |
+| `sleep_end`   | string | none    | `"HH:MM"`. No sleep window (panel never blanks) if both are absent. |
+
+**`telemetry`** - no settings beyond `enabled`/`interval_ms`. `gpu` in the reading is `null` when NVML is unavailable.
+
+**`spotify`** - `mode` is required, no default.
+
+| Key             | Type   | Modes  | Notes                                                              |
+| --------------- | ------ | ------ | ------------------------------------------------------------------- |
+| `mode`          | string | both   | `"mock"` or `"api"`.                                                 |
+| `layout`        | string | both   | `"fill"` or `"disc"`, default `"fill"`.                              |
+| `track`         | string | mock   | Required with `mode: "mock"`.                                       |
+| `artist`        | string | mock   | Optional.                                                            |
+| `album`         | string | mock   | Optional.                                                            |
+| `duration_ms`   | int    | mock   | Required with `mode: "mock"`, must be positive. Track length in ms. |
+| `art_file`      | string | mock   | Optional path to a local image, served as the mock's album art.     |
+| `paused`        | bool   | mock   | Optional, default `false`.                                          |
+| `client_id`     | string | api    | Required. Spotify app's Client ID (no secret, PKCE).                 |
+| `redirect_uri`  | string | api    | Required. Must exactly match the Spotify app's configured redirect. |
+| `state_file`    | string | api    | Required. Where the refresh token is persisted (not `config.json`). The cover art cache sits next to it. A relative path is relative to the working directory, not to `config.json`. |
+
+**`calendar`** - `mode` is required, no default.
+
+| Key                | Type   | Modes | Notes                                                         |
+| ------------------ | ------ | ----- | -------------------------------------------------------------- |
+| `mode`             | string | both  | `"mock"` or `"ics"`.                                            |
+| `notify_minutes`   | int    | both  | Default 15. Event counts "urgent" within this many minutes.    |
+| `show_seconds`     | int    | both  | Default 45. How long an auto-switch holds the face open.        |
+| `title`            | string | mock  | Set together with `start_in_minutes` or `start_at`; leave all three unset for no event. |
+| `location`         | string | mock  | Optional.                                                       |
+| `start_in_minutes` | int    | mock  | Non-zero. Countdown from agent start. Exactly one of this or `start_at`.  |
+| `start_at`         | string | mock  | `"HH:MM"`, rolls to tomorrow if already past today.              |
+| `upcoming`         | array  | mock  | Canned `{title, start_label}` entries, shown as given.           |
+| `feed_url`         | string | ics   | Required. A published ICS URL - treat it as a secret, see "Calendar" below. |
+
 ### The source contract
 
 ```go
