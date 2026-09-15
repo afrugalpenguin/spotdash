@@ -19,8 +19,14 @@ Replace both with a single `clock` face, controlled by two independent
 settings:
 
 - `clock_style`: `"digital"` | `"analogue"` (unchanged)
-- `clock_calendar` (new, bool, default `true`): whether the next calendar
-  event is shown at all
+- `hide_next_event` (new, bool, default `false` = shown): whether the next
+  calendar event is hidden. Inverted rather than a `clock_calendar: bool`
+  defaulting to `true`, because a plain Go `bool` can't distinguish "absent
+  from config.json" from "explicitly false" on decode - the same reason
+  `hidden_faces` is itself phrased as a negative, defaults-to-off list
+  rather than a positive `visible_faces`. The settings page inverts it back
+  for the checkbox, the same way it already inverts `hidden_faces` into
+  each face's checked state.
 
 All four combinations are supported. `overview` is retired entirely - not
 hidden, not deprecated-but-present, gone from `KnownFaces`, `ALL_FACES`, and
@@ -60,17 +66,17 @@ today: just the date, pinned to the bottom edge, in its current position.
 ## Config & wiring
 
 - `config.go`: remove `"overview"` from `KnownFaces`. Add
-  `ClockCalendar bool` (`json:"clock_calendar"` - no `omitempty`, since the
-  zero value `false` is a meaningful, distinct state from "unset", and GET
-  `/settings` needs to report it either way). Default `true` when unset in
-  `Load`, matching `overview`'s current default-visible behaviour.
-- `app.go` / `server.go`: thread `ClockCalendar` through `Options`,
+  `HideNextEvent bool` (`json:"hide_next_event,omitempty"`), validated the
+  same way every other field is (nothing to validate for a plain bool, but
+  it goes through the same round-trip as `AccentColor`/`ClockStyle`).
+- `app.go` / `server.go`: thread `HideNextEvent` through `Options`,
   `/health`, and the `/settings` GET/POST body the same way `ClockStyle`
   already is.
 - `app.js`: drop `overviewFace` from `ALL_FACES`. Read
-  `state.clockCalendar` from `/health` the same way `state.clockStyle` is
-  read, and extend the existing clock-style re-render trigger to also fire
-  on a `clockCalendar` change (both only matter to the `clock` face).
+  `state.hideNextEvent` from `/health` (`health.hide_next_event || false`)
+  the same way `state.clockStyle` is read, and extend the existing
+  clock-style re-render trigger to also fire on a `hideNextEvent` change
+  (both only matter to the `clock` face).
 - `clock.js`: absorb `overview.js`'s `calendarData` /
   `calendarSyncedAt` / `paintNext` / countdown-urgency machinery. Render the
   next-up block in both digital and analogue branches, gated on
