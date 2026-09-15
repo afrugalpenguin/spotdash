@@ -15,8 +15,8 @@ throughout, captured on the emulator against a real Spotify account.
 <table>
 <tr>
 <td align="center" width="33%">
-<img src="docs/screenshots/clock.png" width="220" alt="Clock face"><br>
-Clock
+<img src="docs/screenshots/clock.png" width="220" alt="Clock face, analogue, with the next calendar event"><br>
+Clock, analogue, with the next event combined in
 </td>
 <td align="center" width="33%">
 <img src="docs/screenshots/spotify.png" width="220" alt="Spotify face"><br>
@@ -39,6 +39,15 @@ Status, the debug face
 <td width="33%"></td>
 </tr>
 </table>
+
+The clock face is analogue or digital (`clock_style`), and can show the next
+calendar event alongside the time or not (`hide_next_event`) - the two
+settings are independent, so all four combinations are available. Both, plus
+the per-face show/hide toggles, live on the settings page (tray: Options):
+
+<p align="center">
+<img src="docs/screenshots/settings.png" width="260" alt="Settings page">
+</p>
 
 ## Components
 
