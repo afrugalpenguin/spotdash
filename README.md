@@ -1,30 +1,34 @@
 # spotdash
 
-A desk dashboard. A Windows tray agent collects machine telemetry and other data,
-serves a circular 480x480 web UI over the LAN, and pushes live updates over a
-WebSocket. A minimal Android app runs as a fullscreen kiosk launcher on an
-Amazon Echo Spot and displays that UI in a WebView.
+[![Go version](https://img.shields.io/badge/Go-1.26%2B-00ADD8?logo=go&logoColor=white)](agent/go.mod)
+[![Go Report Card](https://goreportcard.com/badge/github.com/afrugalpenguin/spotdash/agent)](https://goreportcard.com/report/github.com/afrugalpenguin/spotdash/agent)
+[![License: MIT](https://img.shields.io/github/license/afrugalpenguin/spotdash)](LICENSE)
 
-All logic and all UI live in the agent. The display device is a dumb panel.
+I had a first-gen Amazon Echo Spot doing nothing on a shelf, so I put
+LineageOS on it and turned it into a desk dashboard. A Windows tray agent
+collects machine telemetry, Spotify, and calendar data, serves a circular
+480x480 web UI over the LAN, and pushes updates over a WebSocket. The Spot
+just runs a kiosk WebView pointed at it.
+
+All the logic lives in the agent. The Spot is a dumb panel.
 
 ## Faces
 
-One face on screen at a time; tap left or right half to cycle. Live data
-throughout, captured on the emulator against a real Spotify account.
+One face at a time, tap either half to switch.
 
 <table>
 <tr>
 <td align="center" width="33%">
 <img src="docs/screenshots/clock.png" width="220" alt="Clock face, analogue, with the next calendar event"><br>
-Clock, analogue, with the next event combined in
-</td>
-<td align="center" width="33%">
-<img src="docs/screenshots/spotify.png" width="220" alt="Spotify face"><br>
-Spotify, with playback controls
+Clock
 </td>
 <td align="center" width="33%">
 <img src="docs/screenshots/calendar.png" width="220" alt="Calendar face"><br>
-Calendar, next-up event
+Calendar
+</td>
+<td align="center" width="33%">
+<img src="docs/screenshots/spotify.png" width="220" alt="Spotify face"><br>
+Spotify
 </td>
 </tr>
 <tr>
@@ -34,228 +38,104 @@ Telemetry
 </td>
 <td align="center" width="33%">
 <img src="docs/screenshots/status.png" width="220" alt="Status face"><br>
-Status, the debug face
+Status (debug)
 </td>
 <td width="33%"></td>
 </tr>
 </table>
 
-The clock face is analogue or digital (`clock_style`), and can show the next
-calendar event alongside the time or not (`hide_next_event`) - the two
-settings are independent, so all four combinations are available. Both, plus
-the per-face show/hide toggles, live on the settings page (tray: Options):
+The clock can be digital or analogue and show the next calendar event or
+not, independently. That plus per-face show/hide lives on a settings page
+(tray icon: Options):
 
-<p align="center">
+<p align="left">
 <img src="docs/screenshots/settings.png" width="260" alt="Settings page">
 </p>
 
-## Components
+## Layout
 
-| Path     | What it is                                                                 |
-| -------- | -------------------------------------------------------------------------- |
-| `agent/` | Go tray application. HTTP server, WebSocket, pluggable data sources, embedded web UI. |
-| `shell/` | Kotlin Android app. Single Activity, immersive WebView, HOME launcher.      |
-| `docs/`  | Architecture notes and the verification log.                               |
+| Path     | What it is                                                   |
+| -------- | ------------------------------------------------------------- |
+| `agent/` | Go tray app. HTTP server, WebSocket, pluggable data sources.  |
+| `shell/` | Kotlin Android app. One Activity, fullscreen WebView.          |
+| `docs/`  | Architecture notes and a verification log.                    |
 
-## Target hardware
+## Hardware
 
-The display is a 1st-generation Amazon Echo Spot (2017, codename `rook`) running
-LineageOS 18.1 (Android 11, API 30). It has a 480x480 circular screen, roughly
-1 GB of RAM, and a MediaTek MT8163 SoC. The shell does as little as possible so
-the device can keep up.
+Built for a 2017 Echo Spot (`rook`) on LineageOS 18.1, 480x480 circular
+screen, about 1 GB RAM. You don't need one to hack on this though: the UI
+runs in a browser and the shell runs in a 480x480 emulator.
 
-Neither component requires that device to develop against. The UI runs in a
-desktop browser and the shell runs in a 480x480 Android emulator.
+## Getting it running
 
-## Prerequisites
-
-| Tool                | Needed for                                                |
-| ------------------- | --------------------------------------------------------- |
-| Go 1.25 or later    | The agent.                                                |
-| mingw-w64 gcc       | `go test -race` only. Nothing shipped needs it.           |
-| JDK 17 or later     | The shell.                                                |
-| Android SDK, API 30 | The shell and its emulator.                               |
-
-The agent itself needs no C compiler: GPU telemetry binds `nvml.dll` directly in
-pure Go, so the build is cgo free and the result is a single static binary. A
-compiler is only needed to run `go test -race`. Setup details are in
-`docs/verify.md` section 0.
-
-## Agent quick start
+| Tool                | For                        |
+| -------------------- | --------------------------- |
+| Go 1.26+             | the agent                   |
+| JDK 17+, Android SDK | the shell                   |
+| mingw-w64 gcc        | `go test -race` only        |
 
 ```powershell
 cd agent
 copy config.example.json config.json
-# edit config.json and set a non-empty "token"
+# edit config.json, set a non-empty "token"
 go run ./cmd/spotdash
 ```
 
-The agent refuses to start if `config.json` is missing, malformed, or has an
-empty token. Open `http://localhost:8765/?token=<your token>` in a browser.
+Open `http://localhost:8765/?token=<your token>`. The agent won't start
+without a token in `config.json` (which is gitignored, keep it that way).
 
-`config.json` holds a shared secret and is excluded by `.gitignore`. Keep it
-that way.
-
-## Connecting Spotify
-
-`spotify` has two modes, set with the required `mode` key (no default).
-
-**Mock**, no account or network needed:
-
-```json
-"spotify": {
-  "enabled": true,
-  "interval_ms": 1000,
-  "mode": "mock",
-  "track": "Track name",
-  "artist": "Artist name",
-  "album": "Album name",
-  "duration_ms": 342000,
-  "layout": "fill"
-}
-```
-
-**API**, the real thing. Setup:
-
-1. Create an app at <https://developer.spotify.com/dashboard>, tick **Web API**.
-2. Add redirect URI `http://127.0.0.1:8765/spotify/callback` exactly (match
-   your `listen` port if it differs).
-3. New apps start in Development Mode with a login allowlist. Add your own
-   account under **Users Management** before connecting.
-4. Copy the **Client ID**. No client secret needed, this uses PKCE.
-
-```json
-"spotify": {
-  "enabled": true,
-  "interval_ms": 5000,
-  "mode": "api",
-  "client_id": "your client id",
-  "redirect_uri": "http://127.0.0.1:8765/spotify/callback",
-  "state_file": "spotify_state.json",
-  "layout": "fill"
-}
-```
-
-`state_file` holds the refresh token, written by the agent. Keep it next to
-`config.json` and out of git, same as the token.
-
-With the agent running, open `http://<agent host>:<port>/spotify/connect` in a
-browser (token as `?token=`, or already set as a session cookie from the
-panel). Completing consent lands on a page that says **Connected**.
-
-The panel shows a play/pause/next/previous row under the track title. If the
-connection drops, `/health` and the status face show why and link back to
-`/spotify/connect`. A connection made before playback control was added needs
-one more visit to `/spotify/connect` to pick up the extra permission.
-
-## Connecting a calendar
-
-`calendar` has two modes, set with the required `mode` key (no default).
-
-**Mock**, no feed needed:
-
-```json
-"calendar": {
-  "enabled": true,
-  "interval_ms": 5000,
-  "mode": "mock",
-  "title": "Standup with the team",
-  "location": "Microsoft Teams Meeting",
-  "start_in_minutes": 12,
-  "notify_minutes": 15,
-  "show_seconds": 45
-}
-```
-
-**ICS**, a real feed URL. Outlook: Calendar settings > Shared calendars >
-Publish a calendar, copy the ICS link. Keep it secret; anyone with the link
-can read the calendar.
-
-```json
-"calendar": {
-  "enabled": true,
-  "interval_ms": 45000,
-  "mode": "ics",
-  "feed_url": "https://outlook.office365.com/owa/calendar/.../calendar.ics",
-  "notify_minutes": 15,
-  "show_seconds": 45
-}
-```
-
-`notify_minutes` (default 15) is how far out an event counts as imminent;
-crossing it switches the panel to the calendar face automatically, waking it
-even during the clock's sleep window. `show_seconds` (default 45) is how
-long that switch holds before returning to whatever face was showing.
-
-Recurring events (a daily standup, a weekly sync) appear as next-up too, for
-the common recurrence shapes: daily/weekly/monthly/yearly, optionally on
-specific weekdays or days of the month. Exotic RRULE shapes ("the third
-Thursday of the month") and all-day events do not appear as next-up: see
-`docs/architecture.md`.
-
-## Web UI without the agent
-
-`agent/web/dev.html` renders the UI inside a 480x480 circle in a desktop
-browser, with a toolbar to switch faces and inject fake state. No agent and no
-build step required. Open the file directly.
-
-## Shell quick start
-
-Create and launch the 480x480 emulator, which matches the real device:
+For the shell, spin up the matching emulator and install the app:
 
 ```powershell
-cd shell	ools
-.vd.ps1
-```
+cd shell\tools
+.\avd.ps1
 
-Build and install. A clean checkout needs only `ANDROID_HOME` set; the gitignored
-`local.properties` is not required.
-
-```powershell
-cd shell
+cd ..
 .\gradlew assembleDebug
-adb install -r appuild\outputspk\debugpp-debug.apk
+adb install -r app\build\outputs\apk\debug\app-debug.apk
 adb shell am start -n dev.spotdash.shell/.PanelActivity
 ```
 
-Press and hold the display for three seconds to open settings, then enter the
-agent URL and token. From the emulator the host is `http://10.0.2.2:8765`. That
-gesture is the only UI the shell has beyond the WebView, because the device has
-no other input.
+Long-press the display for 3 seconds to enter the agent URL and token
+(from the emulator that's `http://10.0.2.2:8765`). That's the only UI the
+shell has, there's no other input on the real device.
 
-On the real device, set the shell as the default launcher so the panel survives
-a reboot without anyone touching it.
+Want to work on faces without running the agent at all? Open
+`agent/web/dev.html` directly, it's got a toolbar for switching faces and
+faking state.
 
-## Starting the agent automatically
+## Spotify and calendar
 
-`agent\tools\autostart.ps1` registers a scheduled task that starts the agent
-at logon, tray icon included. Not a Windows service: a service runs with no
-desktop session, so there would be no tray and no way to open the UI.
+Both sources have a `mock` mode for testing and a real mode:
+
+- **Spotify**: `mode: "api"`, needs a Spotify app (Client ID only, PKCE, no
+  secret) and a redirect URI of `http://127.0.0.1:8765/spotify/callback`.
+  Then visit `/spotify/connect` to authorise.
+- **Calendar**: `mode: "ics"`, just a published ICS feed URL (Outlook: Share
+  calendar > Publish). Keep the link private, anyone with it can read your
+  calendar.
+
+Full config keys and setup steps are in `docs/architecture.md`.
+
+## Running it automatically
 
 ```powershell
 cd agent
-.\tools\autostart.ps1 -Install     # register and start
-.\tools\autostart.ps1 -Status      # check it
-.\tools\autostart.ps1 -Uninstall   # remove it
+.\tools\autostart.ps1 -Install
 ```
 
-Refuses to install without a `config.json` already in place.
+Registers a scheduled task at logon (tray icon included, not a service, a
+service has no desktop session to put a tray on). `-Status` and
+`-Uninstall` do what you'd expect.
 
-## Changing settings
+## Security
 
-The tray has an **Options** item that opens a small settings page in your
-browser: the panel's accent colour, whether the clock face is digital or
-analogue, and a toggle per face to show or hide it in the tap rotation (at
-least one has to stay on). Saving writes back to `config.json` and reloads;
-an already-open panel picks it up within a few seconds, no restart needed.
+Shared bearer token over plain HTTP on a trusted LAN, no TLS. That's a
+known, accepted tradeoff for a desk toy on a home network, not an
+oversight, see `docs/architecture.md` for the reasoning.
 
-## Security posture
+## More docs
 
-Phase 1 uses a shared bearer token over plain HTTP on a trusted LAN. There is no
-TLS. This is a deliberate, documented tradeoff. See `docs/architecture.md`.
-
-## Documentation
-
-- `docs/architecture.md` for component boundaries, data flow, and the source contract.
-- `docs/verify.md` for the commands used to verify each piece of work, and their output.
-- `docs/device.md` for bringing up the real Echo Spot.
+- [`docs/architecture.md`](docs/architecture.md) - how it's put together, and the full source config reference.
+- [`docs/verify.md`](docs/verify.md) - how each piece was tested.
+- [`docs/device.md`](docs/device.md) - bringing up a real Echo Spot.
