@@ -5,7 +5,6 @@
 // that object once in render and are told when something changed, so no face
 // has to re-read or copy it.
 
-import * as overviewFace from "./faces/overview.js";
 import * as clockFace from "./faces/clock.js";
 import * as spotifyFace from "./faces/spotify.js";
 import * as calendarFace from "./faces/calendar.js";
@@ -13,12 +12,12 @@ import * as telemetryFace from "./faces/telemetry.js";
 import * as statusFace from "./faces/status.js";
 
 // Every face that exists, in the order tapping cycles through when none are
-// hidden. Overview first because it is what the panel shows most of the
-// time (time, date, and what's next, all at once); clock right after it for
-// whoever prefers the plain, uncombined face; status last because it is the
-// debug face. Titles here have to match config.KnownFaces on the agent
+// hidden. clock first because it is what the panel shows most of the time
+// (and, with hide_next_event false, carries the next-up calendar line the
+// same as the old dedicated overview face did); status last because it is
+// the debug face. Titles here have to match config.KnownFaces on the agent
 // side, which is what actually validates hidden_faces.
-const ALL_FACES = [overviewFace, clockFace, calendarFace, spotifyFace, telemetryFace, statusFace];
+const ALL_FACES = [clockFace, calendarFace, spotifyFace, telemetryFace, statusFace];
 
 // The active subset, filtered by state.hiddenFaces via syncFaces(). Plain
 // `let` rather than const: which faces are active can change at runtime,
@@ -62,6 +61,7 @@ export const state = {
   accentColor: "",
   hiddenFaces: [],
   clockStyle: "digital",
+  hideNextEvent: false,
   sources: {},
   lastError: "",
 };
@@ -76,8 +76,6 @@ let socket = null;
 let backoffMs = BACKOFF_MIN_MS;
 let reconnectTimer = null;
 let lastMessageAt = 0;
-let lastClockStyle = "digital";
-
 // Auto-switch on an imminent calendar event. urgentKey identifies the event
 // currently holding the panel, so a reading that is still the same urgent
 // event (just a lower countdown) does not retrigger the switch on every
@@ -273,6 +271,7 @@ export function applyHealth(health) {
   state.accentColor = health.accent_color || "";
   state.hiddenFaces = health.hidden_faces || [];
   state.clockStyle = health.clock_style || "digital";
+  state.hideNextEvent = Boolean(health.hide_next_event);
 
   const reported = health.sources || {};
   for (const name of Object.keys(reported)) {
@@ -323,16 +322,21 @@ function syncFaces() {
   showFace(stillVisible === -1 ? 0 : stillVisible);
 }
 
-// syncClockStyle re-renders the clock face when state.clockStyle changes
-// under it, live. A plain onState update cannot do this: digital and
-// analogue build entirely different DOM (text versus SVG hands), so a style
-// change needs the same teardown-then-render showFace already does, not
-// just a new reading fed into the shape that is already on screen.
-function syncClockStyle() {
-  if (state.clockStyle === lastClockStyle) {
+let lastClockStyle = "digital";
+let lastHideNextEvent = false;
+
+// syncClockSettings re-renders the clock face when clock_style or
+// hide_next_event changes under it, live. A plain onState update cannot do
+// this: digital, analogue, and calendar-on/off build different DOM (text
+// versus SVG hands, an extra next-up line or not), so a change needs the
+// same teardown-then-render showFace already does, not just a new reading
+// fed into whatever shape is already on screen.
+function syncClockSettings() {
+  if (state.clockStyle === lastClockStyle && state.hideNextEvent === lastHideNextEvent) {
     return;
   }
   lastClockStyle = state.clockStyle;
+  lastHideNextEvent = state.hideNextEvent;
   if (currentFace && currentFace.title === "clock") {
     showFace(currentIndex);
   }
@@ -347,7 +351,7 @@ async function pollHealth() {
     applyHealth(await response.json());
     applyAccentColor();
     syncFaces();
-    syncClockStyle();
+    syncClockSettings();
     state.lastError = "";
   } catch (err) {
     state.lastError = err && err.message ? err.message : String(err);
