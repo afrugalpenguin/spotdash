@@ -265,14 +265,14 @@ func TestLoadAcceptsValidHiddenFaces(t *testing.T) {
 	cfg, err := Load(writeConfig(t, `{
   "listen": "127.0.0.1:9000",
   "token": "s3cret",
-  "hidden_faces": ["clock", "telemetry"],
+  "hidden_faces": ["calendar", "telemetry"],
   "sources": {}
 }`))
 	if err != nil {
 		t.Fatalf("Load returned an error for valid hidden_faces: %v", err)
 	}
-	if len(cfg.HiddenFaces) != 2 || cfg.HiddenFaces[0] != "clock" || cfg.HiddenFaces[1] != "telemetry" {
-		t.Errorf("HiddenFaces = %v, want [clock telemetry]", cfg.HiddenFaces)
+	if len(cfg.HiddenFaces) != 2 || cfg.HiddenFaces[0] != "calendar" || cfg.HiddenFaces[1] != "telemetry" {
+		t.Errorf("HiddenFaces = %v, want [calendar telemetry]", cfg.HiddenFaces)
 	}
 }
 
@@ -280,11 +280,23 @@ func TestLoadRejectsAnUnknownFaceName(t *testing.T) {
 	_, err := Load(writeConfig(t, `{
   "listen": "127.0.0.1:9000",
   "token": "s3cret",
-  "hidden_faces": ["clock", "weather"],
+  "hidden_faces": ["calendar", "weather"],
   "sources": {}
 }`))
 	if err == nil {
 		t.Fatal("Load accepted an unknown face name, want an error")
+	}
+}
+
+func TestLoadRejectsHidingClock(t *testing.T) {
+	_, err := Load(writeConfig(t, `{
+  "listen": "127.0.0.1:9000",
+  "token": "s3cret",
+  "hidden_faces": ["clock"],
+  "sources": {}
+}`))
+	if err == nil {
+		t.Fatal("Load accepted hiding the clock face, want an error: it is the panel's non-negotiable fallback")
 	}
 }
 

@@ -57,7 +57,7 @@ nothing but the glass.
 | `token`        | string | Shared secret. Required. An empty token is a startup failure.  |
 | `log_level`    | string | `debug`, `info`, `warn`, or `error`.                           |
 | `accent_color` | string | `"#rrggbb"`. Optional; absent keeps the stylesheet's own default. Normally set from the tray's Options page rather than hand-edited; see "Settings" below. |
-| `hidden_faces` | array  | Face titles left out of the tap rotation (`config.KnownFaces`). Optional; absent or empty shows every face. Cannot name every face at once. Normally set from the tray's Options page. |
+| `hidden_faces` | array  | Face titles left out of the tap rotation (`config.KnownFaces`). Optional; absent or empty shows every face. Cannot name every face at once, and cannot name `clock` at all - it is the panel's non-negotiable fallback face. Normally set from the tray's Options page. |
 | `clock_style`  | string | `"digital"` or `"analogue"`, how the `clock` face draws. Optional; defaults to `"digital"`. Normally set from the tray's Options page. |
 | `sources`      | object | Source name to settings. Every source has `enabled` and `interval_ms`; sources may add their own keys. |
 
@@ -471,12 +471,18 @@ writes them to `config.json` (`config.Save`, atomic, mirrors the pattern
 spotify's `state_file` uses), and reloads. The shape is generic enough that
 each new setting is an added field, not a restructure.
 
+`clock` cannot appear in `hidden_faces` at all - it is the panel's
+non-negotiable fallback face, rejected outright rather than folded into the
+generic "not every face at once" check, so it stays true even when every
+other face is hidden.
+
 The settings page (`settings.html`/`settings.js`) groups `clock_style` with
 the `overview` face toggle under a "Clock" heading, labelled "Analogue" and
 "Combined clock/calendar face" respectively, ahead of the generic "Faces"
 list for the rest. `overview` is still just another entry in `hidden_faces`
 underneath; it gets its own labelled row because "Overview" would not have
-told anyone what ticking it off actually does.
+told anyone what ticking it off actually does. `clock` itself has no row at
+all in that list - there is nothing for a toggle to do.
 
 The reload is deliberately not synchronous inside the POST handler: `Reload`
 tears down and rebuilds the whole session, including the listener the POST

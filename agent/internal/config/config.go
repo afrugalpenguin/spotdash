@@ -220,6 +220,9 @@ func (c *Config) Validate() error {
 		if !contains(KnownFaces, face) {
 			return fmt.Errorf(`"hidden_faces" names %q, want one of %s`, face, strings.Join(KnownFaces, ", "))
 		}
+		if face == "clock" {
+			return errors.New(`"hidden_faces" cannot include "clock": it is the panel's non-negotiable fallback face`)
+		}
 		hidden[face] = true
 	}
 	if len(hidden) >= len(KnownFaces) {

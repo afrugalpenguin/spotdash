@@ -11,12 +11,15 @@
 // actually is ("Combined clock/calendar face") rather than sitting in the
 // generic Faces list under its internal title - it is still just another
 // entry in hidden_faces underneath.
+//
+// Clock itself has no toggle at all: it is the panel's non-negotiable
+// fallback face (see config.Validate, which refuses "clock" in
+// hidden_faces), so there is nothing here for a pill to control.
 
 import { readToken } from "./app.js";
 
 const FACES = [
   { title: "overview", label: "Combined clock/calendar face" },
-  { title: "clock", label: "Clock" },
   { title: "calendar", label: "Calendar" },
   { title: "spotify", label: "Spotify" },
   { title: "telemetry", label: "Telemetry" },
