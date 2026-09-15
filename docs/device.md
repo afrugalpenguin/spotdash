@@ -8,6 +8,28 @@ in.
 Work through it with the Spot on the desk and a USB cable attached. Nothing here
 needs the agent to be rebuilt.
 
+## 0. Get LineageOS onto the device
+
+There's no official LineageOS build for the Echo Spot (`rook`); this whole
+thing rides on unofficial community work. Two XDA threads cover it:
+
+- [\[UNLOCK\]\[ROOT\]\[TWRP\]\[UNBRICK\] Amazon Echo Spot 2017 (rook)](https://xdaforums.com/t/unlock-root-twrp-unbrick-amazon-echo-spot-2017-rook.4754878/) -
+  unlocking the bootloader and getting TWRP recovery on, which has to happen
+  first.
+- [\[ROM\]\[UNOFFICIAL\]\[11\]\[rook\] LineageOS 18.1 for the Amazon Echo Spot (2017)](https://xdaforums.com/t/rom-unofficial-11-rook-lineageos-18-1-for-the-amazon-echo-spot-2017.4762459/) -
+  the actual ROM, flashed through the TWRP from the step above.
+
+Not maintaining flashing steps here since that thread is the actual source of
+truth and moves independently of this repo. Known rough edges from that
+build worth knowing before you start: WPA3 wifi is unsupported (WPA2 only),
+and speaker quality, Bluetooth, camera, mic, and sensors are all flagged
+experimental. spotdash only touches the display and network, so the rest
+doesn't matter here, but it's why this whole device is "unofficial" territory
+rather than a supported LineageOS target.
+
+Once LineageOS 18.1 is on and booted, enable Developer Options (tap the
+build number seven times in Settings > About) and turn on USB debugging.
+
 ## Before you start
 
 - The Spot is on LineageOS 18.1 and has developer options enabled, with USB
