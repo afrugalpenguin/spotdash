@@ -30,7 +30,7 @@ var validLogLevels = []string{"debug", "info", "warn", "error"}
 // module in agent/web/faces exports. Kept here, not just in app.js, so a
 // typo or a stale name in hidden_faces is a startup error rather than a
 // setting that silently does nothing.
-var KnownFaces = []string{"overview", "clock", "calendar", "spotify", "telemetry", "status"}
+var KnownFaces = []string{"clock", "calendar", "spotify", "telemetry", "status"}
 
 // ClockStyles are the shapes the clock face (standalone or the clock portion
 // of overview) is allowed to draw in.
