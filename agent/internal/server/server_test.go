@@ -170,6 +170,29 @@ func TestHealthReportsTheConfiguredClockStyle(t *testing.T) {
 	}
 }
 
+func TestHealthReportsHideNextEvent(t *testing.T) {
+	store := state.New()
+	srv := New(Options{
+		Token:         testToken,
+		Version:       "test-version",
+		Started:       time.Now(),
+		Store:         store,
+		HideNextEvent: true,
+	})
+
+	rec := do(t, srv, http.MethodGet, "/health", "")
+
+	var body struct {
+		HideNextEvent bool `json:"hide_next_event"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decoding /health body: %v\nbody: %s", err, rec.Body.String())
+	}
+	if !body.HideNextEvent {
+		t.Error("hide_next_event = false, want true")
+	}
+}
+
 func TestHealthOmitsAccentColorWhenUnconfigured(t *testing.T) {
 	srv, _ := newTestServer(t)
 

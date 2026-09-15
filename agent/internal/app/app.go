@@ -227,14 +227,15 @@ func (a *App) startSession(cfg *config.Config) (*session, error) {
 	}
 
 	srv := server.New(server.Options{
-		Token:       cfg.Token,
-		Version:     a.version,
-		Started:     time.Now(),
-		Store:       store,
-		Logger:      a.log,
-		AccentColor: cfg.AccentColor,
-		HiddenFaces: cfg.HiddenFaces,
-		ClockStyle:  cfg.ClockStyle,
+		Token:         cfg.Token,
+		Version:       a.version,
+		Started:       time.Now(),
+		Store:         store,
+		Logger:        a.log,
+		AccentColor:   cfg.AccentColor,
+		HiddenFaces:   cfg.HiddenFaces,
+		ClockStyle:    cfg.ClockStyle,
+		HideNextEvent: cfg.HideNextEvent,
 	})
 	srv.HandleWebSocket()
 	// Agent-level, not tied to any one source, so it is registered directly
@@ -322,9 +323,10 @@ func (a *App) startSession(cfg *config.Config) (*session, error) {
 // Two fields today; the shape is generic enough that a third setting is an
 // added field here, not a restructure.
 type settingsBody struct {
-	AccentColor string   `json:"accent_color"`
-	HiddenFaces []string `json:"hidden_faces"`
-	ClockStyle  string   `json:"clock_style"`
+	AccentColor   string   `json:"accent_color"`
+	HiddenFaces   []string `json:"hidden_faces"`
+	ClockStyle    string   `json:"clock_style"`
+	HideNextEvent bool     `json:"hide_next_event"`
 }
 
 // handleSettings backs the settings page: GET reports the currently
@@ -338,9 +340,10 @@ func (a *App) handleSettings(w http.ResponseWriter, r *http.Request) {
 		var current settingsBody
 		if a.current != nil {
 			current = settingsBody{
-				AccentColor: a.current.cfg.AccentColor,
-				HiddenFaces: a.current.cfg.HiddenFaces,
-				ClockStyle:  a.current.cfg.ClockStyle,
+				AccentColor:   a.current.cfg.AccentColor,
+				HiddenFaces:   a.current.cfg.HiddenFaces,
+				ClockStyle:    a.current.cfg.ClockStyle,
+				HideNextEvent: a.current.cfg.HideNextEvent,
 			}
 		}
 		a.mu.Unlock()
@@ -390,6 +393,7 @@ func (a *App) saveSettings(body settingsBody) error {
 	cfg.AccentColor = body.AccentColor
 	cfg.HiddenFaces = body.HiddenFaces
 	cfg.ClockStyle = body.ClockStyle
+	cfg.HideNextEvent = body.HideNextEvent
 	if err := cfg.Validate(); err != nil {
 		return err
 	}
