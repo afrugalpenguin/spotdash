@@ -153,6 +153,20 @@ Prefer a scheduled task (restart on failure, a 15 second delay after logon)?
 desktop session to put a tray on. Use one or the other. Running both is
 safe, the second copy just exits.
 
+## Releases
+
+Tag a version (`git tag v0.1.0 && git push --tags`) and CI cross-compiles
+`spotdash.exe` and attaches it to a GitHub Release, no local Go toolchain
+needed to just run it. The zip has `spotdash.exe` (no console window, version
+taken from the tag), `config.example.json`, `tools\autostart.ps1` and the
+licence. Unzip it, copy `config.example.json` to `config.json` and set a
+token, then run `spotdash.exe`. A tag with a hyphen, such as `v0.2.0-rc1`,
+is marked as a pre-release.
+
+The exe is not code signed, this is a one-person desk toy and a signing
+certificate is not worth the cost. SmartScreen will flag it as an unrecognised
+publisher on first run ("More info", then "Run anyway"); that's expected.
+
 ## Security
 
 Shared bearer token over plain HTTP on a trusted LAN, no TLS. That's a
