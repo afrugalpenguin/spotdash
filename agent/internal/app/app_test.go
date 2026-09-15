@@ -361,11 +361,29 @@ func TestSettingsPostRejectsAnInvalidColour(t *testing.T) {
 	}
 }
 
+func TestSettingsPostRejectsHidingClock(t *testing.T) {
+	port := freePort(t)
+	agent, path := startApp(t, configFor(port, "first-token"))
+
+	status, _ := postJSON(t, agent.baseURL()+"/settings", "first-token", `{"hidden_faces":["clock"]}`)
+	if status != http.StatusBadRequest {
+		t.Errorf("POST hiding the clock face = %d, want 400", status)
+	}
+
+	saved, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("reloading config.json: %v", err)
+	}
+	if len(saved.HiddenFaces) != 0 {
+		t.Errorf("config.json hidden_faces = %v, want unchanged (empty) after a rejected save", saved.HiddenFaces)
+	}
+}
+
 func TestSettingsPostSavesHiddenFaces(t *testing.T) {
 	port := freePort(t)
 	agent, path := startApp(t, configFor(port, "first-token"))
 
-	status, respBody := postJSON(t, agent.baseURL()+"/settings", "first-token", `{"hidden_faces":["clock","telemetry"]}`)
+	status, respBody := postJSON(t, agent.baseURL()+"/settings", "first-token", `{"hidden_faces":["calendar","telemetry"]}`)
 	if status != http.StatusOK {
 		t.Fatalf("POST /settings = %d, want 200: %s", status, respBody)
 	}
@@ -374,13 +392,13 @@ func TestSettingsPostSavesHiddenFaces(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reloading config.json: %v", err)
 	}
-	if len(saved.HiddenFaces) != 2 || saved.HiddenFaces[0] != "clock" || saved.HiddenFaces[1] != "telemetry" {
-		t.Errorf("config.json hidden_faces = %v, want [clock telemetry]", saved.HiddenFaces)
+	if len(saved.HiddenFaces) != 2 || saved.HiddenFaces[0] != "calendar" || saved.HiddenFaces[1] != "telemetry" {
+		t.Errorf("config.json hidden_faces = %v, want [calendar telemetry]", saved.HiddenFaces)
 	}
 
 	deadline := time.Now().Add(2 * time.Second)
 	for {
-		if strings.Contains(healthBody(t, agent.baseURL()), `"hidden_faces":["clock","telemetry"]`) {
+		if strings.Contains(healthBody(t, agent.baseURL()), `"hidden_faces":["calendar","telemetry"]`) {
 			return
 		}
 		if time.Now().After(deadline) {
