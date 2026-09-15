@@ -32,8 +32,7 @@ var validLogLevels = []string{"debug", "info", "warn", "error"}
 // setting that silently does nothing.
 var KnownFaces = []string{"clock", "calendar", "spotify", "telemetry", "status"}
 
-// ClockStyles are the shapes the clock face (standalone or the clock portion
-// of overview) is allowed to draw in.
+// ClockStyles are the shapes the clock face is allowed to draw in.
 var ClockStyles = []string{"digital", "analogue"}
 
 // accentColorPattern is the only shape accent_color is allowed to take: a
