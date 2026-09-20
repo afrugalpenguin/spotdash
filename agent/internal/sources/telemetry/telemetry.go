@@ -1,9 +1,5 @@
 // Package telemetry reports machine load: CPU, memory, disks and, where one is
-// available, the GPU.
-//
-// The GPU is optional by design. A machine with no NVIDIA card, or one whose
-// driver is mid-update, still has a CPU and a disk worth watching, so a missing
-// GPU degrades this source rather than failing it.
+// available, the GPU. A missing GPU degrades the source and never fails it.
 package telemetry
 
 import (
@@ -49,9 +45,8 @@ type GPU struct {
 	PowerWatts     float64 `json:"power_watts"`
 }
 
-// Reading is what the telemetry source publishes. GPU is a pointer so that an
-// unavailable card serialises as null: an empty object would have the panel
-// render real-looking zeroes for every gauge.
+// Reading is what the telemetry source publishes. GPU is a pointer so an
+// unavailable card serialises as null. An empty object would render as zeroes.
 type Reading struct {
 	CPU   CPU    `json:"cpu"`
 	RAM   Memory `json:"ram"`
@@ -77,10 +72,7 @@ type Source struct {
 	gpu      gpuReader
 }
 
-// New builds the telemetry source.
-//
-// It never fails on account of the GPU. A machine with no NVIDIA card must run
-// the agent, not refuse to start.
+// New builds the telemetry source. It never fails on account of the GPU.
 func New(cfg config.Source) (*Source, error) {
 	return newWithReaders(cfg.Interval(), newSystemReader(), newGPUReader()), nil
 }
@@ -103,12 +95,8 @@ func (s *Source) Close() error {
 	return s.gpu.Close()
 }
 
-// Poll reads the machine.
-//
-// A GPU that cannot be read returns the rest of the reading with a partial
-// error, so the runner stores it and marks the source degraded. A failure to
-// read CPU, memory or disks leaves nothing worth publishing, so that is an
-// ordinary error.
+// Poll reads the machine. An unreadable GPU returns the rest of the reading
+// with a partial error. A CPU, memory or disk failure is an ordinary error.
 func (s *Source) Poll(ctx context.Context) (any, error) {
 	cpu, memory, disks, err := s.system.Read(ctx)
 	if err != nil {
@@ -125,9 +113,8 @@ func (s *Source) Poll(ctx context.Context) (any, error) {
 	return reading, nil
 }
 
-// percentOf is used by every reader here. A zero total must produce zero rather
-// than NaN, which would serialise as invalid JSON and break the whole message
-// for every source, not just this one.
+// percentOf returns zero for a zero total. NaN would serialise as invalid JSON
+// and break the whole message.
 func percentOf(used, total uint64) float64 {
 	if total == 0 {
 		return 0

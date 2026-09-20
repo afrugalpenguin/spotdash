@@ -48,7 +48,7 @@ func TestFetchParsesAPlayingTrack(t *testing.T) {
 
 	np, err := client.fetchCurrentlyPlaying(context.Background(), "test-access-token")
 	if err != nil {
-		t.Fatalf("fetchCurrentlyPlaying returned an error: %v", err)
+		t.Fatalf("fetchCurrentlyPlaying: %v", err)
 	}
 
 	if np.Title != "Peacefield - Live from Mexico City" {
@@ -67,7 +67,7 @@ func TestFetchParsesAPlayingTrack(t *testing.T) {
 		t.Errorf("DurationMS = %d", np.DurationMS)
 	}
 	if !np.Playing {
-		t.Error("Playing should be true")
+		t.Error("Playing = false, want true")
 	}
 	if np.TrackID != "5f1a2b3c4d5e6f7a8b9c0d1e" {
 		t.Errorf("TrackID = %q", np.TrackID)
@@ -89,13 +89,11 @@ func TestFetchJoinsMultipleArtists(t *testing.T) {
 	}
 
 	if np.Artist != "Ghost, Someone Else" {
-		t.Errorf("Artist = %q, want both artists joined", np.Artist)
+		t.Errorf("Artist = %q, want both artists", np.Artist)
 	}
 }
 
 func TestFetchPicksAnImageCloseToPanelSize(t *testing.T) {
-	// The panel is 480px. Pulling the largest available image every poll is
-	// wasted bandwidth and decode time on a weak device for no visible gain.
 	_, client := fakeAPIServer(t, func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(trackResponse))
 	})
@@ -123,13 +121,12 @@ func TestFetchHandlesNoImages(t *testing.T) {
 		t.Fatalf("fetchCurrentlyPlaying: %v", err)
 	}
 	if np.ArtImageURL != "" {
-		t.Errorf("ArtImageURL = %q, want empty when there are no images", np.ArtImageURL)
+		t.Errorf("ArtImageURL = %q, want empty", np.ArtImageURL)
 	}
 }
 
 func TestFetchTreatsNoContentAsNothingPlaying(t *testing.T) {
-	// 204 is Spotify's documented response when there is no active playback.
-	// This is a normal state, not a failure.
+	// 204 means no active playback, which is not a failure.
 	_, client := fakeAPIServer(t, func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 	})
@@ -137,10 +134,10 @@ func TestFetchTreatsNoContentAsNothingPlaying(t *testing.T) {
 	np, err := client.fetchCurrentlyPlaying(context.Background(), "token")
 
 	if err != nil {
-		t.Fatalf("204 should not be an error, got: %v", err)
+		t.Fatalf("fetchCurrentlyPlaying on 204: %v", err)
 	}
 	if np != nil {
-		t.Errorf("np = %+v, want nil when nothing is playing", np)
+		t.Errorf("np = %+v, want nil", np)
 	}
 }
 
@@ -152,7 +149,7 @@ func TestFetchTreatsANullItemAsNothingPlaying(t *testing.T) {
 	np, err := client.fetchCurrentlyPlaying(context.Background(), "token")
 
 	if err != nil {
-		t.Fatalf("a null item should not be an error, got: %v", err)
+		t.Fatalf("fetchCurrentlyPlaying on null item: %v", err)
 	}
 	if np != nil {
 		t.Errorf("np = %+v, want nil", np)
@@ -160,8 +157,7 @@ func TestFetchTreatsANullItemAsNothingPlaying(t *testing.T) {
 }
 
 func TestFetchTreatsAnAdAsNothingPlaying(t *testing.T) {
-	// currently_playing_type can be "ad" or "episode". Only "track" is rendered
-	// for now, so an ad reads as nothing playing rather than showing its title.
+	// currently_playing_type can be "ad" or "episode". Only "track" is shown.
 	_, client := fakeAPIServer(t, func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(`{"is_playing":true,"currently_playing_type":"ad","item":{"name":"Ad","duration_ms":30000}}`))
 	})
@@ -169,10 +165,10 @@ func TestFetchTreatsAnAdAsNothingPlaying(t *testing.T) {
 	np, err := client.fetchCurrentlyPlaying(context.Background(), "token")
 
 	if err != nil {
-		t.Fatalf("an ad should not be an error, got: %v", err)
+		t.Fatalf("fetchCurrentlyPlaying on ad: %v", err)
 	}
 	if np != nil {
-		t.Errorf("np = %+v, want nil for a non-track item", np)
+		t.Errorf("np = %+v, want nil", np)
 	}
 }
 
@@ -184,7 +180,7 @@ func TestFetchReportsAnExpiredToken(t *testing.T) {
 	_, err := client.fetchCurrentlyPlaying(context.Background(), "expired-token")
 
 	if !errors.Is(err, errAccessTokenExpired) {
-		t.Errorf("err = %v, want errAccessTokenExpired so the caller knows to refresh and retry", err)
+		t.Errorf("err = %v, want errAccessTokenExpired", err)
 	}
 }
 
@@ -196,7 +192,7 @@ func TestFetchSurfacesAnUnexpectedStatus(t *testing.T) {
 	_, err := client.fetchCurrentlyPlaying(context.Background(), "token")
 
 	if err == nil {
-		t.Fatal("fetchCurrentlyPlaying should return an error on 503")
+		t.Fatal("fetchCurrentlyPlaying error = nil on 503")
 	}
 }
 
@@ -219,7 +215,7 @@ func TestPauseSendsTheRightRequest(t *testing.T) {
 	err := client.pause(context.Background(), "test-token")
 
 	if err != nil {
-		t.Fatalf("pause returned an error: %v", err)
+		t.Fatalf("pause: %v", err)
 	}
 	if method != http.MethodPut {
 		t.Errorf("method = %q, want PUT", method)
@@ -240,7 +236,7 @@ func TestResumeSendsTheRightRequest(t *testing.T) {
 	})
 
 	if err := client.resume(context.Background(), "test-token"); err != nil {
-		t.Fatalf("resume returned an error: %v", err)
+		t.Fatalf("resume: %v", err)
 	}
 	if method != http.MethodPut || path != "/v1/me/player/play" {
 		t.Errorf("method/path = %s %s, want PUT /v1/me/player/play", method, path)
@@ -255,7 +251,7 @@ func TestNextSendsTheRightRequest(t *testing.T) {
 	})
 
 	if err := client.next(context.Background(), "test-token"); err != nil {
-		t.Fatalf("next returned an error: %v", err)
+		t.Fatalf("next: %v", err)
 	}
 	if method != http.MethodPost || path != "/v1/me/player/next" {
 		t.Errorf("method/path = %s %s, want POST /v1/me/player/next", method, path)
@@ -270,7 +266,7 @@ func TestPreviousSendsTheRightRequest(t *testing.T) {
 	})
 
 	if err := client.previous(context.Background(), "test-token"); err != nil {
-		t.Fatalf("previous returned an error: %v", err)
+		t.Fatalf("previous: %v", err)
 	}
 	if method != http.MethodPost || path != "/v1/me/player/previous" {
 		t.Errorf("method/path = %s %s, want POST /v1/me/player/previous", method, path)
@@ -278,9 +274,7 @@ func TestPreviousSendsTheRightRequest(t *testing.T) {
 }
 
 func TestControlReportsNoActiveDevice(t *testing.T) {
-	// The real, common failure mode: nothing is currently playing anywhere, so
-	// there is no device for the command to reach. Worth a clear message rather
-	// than a bare "HTTP 404".
+	// Nothing is playing anywhere, so no device can take the command.
 	client := fakeControlServer(t, func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
 		json.NewEncoder(w).Encode(map[string]any{
@@ -296,8 +290,7 @@ func TestControlReportsNoActiveDevice(t *testing.T) {
 }
 
 func TestControlReportsPremiumRequired(t *testing.T) {
-	// Playback control is a Spotify Premium feature. A free account gets a 403
-	// with this specific reason, worth surfacing rather than a generic failure.
+	// A free account gets a 403 with this reason.
 	client := fakeControlServer(t, func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusForbidden)
 		json.NewEncoder(w).Encode(map[string]any{
@@ -335,24 +328,22 @@ func TestControlSurfacesAnUnrecognisedFailure(t *testing.T) {
 	err := client.previous(context.Background(), "token")
 
 	if err == nil {
-		t.Fatal("previous should fail on an unrecognised 403")
+		t.Fatal("previous error = nil on an unrecognised 403")
 	}
 	if errors.Is(err, errNoActiveDevice) || errors.Is(err, errPremiumRequired) || errors.Is(err, errAccessTokenExpired) {
-		t.Error("an unrecognised reason should not be misreported as one of the known ones")
+		t.Error("unrecognised reason matched a known error")
 	}
 }
 
 func TestControlTreatsAny2xxAsSuccess(t *testing.T) {
-	// Found live: Spotify's actual behaviour is not consistently 204 across
-	// these endpoints. /v1/me/player/play returned a bare 200 in practice,
-	// which the first version of this code wrongly treated as a failure.
+	// /v1/me/player/play has been seen returning a bare 200 instead of 204.
 	for _, status := range []int{http.StatusOK, http.StatusNoContent} {
 		client := fakeControlServer(t, func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(status)
 		})
 
 		if err := client.resume(context.Background(), "token"); err != nil {
-			t.Errorf("status %d: resume returned an error: %v", status, err)
+			t.Errorf("resume with status %d: %v", status, err)
 		}
 	}
 }

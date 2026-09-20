@@ -16,9 +16,8 @@ type gopsutilReader struct{}
 func newSystemReader() systemReader { return gopsutilReader{} }
 
 func (gopsutilReader) Read(ctx context.Context) (CPU, Memory, []Disk, error) {
-	// A zero interval means "since the last call", which returns immediately.
-	// Passing a real interval would block the poll for that whole duration, and
-	// this runs on a ticker that already provides the spacing.
+	// A zero interval means "since the last call" and returns immediately. A
+	// real interval would block the poll for its whole duration.
 	totals, err := cpu.PercentWithContext(ctx, 0, false)
 	if err != nil {
 		return CPU{}, Memory{}, nil, fmt.Errorf("reading cpu: %w", err)
@@ -55,8 +54,7 @@ func (gopsutilReader) Read(ctx context.Context) (CPU, Memory, []Disk, error) {
 }
 
 func readDisks(ctx context.Context) ([]Disk, error) {
-	// false means physical devices only, which drops network and virtual
-	// mounts. The panel is for watching this machine's own drives.
+	// false means physical devices only, which drops network and virtual mounts.
 	partitions, err := disk.PartitionsWithContext(ctx, false)
 	if err != nil {
 		return nil, fmt.Errorf("listing disks: %w", err)
@@ -66,8 +64,7 @@ func readDisks(ctx context.Context) ([]Disk, error) {
 	for _, partition := range partitions {
 		usage, err := disk.UsageWithContext(ctx, partition.Mountpoint)
 		if err != nil {
-			// One unreadable drive, such as an empty card reader or a
-			// disconnected removable, must not lose the others.
+			// An empty card reader or removable must not lose the other drives.
 			continue
 		}
 		if usage.Total == 0 {
@@ -81,7 +78,7 @@ func readDisks(ctx context.Context) ([]Disk, error) {
 		})
 	}
 
-	// Stable order, so the panel does not reorder its rows between polls.
+	// Stable order, so rows do not jump between polls.
 	sort.Slice(out, func(i, j int) bool { return out[i].Mount < out[j].Mount })
 	return out, nil
 }

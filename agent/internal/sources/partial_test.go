@@ -32,14 +32,12 @@ func TestPartialResultIsStoredAndMarkedDegraded(t *testing.T) {
 		t.Errorf("Status = %q, want degraded", entry.Status)
 	}
 	if entry.LastError == "" {
-		t.Error("the reason for degrading should be recorded")
+		t.Error("LastError is empty")
 	}
 }
 
 func TestPartialIsNotAFailureForBackoff(t *testing.T) {
-	// A source reporting partial results is working. Backing off would make a
-	// machine with no GPU update its CPU gauge once every thirty seconds, and
-	// retrying sooner would not bring the GPU back anyway.
+	// Backing off would slow the CPU gauge on a machine with no GPU.
 	store := state.New()
 	store.Register("telemetry", state.StatusDegraded, "")
 	src := &fakeSource{
@@ -56,15 +54,14 @@ func TestPartialIsNotAFailureForBackoff(t *testing.T) {
 	after := src.callCount()
 	time.Sleep(100 * time.Millisecond)
 
-	// At a 5ms interval with no backoff this is roughly 20 more polls. With
-	// backoff wrongly applied it would be a handful.
+	// A 5ms interval without backoff gives about 20 polls, with backoff a handful.
 	if extra := src.callCount() - after; extra < 8 {
-		t.Errorf("only %d polls in 100ms, backoff is being applied to a partial result", extra)
+		t.Errorf("%d polls in 100ms, want at least 8 (backoff applied)", extra)
 	}
 }
 
 func TestPartialWithNoValueIsTreatedAsAFailure(t *testing.T) {
-	// Nothing to publish means nothing to publish, whatever the error says.
+	// With no value there is nothing to publish.
 	store := state.New()
 	store.Register("telemetry", state.StatusDegraded, "")
 	src := &fakeSource{
@@ -84,7 +81,7 @@ func TestPartialWithNoValueIsTreatedAsAFailure(t *testing.T) {
 
 	entry, _ := store.Get("telemetry")
 	if entry.Data != nil {
-		t.Errorf("Data = %v, want nothing stored when there is no value", entry.Data)
+		t.Errorf("Data = %v, want nil", entry.Data)
 	}
 }
 
@@ -94,15 +91,15 @@ func TestPartialErrorCarriesItsCause(t *testing.T) {
 	err := Partial(cause)
 
 	if !errors.Is(err, cause) {
-		t.Error("a partial error should wrap its cause so callers can inspect it")
+		t.Error("Partial does not wrap its cause")
 	}
 	if !IsPartial(err) {
-		t.Error("IsPartial should recognise a partial error")
+		t.Error("IsPartial(partial) = false")
 	}
 	if IsPartial(cause) {
-		t.Error("IsPartial should not report an ordinary error as partial")
+		t.Error("IsPartial(ordinary error) = true")
 	}
 	if IsPartial(nil) {
-		t.Error("IsPartial(nil) should be false")
+		t.Error("IsPartial(nil) = true")
 	}
 }

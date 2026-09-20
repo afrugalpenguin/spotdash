@@ -20,8 +20,7 @@ type fakeSource struct {
 
 	mu    sync.Mutex
 	calls int
-	// poll is called with the number of times Poll has been entered, starting
-	// at 1.
+	// poll gets the count of Poll calls so far, starting at 1.
 	poll func(ctx context.Context, call int) (any, error)
 }
 
@@ -64,9 +63,8 @@ func eventually(t *testing.T, what string, cond func() bool) {
 	t.Fatalf("timed out waiting for %s", what)
 }
 
-// startRunner starts a runner and guarantees it is stopped when the test ends.
-// Order matters: the context has to be cancelled before Wait is called, or Wait
-// blocks forever.
+// startRunner starts a runner and stops it when the test ends. The context must
+// be cancelled before Wait, or Wait blocks forever.
 func startRunner(t *testing.T, store *state.Store, srcs ...Source) *Runner {
 	t.Helper()
 	runner := NewRunner(store, discardLogger())
@@ -93,7 +91,7 @@ func TestRunnerWritesSuccessfulPollsToTheStore(t *testing.T) {
 
 	entry, _ := store.Get("fake")
 	if entry.LastError != "" {
-		t.Errorf("LastError = %q, want it cleared after a successful poll", entry.LastError)
+		t.Errorf("LastError = %q, want empty", entry.LastError)
 	}
 }
 
@@ -142,12 +140,10 @@ func TestRunnerRecoversFromPanic(t *testing.T) {
 
 	startRunner(t, store, src)
 
-	// The panic is recorded as an error.
 	eventually(t, "the panic to be recorded", func() bool {
 		entry, ok := store.Get("fake")
 		return ok && strings.Contains(entry.LastError, "source exploded")
 	})
-	// And the source keeps running afterwards.
 	eventually(t, "the source to recover on a later poll", func() bool {
 		entry, ok := store.Get("fake")
 		return ok && entry.Status == state.StatusOK && entry.Data == "recovered value"
@@ -175,7 +171,7 @@ func TestOneFailingSourceDoesNotAffectAnother(t *testing.T) {
 
 	entry, _ := store.Get("broken")
 	if entry.Status != state.StatusDegraded {
-		t.Errorf("broken source status = %q, want degraded", entry.Status)
+		t.Errorf("broken status = %q, want degraded", entry.Status)
 	}
 }
 
@@ -199,14 +195,13 @@ func TestRunnerStopsOnContextCancel(t *testing.T) {
 	select {
 	case <-done:
 	case <-time.After(2 * time.Second):
-		t.Fatal("Wait did not return after the context was cancelled")
+		t.Fatal("Wait did not return after cancel")
 	}
 
-	// No further polls once Wait has returned.
 	settled := src.callCount()
 	time.Sleep(30 * time.Millisecond)
 	if got := src.callCount(); got != settled {
-		t.Errorf("source polled %d more times after shutdown", got-settled)
+		t.Errorf("%d polls after shutdown, want 0", got-settled)
 	}
 }
 
@@ -232,10 +227,10 @@ func TestPollRunsUnderADeadline(t *testing.T) {
 	select {
 	case hasDeadline := <-deadlines:
 		if !hasDeadline {
-			t.Error("Poll should receive a context with a deadline so a wedged source cannot hang forever")
+			t.Error("Poll context has no deadline")
 		}
 	case <-time.After(2 * time.Second):
-		t.Fatal("the source was never polled")
+		t.Fatal("source was never polled")
 	}
 }
 
@@ -243,33 +238,30 @@ func TestBackoffGrowsWithConsecutiveFailuresAndIsCapped(t *testing.T) {
 	interval := 100 * time.Millisecond
 
 	if got := backoffDelay(interval, 0); got != interval {
-		t.Errorf("with no failures the delay should be the plain interval, got %v", got)
+		t.Errorf("delay with no failures = %v", got)
 	}
 
 	first := backoffDelay(interval, 1)
 	second := backoffDelay(interval, 2)
 	third := backoffDelay(interval, 3)
 	if !(first < second && second < third) {
-		t.Errorf("delay should grow with consecutive failures, got %v, %v, %v", first, second, third)
+		t.Errorf("delays = %v, %v, %v, want increasing", first, second, third)
 	}
 
-	// A source whose dependency is gone for good must settle at the ceiling
-	// rather than growing without bound.
 	if got := backoffDelay(interval, 100); got != maxBackoff {
-		t.Errorf("backoffDelay with many failures = %v, want the ceiling %v", got, maxBackoff)
+		t.Errorf("backoffDelay(100) = %v, want %v", got, maxBackoff)
 	}
 	if got := backoffDelay(interval, 1000); got != maxBackoff {
-		t.Errorf("backoff should stay capped and must not overflow, got %v", got)
+		t.Errorf("backoffDelay(1000) = %v, want the cap", got)
 	}
 }
 
 func TestBackoffNeverShortensTheInterval(t *testing.T) {
-	// A source configured to poll slowly must not be polled faster just because
-	// it is failing.
+	// A failing source is never polled faster than its interval.
 	interval := 2 * maxBackoff
 
 	if got := backoffDelay(interval, 5); got < interval {
-		t.Errorf("backoffDelay = %v, want at least the configured interval %v", got, interval)
+		t.Errorf("backoffDelay = %v, want at least %v", got, interval)
 	}
 }
 
@@ -290,24 +282,19 @@ func TestFailingSourceDoesNotSpin(t *testing.T) {
 	after := src.callCount()
 	time.Sleep(100 * time.Millisecond)
 
-	// Without backoff a 5ms interval would produce roughly 20 more polls in
-	// 100ms. With backoff it should be a small handful.
+	// Without backoff a 5ms interval gives about 20 polls in 100ms.
 	if extra := src.callCount() - after; extra > 5 {
-		t.Errorf("a failing source polled %d more times in 100ms, backoff is not being applied", extra)
+		t.Errorf("%d polls in 100ms, want at most 5 (backoff missing)", extra)
 	}
 }
 
 func TestPollNowSkipsTheWaitForTheNextTick(t *testing.T) {
-	// This is what a control action needs: the reading a user just changed
-	// (skip, pause) has to reach the panel immediately, not after however long
-	// is left on a slow interval. Waiting up to the interval after a tap reads
-	// as the tap not having worked.
 	store := state.New()
 	store.Register("fake", state.StatusDegraded, "")
 	calls := make(chan struct{}, 10)
 	src := &fakeSource{
 		name:     "fake",
-		interval: time.Hour, // long enough that only PollNow could trigger a second poll in this test
+		interval: time.Hour, // only PollNow can trigger a second poll
 		poll: func(context.Context, int) (any, error) {
 			calls <- struct{}{}
 			return "reading", nil
@@ -321,9 +308,8 @@ func TestPollNowSkipsTheWaitForTheNextTick(t *testing.T) {
 
 	select {
 	case <-calls:
-		// A second poll arrived without waiting anywhere near the hour interval.
 	case <-time.After(2 * time.Second):
-		t.Fatal("PollNow did not trigger an immediate second poll")
+		t.Fatal("PollNow did not trigger a second poll")
 	}
 }
 
@@ -331,13 +317,11 @@ func TestPollNowOnAnUnknownSourceIsANoOp(t *testing.T) {
 	store := state.New()
 	runner := NewRunner(store, discardLogger())
 
-	// Must not panic or block when nothing by that name is running.
 	runner.PollNow("does-not-exist")
 }
 
 func TestPollNowCoalescesRapidCalls(t *testing.T) {
-	// Several taps in quick succession should not queue up a poll per tap; one
-	// pending immediate poll is enough; the rest are redundant.
+	// Rapid taps must not queue a poll each.
 	store := state.New()
 	store.Register("fake", state.StatusDegraded, "")
 	calls := make(chan struct{}, 20)
@@ -360,9 +344,8 @@ func TestPollNowCoalescesRapidCalls(t *testing.T) {
 		runner.PollNow("fake")
 	}
 
-	// Give it a moment to process, then confirm it did not spin.
 	time.Sleep(200 * time.Millisecond)
 	if got := src.callCount(); got > 4 {
-		t.Errorf("callCount = %d after 5 rapid PollNow calls, want a small, bounded number", got)
+		t.Errorf("callCount = %d after 5 PollNow calls, want at most 4", got)
 	}
 }

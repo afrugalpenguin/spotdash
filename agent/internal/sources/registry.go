@@ -1,9 +1,6 @@
 // Package sources defines what a data source is and runs the configured ones.
-//
-// A source knows how to produce one value and how often. Everything else,
-// scheduling, panic recovery, backoff, and writing to the state store, belongs
-// to the runner in this package. Adding a source means one new package plus one
-// line in the factory table below.
+// The runner owns scheduling, panic recovery, backoff and state writes. A new
+// source is one package plus one line in the factory table.
 package sources
 
 import (
@@ -27,12 +24,8 @@ type Source interface {
 	Interval() time.Duration
 }
 
-// AssetProvider is an optional extra a source may implement when it wants the
-// agent to serve files on its behalf, such as album art.
-//
-// Opt-in rather than part of the Source contract: a source with nothing to
-// serve implements nothing, and the registry stays unaware of what any
-// particular source needs.
+// AssetProvider is an optional extra for a source that wants the agent to
+// serve files on its behalf, such as album art.
 type AssetProvider interface {
 	Assets() map[string]string
 }
@@ -44,20 +37,16 @@ type RouteProvider interface {
 	Routes() map[string]http.Handler
 }
 
-// OpenRouteProvider is like RouteProvider, but for routes that must be
-// reachable without the bearer token, because whatever calls them cannot
-// carry it. An OAuth callback is the case this exists for: the browser tab an
-// external provider redirects to is freshly opened and holds no token. A
-// source using this is responsible for protecting the route itself.
+// OpenRouteProvider is like RouteProvider, but the routes are reachable
+// without the bearer token. An OAuth callback needs this: the tab the provider
+// redirects to holds no token. The source must protect the route itself.
 type OpenRouteProvider interface {
 	OpenRoutes() map[string]http.Handler
 }
 
-// RepollRegistrar is an optional extra a source may implement to ask for an
-// immediate re-poll after it changes something itself, such as a playback
-// control action. A source has no reference to the runner that schedules it,
-// so the registry hands it a function rather than the source reaching for the
-// runner directly.
+// RepollRegistrar is an optional extra for a source that needs an immediate
+// re-poll after it changes something itself, such as a playback control. The
+// registry hands it a function because it has no reference to the runner.
 type RepollRegistrar interface {
 	SetRepoll(fn func())
 }
@@ -65,7 +54,6 @@ type RepollRegistrar interface {
 // Factory builds a source from its config block.
 type Factory func(cfg config.Source) (Source, error)
 
-// errTestConstruction is used by the tests in this package.
 var errTestConstruction = errors.New("construction failed")
 
 // factories is the one place a new source has to be mentioned.
@@ -77,8 +65,7 @@ var factories = map[string]Factory{
 }
 
 // adapt turns a constructor returning a concrete source type into a Factory.
-// Source packages cannot import this one without a cycle, so they return their
-// own type and are adapted here.
+// Source packages cannot import this one (cycle), so they return their own type.
 func adapt[T Source](construct func(config.Source) (T, error)) Factory {
 	return func(cfg config.Source) (Source, error) {
 		src, err := construct(cfg)
@@ -95,13 +82,13 @@ func Build(cfg *config.Config) ([]Source, error) {
 }
 
 func build(cfg *config.Config, factories map[string]Factory) ([]Source, error) {
-	// SourceNames is sorted, so the result order is stable between runs.
+	// SourceNames is sorted, so the order is stable.
 	var built []Source
 	for _, name := range cfg.SourceNames() {
 		factory, known := factories[name]
 		if !known {
-			// Checked for disabled sources too: a typo is the likeliest way a
-			// working source gets silently switched off.
+			// Disabled sources are checked too. A typo is the likeliest way to
+			// switch a working source off silently.
 			return nil, fmt.Errorf("config names an unknown source %q", name)
 		}
 		if !cfg.Sources[name].Enabled {

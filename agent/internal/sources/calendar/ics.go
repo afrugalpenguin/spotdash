@@ -7,31 +7,23 @@ import (
 	"strings"
 	"time"
 
-	// The agent ships as a single static binary, so a TZID like
-	// "Europe/London" in a feed must resolve without relying on the target
-	// machine having its own IANA timezone database. This embeds one.
+	// Embeds a timezone database so TZID values resolve on any host.
 	_ "time/tzdata"
 )
 
-// icsEvent is the handful of VEVENT fields this source cares about. Nothing
-// about attendees, alarms, categories, or anything else an ICS feed can carry.
+// icsEvent holds the few VEVENT fields this source reads.
 type icsEvent struct {
 	Summary  string
 	Location string
 	Start    time.Time
-	// RRule is the raw RRULE value, or empty for a non-recurring event.
-	// Expanding it into a concrete next occurrence is nextUpEvent's job, via
-	// nextOccurrence in rrule.go - parsing is not where that policy belongs.
+	// RRule is the raw RRULE value, empty when not recurring. Expanding it is
+	// nextOccurrence's job.
 	RRule  string
-	AllDay bool // DATE rather than DATE-TIME
+	AllDay bool // a DATE value with no time part
 }
 
-// parseICS extracts VEVENT blocks from raw ICS data.
-//
-// Deliberately narrow: only SUMMARY, LOCATION, DTSTART and RRULE are read.
-// Recurring events and all-day events are still returned (recognisable, not
-// skipped here) so the caller decides what to do with them; parsing is not
-// where policy belongs.
+// parseICS extracts VEVENT blocks, reading only SUMMARY, LOCATION, DTSTART and
+// RRULE. Recurring and all-day events are returned for the caller to filter.
 func parseICS(data []byte) ([]icsEvent, error) {
 	lines, err := unfoldLines(data)
 	if err != nil {
@@ -54,7 +46,7 @@ func parseICS(data []byte) ([]icsEvent, error) {
 			continue
 		}
 		if current == nil {
-			continue // outside any VEVENT, e.g. VCALENDAR or VTIMEZONE properties
+			continue // VCALENDAR or VTIMEZONE properties
 		}
 
 		name, params, value, ok := splitProperty(line)
@@ -72,9 +64,7 @@ func parseICS(data []byte) ([]icsEvent, error) {
 		case "DTSTART":
 			start, allDay, err := parseICSTime(params, value)
 			if err != nil {
-				// A DTSTART this source cannot parse is not fatal to the whole
-				// feed: skip this one event rather than fail every reading
-				// because one entry uses a form not handled yet.
+				// Skip this event. One odd DTSTART must not fail the whole feed.
 				continue
 			}
 			current.Start = start
@@ -85,12 +75,10 @@ func parseICS(data []byte) ([]icsEvent, error) {
 	return events, nil
 }
 
-// unfoldLines joins RFC 5545 continuation lines (a line starting with a
-// single space or tab continues the previous one) and normalises CRLF/LF.
+// unfoldLines joins RFC 5545 continuation lines and normalises CRLF/LF.
 func unfoldLines(data []byte) ([]string, error) {
 	scanner := bufio.NewScanner(bytes.NewReader(data))
-	// A calendar with a very long description line should not fail to parse;
-	// widen past bufio's default 64KB token limit.
+	// Widen past bufio's 64KB token limit for long description lines.
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 
 	var lines []string
@@ -108,9 +96,8 @@ func unfoldLines(data []byte) ([]string, error) {
 	return lines, nil
 }
 
-// splitProperty splits one unfolded ICS line into its name, parameters and
-// value, e.g. "DTSTART;TZID=Europe/London:20260101T090000" splits into
-// "DTSTART", {"TZID": "Europe/London"}, "20260101T090000".
+// splitProperty splits an unfolded line such as
+// "DTSTART;TZID=Europe/London:20260101T090000" into name, parameters and value.
 func splitProperty(line string) (name string, params map[string]string, value string, ok bool) {
 	colon := strings.IndexByte(line, ':')
 	if colon < 0 {
@@ -156,9 +143,8 @@ func unescapeText(value string) string {
 	return b.String()
 }
 
-// parseICSTime parses a DTSTART value in any of the three forms the format
-// allows: UTC ("Z" suffix), a named zone via the TZID parameter, floating
-// local time, or an all-day DATE with no time component at all.
+// parseICSTime parses a DTSTART value: UTC ("Z" suffix), a TZID zone, floating
+// local time, or an all-day DATE.
 func parseICSTime(params map[string]string, value string) (t time.Time, allDay bool, err error) {
 	if params["VALUE"] == "DATE" || (len(value) == 8 && !strings.Contains(value, "T")) {
 		parsed, err := time.ParseInLocation("20060102", value, time.Local)
@@ -178,16 +164,13 @@ func parseICSTime(params map[string]string, value string) (t time.Time, allDay b
 		if named, err := time.LoadLocation(tzid); err == nil {
 			loc = named
 		}
-		// An unrecognised TZID falls back to local time rather than failing
-		// the whole event: a wrong-by-an-hour reading is still more useful
-		// than none.
+		// An unknown TZID falls back to local time. An hour out beats no event.
 	}
 	parsed, err := time.ParseInLocation("20060102T150405", value, loc)
 	return parsed, false, err
 }
 
-// nextUpEvent picks the soonest event that is still in the future: the
-// first entry upcomingEvents would return.
+// nextUpEvent returns the first entry upcomingEvents would.
 func nextUpEvent(events []icsEvent, now time.Time) (icsEvent, bool) {
 	up := upcomingEvents(events, now, 1)
 	if len(up) == 0 {
@@ -196,22 +179,9 @@ func nextUpEvent(events []icsEvent, now time.Time) (icsEvent, bool) {
 	return up[0], true
 }
 
-// upcomingEvents returns up to limit future events, in chronological order
-// by their next occurrence. Each event contributes at most one entry - its
-// own next occurrence, not several future instances of the same recurring
-// series - so a daily standup does not crowd out everything else in an
-// agenda.
-//
-// A recurring event's own DTSTART is just its first-ever occurrence, almost
-// always in the past, so a plain non-recurring comparison would wrongly
-// exclude every recurring event that has ever happened before. For an
-// RRULE this source knows how to expand (see rrule.go), the event's
-// effective start becomes its next real occurrence after now instead. An
-// RRULE outside what nextOccurrence supports is excluded rather than
-// guessed at, a known v1 limitation, not a silent gap.
-//
-// All-day events are excluded because "next up in N minutes" does not mean
-// anything for one.
+// upcomingEvents returns up to limit future events in order of next occurrence,
+// one entry per event. A recurring event's DTSTART is usually past, so its start
+// becomes the next occurrence. Unsupported RRULEs and all-day events are dropped.
 func upcomingEvents(events []icsEvent, now time.Time, limit int) []icsEvent {
 	var resolved []icsEvent
 	for _, e := range events {

@@ -1,14 +1,8 @@
 package telemetry_test
 
-// The degraded NVML path, exercised through the whole agent: the real registry
-// runner, the real state store, the real HTTP server, and a real WebSocket
-// client. Only the GPU reader is stubbed, because the alternative is renaming a
-// DLL in the Windows system directory.
-//
-// What must hold is that a machine which cannot read its GPU still publishes a
-// complete CPU, RAM and disk reading, reports itself degraded with the reason
-// attached, and sends a null gpu rather than an empty object that would render
-// as real zeroes.
+// The degraded NVML path through the whole agent, with only the GPU reader
+// stubbed. The reading must still carry CPU, RAM and disks, the source must
+// report degraded with the reason, and gpu must be null.
 
 import (
 	"context"
@@ -69,13 +63,13 @@ func readHealth(t *testing.T, httpSrv *httptest.Server) healthBody {
 	t.Helper()
 	resp, err := http.Get(httpSrv.URL + "/health")
 	if err != nil {
-		t.Fatalf("reading /health: %v", err)
+		t.Fatalf("GET /health: %v", err)
 	}
 	defer resp.Body.Close()
 
 	var body healthBody
 	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
-		t.Fatalf("decoding /health: %v", err)
+		t.Fatalf("decode /health: %v", err)
 	}
 	return body
 }
@@ -87,7 +81,6 @@ func TestAgentKeepsRunningWhenNVMLIsUnavailable(t *testing.T) {
 	)
 	httpSrv := startAgent(t, src)
 
-	// /health should settle on degraded with the reason attached.
 	deadline := time.Now().Add(5 * time.Second)
 	var reported healthBody
 	for time.Now().Before(deadline) {
@@ -100,13 +93,13 @@ func TestAgentKeepsRunningWhenNVMLIsUnavailable(t *testing.T) {
 
 	entry := reported.Sources["telemetry"]
 	if entry.LastUpdate == "" {
-		t.Fatal("telemetry never published a reading, so the agent did not survive a missing GPU")
+		t.Fatal("telemetry never published a reading")
 	}
 	if entry.Status != "degraded" {
 		t.Errorf("status = %q, want degraded", entry.Status)
 	}
 	if !strings.Contains(entry.LastError, "nvml") {
-		t.Errorf("last_error = %q, want the NVML reason recorded", entry.LastError)
+		t.Errorf("last_error = %q, want the NVML reason", entry.LastError)
 	}
 }
 
@@ -124,13 +117,13 @@ func TestDegradedReadingStillCarriesTheMachineOverTheSocket(t *testing.T) {
 		Subprotocols: []string{"spotdash.v1", "bearer." + degradedToken},
 	})
 	if err != nil {
-		t.Fatalf("dialling the socket: %v", err)
+		t.Fatalf("Dial: %v", err)
 	}
 	defer conn.Close(websocket.StatusNormalClosure, "done")
 
 	_, raw, err := conn.Read(ctx)
 	if err != nil {
-		t.Fatalf("reading from the socket: %v", err)
+		t.Fatalf("Read: %v", err)
 	}
 
 	var message struct {
@@ -151,33 +144,31 @@ func TestDegradedReadingStillCarriesTheMachineOverTheSocket(t *testing.T) {
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(raw, &message); err != nil {
-		t.Fatalf("decoding %s: %v", raw, err)
+		t.Fatalf("Unmarshal %s: %v", raw, err)
 	}
 
 	if message.Source != "telemetry" {
 		t.Fatalf("source = %q, want telemetry", message.Source)
 	}
 	if message.Data.GPU != nil {
-		t.Error("gpu should be null when NVML is unavailable")
+		t.Error("gpu is set, want null")
 	}
 	if !strings.Contains(string(raw), `"gpu":null`) {
-		t.Errorf("gpu should serialise as null, not an empty object:\n%s", raw)
+		t.Errorf("gpu not null in:\n%s", raw)
 	}
 
-	// The point of degrading rather than failing: everything else is still here
-	// and worth looking at.
 	if len(message.Data.CPU.PerCore) == 0 {
-		t.Error("per core CPU should still be reported on a machine with no GPU")
+		t.Error("per core CPU missing")
 	}
 	if message.Data.RAM.TotalBytes == 0 {
-		t.Error("RAM should still be reported on a machine with no GPU")
+		t.Error("RAM missing")
 	}
 	if len(message.Data.Disks) == 0 {
-		t.Error("at least one disk should still be reported on a machine with no GPU")
+		t.Error("no disks reported")
 	}
 	for _, d := range message.Data.Disks {
 		if d.Mount == "" || d.TotalBytes == 0 {
-			t.Errorf("disk entry is incomplete: %+v", d)
+			t.Errorf("incomplete disk: %+v", d)
 		}
 	}
 }

@@ -10,24 +10,20 @@ import (
 	"time"
 )
 
-// defaultAPIEndpoint is Spotify's real Web API base. Tests override it via
+// defaultAPIEndpoint is the Spotify Web API base. Tests override it through
 // apiClient.endpoint.
 const defaultAPIEndpoint = "https://api.spotify.com"
 
-// targetArtSize is roughly the panel's own pixel size. Spotify returns several
-// image sizes; pulling the largest one every poll costs bandwidth and decode
-// time on a weak device for no visible gain over one close to what is shown.
+// targetArtSize is roughly the panel's pixel size. The largest image would cost
+// bandwidth and decode time on a weak device for no visible gain.
 const targetArtSize = 300
 
-// errAccessTokenExpired means the access token was rejected and the caller
-// should refresh it and retry once, not treat this as a hard failure.
+// errAccessTokenExpired means the access token was rejected. The caller should
+// refresh and retry once.
 var errAccessTokenExpired = errors.New("spotify: access token expired")
 
-// errNoActiveDevice and errPremiumRequired are the two real, common ways a
-// playback control call fails. Both are worth a specific message rather than
-// a bare HTTP status: no active device means nothing is currently playing
-// anywhere to send the command to, and playback control is a Premium-only
-// part of the Spotify API.
+// errNoActiveDevice and errPremiumRequired are the two common control failures.
+// Playback control is a Premium-only part of the API.
 var (
 	errNoActiveDevice  = errors.New("spotify: no active device")
 	errPremiumRequired = errors.New("spotify: playback control requires spotify premium")
@@ -89,8 +85,8 @@ type spotifyImage struct {
 }
 
 // fetchCurrentlyPlaying returns what is playing, or nil when nothing is: no
-// active device, a paused-with-nothing-queued session, or content that is not
-// a track (an ad or, for now, a podcast episode).
+// active device, nothing queued, or content that is not a track (an ad or a
+// podcast episode).
 func (c *apiClient) fetchCurrentlyPlaying(ctx context.Context, accessToken string) (*nowPlaying, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.endpoint+"/v1/me/player/currently-playing", nil)
 	if err != nil {
@@ -106,7 +102,7 @@ func (c *apiClient) fetchCurrentlyPlaying(ctx context.Context, accessToken strin
 
 	switch resp.StatusCode {
 	case http.StatusNoContent:
-		// Documented behaviour for no active playback.
+		// Spotify's response when nothing is playing.
 		return nil, nil
 	case http.StatusUnauthorized:
 		return nil, errAccessTokenExpired
@@ -141,16 +137,15 @@ func (c *apiClient) fetchCurrentlyPlaying(ctx context.Context, accessToken strin
 	}, nil
 }
 
-// controlErrorResponse is Spotify's error body shape for player control
-// endpoints: {"error": {"status": 404, "message": "...", "reason": "..."}}.
+// controlErrorResponse is the error body of the player control endpoints:
+// {"error": {"status": 404, "message": "...", "reason": "..."}}.
 type controlErrorResponse struct {
 	Error struct {
 		Reason string `json:"reason"`
 	} `json:"error"`
 }
 
-// pause, resume, next, previous send a playback command with no body. Spotify
-// documents 204 as the success response for all four.
+// pause, resume, next and previous send a playback command with no body.
 func (c *apiClient) pause(ctx context.Context, accessToken string) error {
 	return c.control(ctx, http.MethodPut, "/v1/me/player/pause", accessToken)
 }
@@ -180,9 +175,8 @@ func (c *apiClient) control(ctx context.Context, method, path, accessToken strin
 	}
 	defer resp.Body.Close()
 
-	// Spotify's documented response for these is 204, but observed behaviour is
-	// not perfectly consistent: /v1/me/player/play has been seen returning a
-	// bare 200. Treat the whole 2xx range as success rather than one exact code.
+	// Documented success is 204, but /v1/me/player/play has returned a bare 200.
+	// Accept any 2xx.
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 		return nil
 	}
@@ -191,8 +185,7 @@ func (c *apiClient) control(ctx context.Context, method, path, accessToken strin
 	}
 
 	var body controlErrorResponse
-	// Best effort: if the body does not decode, fall through to the generic
-	// error below rather than losing the real HTTP status.
+	// Best effort. On a decode failure the generic error below keeps the status.
 	_ = json.NewDecoder(resp.Body).Decode(&body)
 
 	switch body.Error.Reason {
@@ -204,8 +197,8 @@ func (c *apiClient) control(ctx context.Context, method, path, accessToken strin
 	return fmt.Errorf("spotify returned HTTP %d for %s %s", resp.StatusCode, method, path)
 }
 
-// pickArt returns the image closest to targetArtSize without going under it,
-// falling back to the smallest available when every image is smaller.
+// pickArt returns the smallest image at least targetArtSize wide, or the
+// largest available when every image is smaller.
 func pickArt(images []spotifyImage) string {
 	if len(images) == 0 {
 		return ""

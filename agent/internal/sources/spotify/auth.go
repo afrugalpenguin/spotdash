@@ -13,26 +13,16 @@ import (
 // authorizeEndpoint is Spotify's consent page.
 const authorizeEndpoint = "https://accounts.spotify.com/authorize"
 
-// scope requests read access to what is currently playing, plus the one write
-// scope needed for the transport controls: pause, resume, next, previous.
-// Nothing broader. user-modify-playback-state also covers volume, seek,
-// shuffle, repeat, device transfer, and queueing, none of which this agent
-// exposes; the control surface actually reachable is limited to those four
-// actions by internal/sources/spotify/apisource.go, not by the scope alone.
-//
-// Anyone already connected before this scope was added does not have it.
-// Spotify grants scopes at consent time, so the first control attempt on an
-// old connection fails until they reconnect through /spotify/connect.
+// scope covers reading playback and the transport controls. See
+// docs/architecture.md, "Spotify". Connections made before the write scope was
+// added must reconnect through /spotify/connect.
 const scope = "user-read-currently-playing user-read-playback-state user-modify-playback-state"
 
-// pendingAttemptTTL bounds how long a beginAuth attempt stays valid. Someone
-// who opens the consent page and walks away should not leave a permanently
-// live callback waiting for a code that may eventually arrive from somewhere
-// else.
+// pendingAttemptTTL bounds how long a beginAuth attempt stays valid, so an
+// abandoned consent page leaves no live callback behind.
 const pendingAttemptTTL = 10 * time.Minute
 
-// accessTokenSkew refreshes the access token a little before Spotify's own
-// expiry, so an in-flight poll does not race a token that just expired.
+// accessTokenSkew refreshes the access token shortly before it expires.
 const accessTokenSkew = 60 * time.Second
 
 // authManagerOptions configures an authManager.
@@ -42,18 +32,16 @@ type authManagerOptions struct {
 	StatePath   string
 }
 
-// pendingAuth is one in-flight authorization attempt: the PKCE verifier that
-// only this process knows, and the state value that binds the eventual
-// callback to this specific attempt.
+// pendingAuth is one in-flight authorization attempt: the PKCE verifier and
+// the state value that binds the callback to it.
 type pendingAuth struct {
 	verifier  string
 	state     string
 	createdAt time.Time
 }
 
-// authManager owns the PKCE flow, the persisted refresh token, and the
-// in-memory access token cache. It is the whole of what the spotify source
-// needs to get a valid access token on demand.
+// authManager owns the PKCE flow, the persisted refresh token and the cached
+// access token.
 type authManager struct {
 	clientID    string
 	redirectURI string
@@ -66,24 +54,21 @@ type authManager struct {
 	accessTokenCache  string
 	accessTokenExpiry time.Time
 
-	// onConnected runs after a callback has stored working tokens, so the
-	// source can poll straight away instead of waiting out the backoff it built
-	// up while unconnected. Nil is a silent no-op.
+	// onConnected runs after a callback stores working tokens, so the source
+	// polls at once and skips the backoff built up while unconnected.
 	onConnected func()
 }
 
-// setOnConnected registers the function handleCallback calls once a connection
-// has been made.
+// setOnConnected registers the function handleCallback calls once connected.
 func (m *authManager) setOnConnected(fn func()) {
 	m.mu.Lock()
 	m.onConnected = fn
 	m.mu.Unlock()
 }
 
-// newAuthManager builds a manager and loads any previously saved
-// authorization. A corrupt state file fails closed rather than silently
-// starting unauthorized, the same as an invalid config.json does: silently
-// discarding a real, working credential is worse than refusing to start.
+// newAuthManager builds a manager and loads any saved authorization. A corrupt
+// state file is an error. Discarding a working credential silently is worse
+// than refusing to start.
 func newAuthManager(opts authManagerOptions) (*authManager, error) {
 	state, err := loadState(opts.StatePath)
 	if err != nil {
@@ -98,8 +83,7 @@ func newAuthManager(opts authManagerOptions) (*authManager, error) {
 	}, nil
 }
 
-// isAuthorized reports whether a refresh token is held, which is what makes
-// this a working connection rather than one still waiting to be set up.
+// isAuthorized reports whether a refresh token is held.
 func (m *authManager) isAuthorized() bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -107,8 +91,7 @@ func (m *authManager) isAuthorized() bool {
 }
 
 // beginAuth starts a fresh PKCE attempt and returns the URL to send the user
-// to. Starting a new attempt discards any previous unfinished one: only the
-// most recent beginAuth can be completed by a callback.
+// to. It discards any earlier unfinished attempt.
 func (m *authManager) beginAuth() (string, error) {
 	verifier, err := newCodeVerifier()
 	if err != nil {
@@ -135,12 +118,9 @@ func (m *authManager) beginAuth() (string, error) {
 	return authorizeEndpoint + "?" + q.Encode(), nil
 }
 
-// handleCallback completes a pending authorization attempt.
-//
-// This endpoint has to be reachable without the panel's bearer token: the
-// browser tab Spotify redirects to is freshly opened and carries no token.
-// The state parameter is what stands in for that, binding this request to one
-// specific beginAuth call, single use, and expiring after pendingAttemptTTL.
+// handleCallback completes a pending authorization attempt. It is reachable
+// without the bearer token. The state parameter protects it: single use, bound
+// to one beginAuth call, and expiring after pendingAttemptTTL.
 func (m *authManager) handleCallback(w http.ResponseWriter, r *http.Request) {
 	query := r.URL.Query()
 
@@ -183,8 +163,7 @@ func (m *authManager) handleCallback(w http.ResponseWriter, r *http.Request) {
 	onConnected := m.onConnected
 	m.mu.Unlock()
 
-	// Outside the lock: the hook asks the runner for a poll, and that poll
-	// takes this same lock through accessToken.
+	// Outside the lock: the poll it triggers takes the lock in accessToken.
 	if onConnected != nil {
 		onConnected()
 	}
@@ -193,7 +172,7 @@ func (m *authManager) handleCallback(w http.ResponseWriter, r *http.Request) {
 }
 
 // takePending consumes the pending attempt if state matches and it has not
-// expired, so a callback can never be replayed.
+// expired, so a callback cannot be replayed.
 func (m *authManager) takePending(state string) *pendingAuth {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -216,12 +195,9 @@ func (m *authManager) clearPending() {
 	m.mu.Unlock()
 }
 
-// accessToken returns a usable access token, refreshing it first if it is
-// missing or close to expiry.
-//
-// A reauth-required error clears the held refresh token so the manager
-// visibly stops claiming to be connected, rather than retrying a grant that
-// is not coming back.
+// accessToken returns a usable access token, refreshing it if missing or near
+// expiry. A reauth-required error clears the refresh token, so the manager
+// stops claiming to be connected.
 func (m *authManager) accessToken(ctx context.Context) (string, error) {
 	m.mu.Lock()
 	refreshToken := m.refreshToken
@@ -243,9 +219,8 @@ func (m *authManager) accessToken(ctx context.Context) (string, error) {
 			m.refreshToken = ""
 			m.accessTokenCache = ""
 			m.mu.Unlock()
-			// Best effort: clear the persisted token too, so a restart does not
-			// keep trying the same dead grant. Failure to remove it is not fatal,
-			// since it will fail the same way again and report the same error.
+			// Best effort. Clear the saved token so a restart does not retry the
+			// dead grant. A failure here just repeats the same error.
 			_ = saveState(m.statePath, authState{})
 		}
 		return "", err
@@ -264,9 +239,8 @@ func (m *authManager) accessToken(ctx context.Context) (string, error) {
 	return tok.AccessToken, nil
 }
 
-// writeAuthResult renders a small, static confirmation page. This is shown in
-// a real browser tab, on whatever machine the user happened to authorize from,
-// so it carries no data beyond a short human-readable message.
+// writeAuthResult renders a small static page for the browser tab. It carries
+// no data beyond a short message.
 func writeAuthResult(w http.ResponseWriter, status int, heading, detail string) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(status)
