@@ -166,6 +166,9 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 // it once.
 const sessionCookieName = "spotdash_session"
 
+// requireToken has no loopback exemption: a request from this machine needs the
+// token like any other. The tray's Open UI URL works because App.tokenURL
+// attaches the agent's own token, not because local callers are trusted.
 func (s *Server) requireToken(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// A programmatic client sends the header. Nothing else is needed.

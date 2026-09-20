@@ -283,7 +283,7 @@ $ ./spotdash.exe
 spotdash: in ...: "token" is required and must not be empty
 ```
 
-Example config ships with a placeholder token so a fresh clone can't accidentally serve with a public secret.
+Example config ships with a placeholder token, and the agent refuses to start while the token is still that placeholder, so a fresh clone can't accidentally serve with a public secret.
 
 ```
 $ go vet ./... && gofmt -l .              # both clean

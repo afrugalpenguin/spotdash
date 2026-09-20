@@ -24,6 +24,10 @@ const (
 	DefaultLogLevel = "info"
 )
 
+// PlaceholderToken is the token shipped in config.example.json. It is public,
+// so an agent that accepted it would be serving behind a secret everyone knows.
+const PlaceholderToken = "replace-this-with-a-long-random-string"
+
 var validLogLevels = []string{"debug", "info", "warn", "error"}
 
 // KnownFaces are the faces the panel can show, by the title each face
@@ -211,6 +215,9 @@ func (c *Config) applyDefaults() error {
 func (c *Config) Validate() error {
 	if strings.TrimSpace(c.Token) == "" {
 		return errors.New(`"token" is required and must not be empty: the agent will not serve data without a shared secret`)
+	}
+	if strings.TrimSpace(c.Token) == PlaceholderToken {
+		return errors.New(`"token" is still the placeholder from config.example.json: replace it with a long random string of your own`)
 	}
 	if err := validateListen(c.Listen); err != nil {
 		return err
