@@ -14,6 +14,7 @@ import android.view.ViewGroup
 import android.view.WindowManager
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.Button
@@ -41,6 +42,13 @@ class PanelActivity : AppCompatActivity() {
     private val main = Handler(Looper.getMainLooper())
     private var lastError: String = ""
     private var retryScheduled = false
+    private val backoff = RetryBackoff()
+
+    // Set when the current load of the panel failed, so onPageFinished, which
+    // WebView also calls after a failed load, does not hide the error just shown.
+    // Whether the agent is down is asked of the watcher instead, for loads that
+    // never fail at all, they just hang.
+    private var pageFailed = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -189,12 +197,34 @@ class PanelActivity : AppCompatActivity() {
                 }
                 val reason = description.ifBlank { getString(R.string.load_failed) }
                 Log.w(TAG, "page load failed: $reason")
+                pageFailed = true
                 showFallback(reason)
             }
 
+            // The agent answered, but not with the page. A wrong token is the
+            // usual case: the agent returns 401 and WebView would otherwise show
+            // that as an ordinary loaded page, which on this display is black.
+            override fun onReceivedHttpError(
+                view: WebView?,
+                request: WebResourceRequest?,
+                errorResponse: WebResourceResponse?,
+            ) {
+                if (request?.isForMainFrame != true || errorResponse == null) return
+                val status = errorResponse.statusCode
+                val reason = httpFailureReason(status, errorResponse.reasonPhrase)
+                Log.w(TAG, "page load failed: $reason")
+                pageFailed = true
+                showFallback(reason, rejected = isAuthRejection(status))
+            }
+
             override fun onPageFinished(view: WebView?, url: String?) {
+                if (!finishedPageClearsFallback(pageFailed, watcher.isDown)) {
+                    Log.i(TAG, "page finished without a working panel, keeping the error up")
+                    return
+                }
                 Log.i(TAG, "page loaded")
                 lastError = ""
+                backoff.reset()
                 hideFallback()
             }
         }
@@ -209,20 +239,27 @@ class PanelActivity : AppCompatActivity() {
             return
         }
         Log.i(TAG, "loading the panel")
+        pageFailed = false
         webView.loadUrl(url)
         watcher.start()
     }
 
-    private fun showFallback(reason: String) {
+    private fun showFallback(reason: String, rejected: Boolean = false) {
         lastError = reason
         // An unconfigured shell has not failed at anything, so it should not
-        // say it cannot reach something it was never told about.
-        val title = if (settings.isConfigured) {
-            getString(R.string.fallback_title)
-        } else {
-            getString(R.string.fallback_title_unconfigured)
+        // say it cannot reach something it was never told about. A rejected
+        // token did reach the agent, so it should not say it could not either.
+        val title = when {
+            !settings.isConfigured -> getString(R.string.fallback_title_unconfigured)
+            rejected -> getString(R.string.fallback_title_rejected)
+            else -> getString(R.string.fallback_title)
         }
-        fallback.show(title, settings.agentUrl.ifBlank { getString(R.string.no_url) }, reason)
+        fallback.show(
+            title,
+            settings.agentUrl.ifBlank { getString(R.string.no_url) },
+            reason,
+            showHint = settings.isConfigured,
+        )
         fallback.visibility = View.VISIBLE
         scheduleRetry()
     }
@@ -233,11 +270,14 @@ class PanelActivity : AppCompatActivity() {
 
     private fun hideFallbackAndReload() {
         hideFallback()
+        // Someone changed something, or the agent came back: try at the fast
+        // pace again rather than the slow one an earlier outage had worked up to.
+        backoff.reset()
         loadPanel()
     }
 
     /**
-     * Retries on a fixed interval while the fallback is up.
+     * Retries with a growing delay while the fallback is up.
      *
      * There is nobody standing at the device to press anything, so recovery has
      * to be automatic and has to keep trying for as long as it takes.
@@ -245,6 +285,7 @@ class PanelActivity : AppCompatActivity() {
     private fun scheduleRetry() {
         if (retryScheduled) return
         retryScheduled = true
+        val delay = backoff.next()
         main.postDelayed({
             retryScheduled = false
             if (fallback.visibility == View.VISIBLE && settings.isConfigured) {
@@ -252,7 +293,7 @@ class PanelActivity : AppCompatActivity() {
                 loadPanel()
                 scheduleRetry()
             }
-        }, RETRY_INTERVAL_MS)
+        }, delay)
     }
 
     /**
@@ -314,7 +355,6 @@ class PanelActivity : AppCompatActivity() {
         /** The panel's CSS width. The agent's layout is fixed at this. */
         const val PANEL_CSS_WIDTH = 480
         const val LONG_PRESS_MS = 3_000L
-        const val RETRY_INTERVAL_MS = 10_000L
     }
 }
 
@@ -332,6 +372,7 @@ class FallbackView(
     private val title = TextView(activity)
     private val urlLabel = TextView(activity)
     private val errorLabel = TextView(activity)
+    private val hintLabel = TextView(activity)
 
     init {
         orientation = VERTICAL
@@ -356,6 +397,13 @@ class FallbackView(
             gravity = Gravity.CENTER
         }
 
+        hintLabel.apply {
+            setTextColor(Color.parseColor("#76878A"))
+            textSize = 12f
+            gravity = Gravity.CENTER
+            text = context.getString(R.string.fallback_hint)
+        }
+
         val settingsButton = Button(activity).apply {
             text = context.getString(R.string.fallback_settings)
             setOnClickListener { onSettings() }
@@ -364,13 +412,16 @@ class FallbackView(
         addView(title)
         addView(urlLabel, marginParams(10))
         addView(errorLabel, marginParams(8))
+        addView(hintLabel, marginParams(8))
         addView(settingsButton, marginParams(14))
     }
 
-    fun show(heading: String, url: String, error: String) {
+    fun show(heading: String, url: String, error: String, showHint: Boolean) {
         title.text = heading
         urlLabel.text = url
         errorLabel.text = error
+        // An unconfigured shell's message already says how to open settings.
+        hintLabel.visibility = if (showHint) View.VISIBLE else View.GONE
     }
 
     private fun marginParams(topDp: Int): LayoutParams {

@@ -264,7 +264,7 @@ Each no-ops (and logs why) when the permission is missing - keeps the UI working
 
 ### Failure behaviour
 
-WebView load failure, or agent unreachable 30s+, shows a native fallback (agent URL + last error), retries every 10s. Native because the web layer is what's in question. Shell polls `/health` itself rather than asking the page, so the fallback still works if the WebView itself is broken.
+WebView load failure, an HTTP error on the panel page (a 401 or 403 says the token was rejected), or agent unreachable 30s+, shows a native fallback (agent URL without the token, the error, how to open settings) and retries with a growing delay, 5s doubling to 60s. Native because the web layer is what's in question. Shell polls `/health` itself rather than asking the page, so the fallback still works if the WebView itself is broken.
 
 30s delay is deliberate - a restarting agent is usually back in a second or two, and flashing a fallback on every restart would be worse than a briefly stale dashboard.
 

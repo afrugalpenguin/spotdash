@@ -31,6 +31,10 @@ class AgentWatcher(
     private var firstFailureAt = 0L
     private var reportedDown = false
 
+    /** True once the agent has been unreachable long enough to raise the fallback. */
+    val isDown: Boolean
+        get() = reportedDown
+
     fun start() {
         if (running) return
         running = true
