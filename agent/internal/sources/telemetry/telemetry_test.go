@@ -78,14 +78,14 @@ func TestNameAndInterval(t *testing.T) {
 func TestPollReportsEverything(t *testing.T) {
 	reading, err := pollWith(t, workingSystem(), workingGPU())
 	if err != nil {
-		t.Fatalf("Poll returned an error: %v", err)
+		t.Fatalf("Poll: %v", err)
 	}
 
 	if reading.CPU.Percent != 12.5 {
 		t.Errorf("CPU.Percent = %v, want 12.5", reading.CPU.Percent)
 	}
 	if len(reading.CPU.PerCore) != 2 {
-		t.Errorf("PerCore = %v, want two cores", reading.CPU.PerCore)
+		t.Errorf("PerCore = %v, want 2 cores", reading.CPU.PerCore)
 	}
 	if reading.RAM.TotalBytes != 32<<30 {
 		t.Errorf("RAM.TotalBytes = %d", reading.RAM.TotalBytes)
@@ -94,82 +94,77 @@ func TestPollReportsEverything(t *testing.T) {
 		t.Errorf("Disks = %+v, want one entry for C:", reading.Disks)
 	}
 	if reading.GPU == nil {
-		t.Fatal("GPU should be present when NVML works")
+		t.Fatal("GPU = nil, want a reading")
 	}
 	if reading.GPU.TemperatureC != 61 || reading.GPU.PowerWatts != 120.5 {
-		t.Errorf("GPU = %+v, want the temperature and power carried through", reading.GPU)
+		t.Errorf("GPU = %+v, want temperature 61 and power 120.5", reading.GPU)
 	}
 }
 
 func TestPollWithoutNVMLStillReportsTheRest(t *testing.T) {
-	// The whole point of the degraded path. A machine with no usable NVML is
-	// still worth a CPU, RAM and disk readout.
 	reading, err := pollWith(t, workingSystem(), fakeGPU{err: errors.New("could not load nvml.dll")})
 
 	if err == nil {
-		t.Fatal("Poll should report that it is degraded")
+		t.Fatal("Poll error = nil, want a partial error")
 	}
 	if reading.GPU != nil {
-		t.Errorf("GPU = %+v, want nil when NVML is unavailable", reading.GPU)
+		t.Errorf("GPU = %+v, want nil", reading.GPU)
 	}
 	if reading.CPU.Percent != 12.5 {
-		t.Error("CPU should still be reported when the GPU is missing")
+		t.Error("CPU.Percent lost when the GPU is missing")
 	}
 	if reading.RAM.TotalBytes == 0 {
-		t.Error("RAM should still be reported when the GPU is missing")
+		t.Error("RAM lost when the GPU is missing")
 	}
 	if len(reading.Disks) != 1 {
-		t.Error("disks should still be reported when the GPU is missing")
+		t.Error("disks lost when the GPU is missing")
 	}
 	if !strings.Contains(err.Error(), "nvml.dll") {
-		t.Errorf("the error should carry the NVML reason, got: %v", err)
+		t.Errorf("error = %v, want it to carry the NVML reason", err)
 	}
 }
 
 func TestMissingNVMLIsPartialNotFatal(t *testing.T) {
-	// The distinction the runner acts on: a partial result is stored and
-	// broadcast, an ordinary error is not.
+	// The runner stores a partial result and drops an ordinary error's value.
 	src := newWithReaders(time.Second, workingSystem(), fakeGPU{err: errors.New("could not load nvml.dll")})
 
 	value, err := src.Poll(context.Background())
 
 	if value == nil {
-		t.Fatal("a degraded poll must still return its reading")
+		t.Fatal("degraded poll returned no reading")
 	}
 	if !isPartial(err) {
-		t.Errorf("error should be marked partial so the reading is kept, got: %T %v", err, err)
+		t.Errorf("error = %T %v, want a partial error", err, err)
 	}
 }
 
 func TestSystemFailureIsAnOrdinaryError(t *testing.T) {
-	// No CPU or RAM means there is nothing worth publishing, so this is a
-	// plain failure rather than a partial result.
+	// No CPU or RAM leaves nothing to publish.
 	src := newWithReaders(time.Second, fakeSystem{err: errors.New("cannot read cpu")}, workingGPU())
 
 	value, err := src.Poll(context.Background())
 
 	if err == nil {
-		t.Fatal("Poll should fail when the system reader fails")
+		t.Fatal("Poll error = nil, want the system reader failure")
 	}
 	if isPartial(err) {
-		t.Error("a system read failure has nothing to publish, so it is not a partial result")
+		t.Error("system failure marked partial")
 	}
 	if value != nil {
-		t.Errorf("value = %v, want nothing when there is no reading", value)
+		t.Errorf("value = %v, want nil", value)
 	}
 }
 
 func TestGPUIsNullInJSONWhenUnavailable(t *testing.T) {
-	// The panel reads this. A missing GPU has to be null rather than an empty
-	// object, or every gauge renders as a real zero.
+	// An empty object would render every gauge as a real zero.
 	reading, _ := pollWith(t, workingSystem(), fakeGPU{err: errors.New("no nvml")})
 
 	encoded, err := json.Marshal(reading)
 	if err != nil {
-		t.Fatalf("encoding the reading: %v", err)
+		t.Fatalf("Marshal: %v", err)
 	}
 	if !strings.Contains(string(encoded), `"gpu":null`) {
-		t.Errorf("encoded reading should carry a null gpu, got: %s", encoded)
+		t.Errorf("encoded = %s, want gpu null", encoded)
 	}
 }
 
@@ -178,7 +173,7 @@ func TestReadingEncodesTheFieldsThePanelNeeds(t *testing.T) {
 
 	encoded, err := json.Marshal(reading)
 	if err != nil {
-		t.Fatalf("encoding the reading: %v", err)
+		t.Fatalf("Marshal: %v", err)
 	}
 	for _, key := range []string{
 		`"cpu"`, `"percent"`, `"per_core"`,
@@ -187,7 +182,7 @@ func TestReadingEncodesTheFieldsThePanelNeeds(t *testing.T) {
 		`"gpu"`, `"vram_used_bytes"`, `"temperature_c"`, `"power_watts"`,
 	} {
 		if !strings.Contains(string(encoded), key) {
-			t.Errorf("encoded reading is missing %s\n%s", key, encoded)
+			t.Errorf("encoded reading lacks %s:\n%s", key, encoded)
 		}
 	}
 }
@@ -195,7 +190,7 @@ func TestReadingEncodesTheFieldsThePanelNeeds(t *testing.T) {
 func TestNewReadsTheConfiguredInterval(t *testing.T) {
 	src, err := New(config.Source{Enabled: true, IntervalMS: 3000})
 	if err != nil {
-		t.Fatalf("New returned an error: %v", err)
+		t.Fatalf("New: %v", err)
 	}
 	defer src.Close()
 
@@ -205,18 +200,16 @@ func TestNewReadsTheConfiguredInterval(t *testing.T) {
 }
 
 func TestNewSucceedsEvenWhenNVMLIsUnavailable(t *testing.T) {
-	// Construction must not fail on a machine with no NVIDIA card, or the
-	// agent refuses to start there instead of degrading.
+	// A machine with no NVIDIA card must still start the agent.
 	src, err := New(config.Source{Enabled: true, IntervalMS: 1000})
 	if err != nil {
-		t.Fatalf("New should never fail on account of the GPU, got: %v", err)
+		t.Fatalf("New: %v", err)
 	}
 	src.Close()
 }
 
 func TestPercentOfHandlesAZeroTotal(t *testing.T) {
-	// A disk or a GPU reporting a zero total should read as zero, not NaN,
-	// which would serialise as invalid JSON and break the whole message.
+	// NaN would serialise as invalid JSON.
 	if got := percentOf(0, 0); got != 0 {
 		t.Errorf("percentOf(0, 0) = %v, want 0", got)
 	}

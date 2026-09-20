@@ -9,14 +9,14 @@ func TestVerifierIsURLSafeAndLongEnough(t *testing.T) {
 	// RFC 7636: 43 to 128 characters from [A-Z a-z 0-9 - . _ ~].
 	verifier, err := newCodeVerifier()
 	if err != nil {
-		t.Fatalf("newCodeVerifier returned an error: %v", err)
+		t.Fatalf("newCodeVerifier: %v", err)
 	}
 
 	if len(verifier) < 43 || len(verifier) > 128 {
 		t.Errorf("verifier length = %d, want 43 to 128", len(verifier))
 	}
 	if !regexp.MustCompile(`^[A-Za-z0-9\-._~]+$`).MatchString(verifier) {
-		t.Errorf("verifier %q contains characters outside the unreserved set", verifier)
+		t.Errorf("verifier %q has characters outside the unreserved set", verifier)
 	}
 }
 
@@ -31,13 +31,12 @@ func TestVerifiersAreNotReused(t *testing.T) {
 	}
 
 	if first == second {
-		t.Error("two calls produced the same verifier, which defeats the point of PKCE")
+		t.Error("two verifiers are equal")
 	}
 }
 
 func TestChallengeIsTheSHA256OfTheVerifier(t *testing.T) {
-	// A fixed test vector from RFC 7636 appendix B, so this checks the actual
-	// transform rather than just that something deterministic came out.
+	// Test vector from RFC 7636 appendix B.
 	const verifier = "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk"
 	const want = "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM"
 
@@ -57,10 +56,10 @@ func TestStateIsUnpredictableAndURLSafe(t *testing.T) {
 	}
 
 	if first == second {
-		t.Error("two calls produced the same state value")
+		t.Error("two states are equal")
 	}
 	if len(first) < 16 {
-		t.Errorf("state %q is too short to resist guessing", first)
+		t.Errorf("state %q is too short", first)
 	}
 	if !regexp.MustCompile(`^[A-Za-z0-9\-_]+$`).MatchString(first) {
 		t.Errorf("state %q is not URL safe", first)

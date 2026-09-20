@@ -11,13 +11,12 @@ import (
 	"time"
 )
 
-// defaultTokenEndpoint is Spotify's real token endpoint. Tests override it via
-// tokenClient.endpoint to point at a fake server.
+// defaultTokenEndpoint is Spotify's token endpoint. Tests override it through
+// tokenClient.endpoint.
 const defaultTokenEndpoint = "https://accounts.spotify.com/api/token"
 
-// tokenClient exchanges and refreshes tokens using the Authorization Code with
-// PKCE flow: no client secret, only the client ID and a proof of possession of
-// the original code verifier.
+// tokenClient exchanges and refreshes tokens with the PKCE flow. There is no
+// client secret, only the client ID and the code verifier.
 type tokenClient struct {
 	clientID string
 	endpoint string
@@ -32,8 +31,8 @@ func newTokenClient(clientID string) *tokenClient {
 	}
 }
 
-// tokens is what the agent keeps: an access token good for about an hour, and
-// a refresh token that is good until the user revokes access.
+// tokens holds an access token (about an hour) and a refresh token (until
+// revoked).
 type tokens struct {
 	AccessToken  string
 	RefreshToken string
@@ -50,10 +49,8 @@ type tokenResponse struct {
 	ErrorDescription string `json:"error_description"`
 }
 
-// reauthRequiredError marks a failure that means the stored refresh token is
-// no longer good: the user revoked access, or it otherwise expired. The
-// distinction matters because the fix is different. A transient network error
-// is worth retrying; a revoked grant needs the user to authorise again.
+// reauthRequiredError marks a refresh token that is no longer good. Retrying
+// will not help, the user has to authorise again.
 type reauthRequiredError struct {
 	reason string
 }
@@ -62,16 +59,14 @@ func (e *reauthRequiredError) Error() string {
 	return fmt.Sprintf("spotify authorisation is no longer valid: %s", e.reason)
 }
 
-// IsReauthRequired reports whether err means the stored authorization has to
-// be redone, as opposed to a transient failure worth retrying.
+// IsReauthRequired reports whether err means the authorization must be redone.
 func IsReauthRequired(err error) bool {
 	var marked *reauthRequiredError
 	return errors.As(err, &marked)
 }
 
-// exchange trades a fresh authorization code for tokens. Sent as
-// application/x-www-form-urlencoded per RFC 6749; nothing here is a secret,
-// which is the entire point of PKCE for a desktop app.
+// exchange trades an authorization code for tokens. The request is form encoded
+// per RFC 6749 and carries no secret.
 func (c *tokenClient) exchange(ctx context.Context, code, verifier, redirectURI string) (tokens, error) {
 	form := url.Values{
 		"grant_type":    {"authorization_code"},
@@ -92,8 +87,7 @@ func (c *tokenClient) exchange(ctx context.Context, code, verifier, redirectURI 
 }
 
 // refresh trades a refresh token for a new access token. Spotify does not
-// always rotate the refresh token in the response, so the previous one is kept
-// when none comes back.
+// always return a new refresh token, so the old one is kept then.
 func (c *tokenClient) refresh(ctx context.Context, refreshToken string) (tokens, error) {
 	form := url.Values{
 		"grant_type":    {"refresh_token"},
@@ -119,8 +113,7 @@ func (c *tokenClient) refresh(ctx context.Context, refreshToken string) (tokens,
 	}, nil
 }
 
-// spotifyTokenError is the shape of a non-2xx response from the token
-// endpoint, per RFC 6749 section 5.2.
+// spotifyTokenError is a non-2xx token response, per RFC 6749 section 5.2.
 type spotifyTokenError struct {
 	code        string
 	description string

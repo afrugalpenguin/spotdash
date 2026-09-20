@@ -1,11 +1,6 @@
-// Package calendar reports the next-up event, and a short agenda after it,
-// from a calendar.
-//
-// "mock" plays a configured sample event, for developing and judging the
-// face without a real feed. "ics" fetches and parses a real ICS feed URL,
-// which is what Outlook (and anything else that publishes one) exposes
-// without needing OAuth. All-day events, and some RRULE shapes, are a known
-// v1 limitation: see the comments on upcomingEvents and parseRRule.
+// Package calendar reports the next-up event and a short agenda after it.
+// Mode "mock" plays a configured sample event. Mode "ics" reads a published ICS
+// feed. See docs/architecture.md, "Calendar".
 package calendar
 
 import (
@@ -22,50 +17,35 @@ import (
 // Name is the key this source is configured under.
 const Name = "calendar"
 
-// DefaultNotifyMinutes is how far out an event counts as "imminent" when
-// notify_minutes is not set: the same threshold as the face's own warn
-// colour, so the panel switching to show you the event lines up with the
-// point where the face itself starts looking urgent.
+// DefaultNotifyMinutes is how far out an event counts as urgent when
+// notify_minutes is unset. It matches the face's own warn colour.
 const DefaultNotifyMinutes = 15
 
-// DefaultShowSeconds is how long the panel holds the calendar face after an
-// auto-switch before returning to whatever it was showing, when
-// show_seconds is not set.
+// DefaultShowSeconds is how long an auto-switch holds the calendar face when
+// show_seconds is unset.
 const DefaultShowSeconds = 45
 
-// AgendaSize is how many events the face knows about in total: the primary
-// next-up event plus this many more below it, in a scrollable list, since
-// the circular panel cannot show them all at once.
+// AgendaSize is how many events the face knows about in total, the next-up
+// event included.
 const AgendaSize = 8
 
 // Reading is what the calendar source publishes. An empty Title means no
-// upcoming event, a normal state the face shows as idle rather than an
-// error.
+// upcoming event, which the face shows as idle.
 type Reading struct {
 	Title string `json:"title"`
-	// Location is whatever the calendar puts in the event's location field.
-	// For an online meeting that is typically the conferencing platform's own
-	// label, such as "Microsoft Teams Meeting", straight from the source
-	// rather than anything this agent constructs.
+	// Location is the feed's own text, such as "Microsoft Teams Meeting".
 	Location string `json:"location"`
-	// StartLabel is preformatted, the same reasoning as clock's Time field:
-	// the display device cannot be trusted to have the right locale.
+	// StartLabel is preformatted because the display device may have the wrong
+	// locale.
 	StartLabel string `json:"start_label"`
-	// MinutesUntil lets the face tick the countdown down locally between
-	// polls, the same pattern spotify's PositionMS uses for elapsed time.
+	// MinutesUntil lets the face tick the countdown locally between polls.
 	MinutesUntil float64 `json:"minutes_until"`
-	// Urgent is true once the event is within notify_minutes. The panel uses
-	// this to decide whether to auto-switch to the calendar face; the
-	// threshold is decided here, server-side, rather than duplicated in the
-	// client.
+	// Urgent is true within notify_minutes. The client auto-switches on it, so
+	// the threshold lives only here.
 	Urgent bool `json:"urgent"`
-	// ShowSeconds travels with the reading so the client knows how long to
-	// hold the face open on an auto-switch without needing its own config.
+	// ShowSeconds tells the client how long to hold an auto-switch open.
 	ShowSeconds int `json:"show_seconds"`
-	// Upcoming is the rest of the mini agenda: up to AgendaSize-1 further
-	// events after the primary one above, title and start time only. No
-	// countdown, no urgency, no location - those all stay specific to the
-	// one event the auto-switch and the rim colour actually key off.
+	// Upcoming is up to AgendaSize-1 further events, title and start only.
 	Upcoming []AgendaItem `json:"upcoming,omitempty"`
 }
 
@@ -85,22 +65,18 @@ type settings struct {
 	// mode: "mock"
 	Title    string `json:"title"`
 	Location string `json:"location"`
-	// Exactly one of StartInMinutes or StartAt: a countdown relative to
-	// whenever the agent happens to start, or a fixed clock time such as
-	// "16:30" for a repeatable demo or screenshot.
+	// Set at most one of StartInMinutes (relative to agent start) or StartAt
+	// (a fixed "HH:MM", for repeatable screenshots).
 	StartInMinutes int    `json:"start_in_minutes"`
 	StartAt        string `json:"start_at"`
-	// Upcoming is canned agenda entries for the mock, shown exactly as
-	// given rather than computed: the mock exists to judge the face, not to
-	// simulate a real calendar's timekeeping for entries 2 and 3.
+	// Upcoming is canned agenda entries, shown as given.
 	Upcoming []AgendaItem `json:"upcoming"`
 
 	// mode: "ics"
 	FeedURL string `json:"feed_url"`
 }
 
-// Source reports the next-up event, either from a configured mock event or
-// a real ICS feed.
+// Source reports the next-up event from a mock event or an ICS feed.
 type Source struct {
 	interval      time.Duration
 	notifyMinutes int
@@ -124,8 +100,7 @@ type Source struct {
 	now func() time.Time
 }
 
-// New builds the calendar source: a mock that shows a configured sample
-// event, or the real ICS feed provider.
+// New builds the calendar source from cfg.
 func New(cfg config.Source) (interface {
 	Name() string
 	Poll(context.Context) (any, error)
@@ -212,10 +187,8 @@ func (s *Source) Poll(ctx context.Context) (any, error) {
 	return s.pollMock(), nil
 }
 
-// pollMock returns the configured sample event, its countdown derived from
-// the clock rather than a stored start time, the same reasoning spotify's
-// mock uses for track position: it advances and survives a reload without
-// jumping back to the configured value.
+// pollMock returns the configured sample event. The start is fixed on the
+// first poll and the countdown derives from the clock, so it survives a reload.
 func (s *Source) pollMock() Reading {
 	if s.mockTitle == "" {
 		return Reading{}
@@ -232,10 +205,8 @@ func (s *Source) pollMock() Reading {
 	return s.reading(s.mockTitle, s.mockLocation, s.start, now, s.mockUpcoming)
 }
 
-// nextOccurrenceOf combines an "HH:MM" clock time with now's date, rolling
-// to tomorrow if that time has already passed today. clockTime is assumed
-// already validated by newMockSource; a parse failure here falls back to
-// now itself rather than panicking on what should be unreachable.
+// nextOccurrenceOf combines an "HH:MM" time with now's date, rolling to
+// tomorrow if it has passed. newMockSource has validated clockTime.
 func nextOccurrenceOf(clockTime string, now time.Time) time.Time {
 	parsed, err := time.Parse("15:04", clockTime)
 	if err != nil {
@@ -248,11 +219,9 @@ func nextOccurrenceOf(clockTime string, now time.Time) time.Time {
 	return candidate
 }
 
-// pollICS fetches and parses the configured feed and picks the next-up
-// event. Not connected, or a feed that cannot be fetched or parsed, is a
-// real failure: there is nothing to publish. No qualifying event in an
-// otherwise-good feed is success with an empty reading, the same as spotify
-// treats "nothing currently playing".
+// pollICS fetches the feed and picks the next-up event. A feed that cannot be
+// fetched or parsed is a failure. A good feed with no qualifying event is an
+// empty reading.
 func (s *Source) pollICS(ctx context.Context) (any, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, s.feedURL, nil)
 	if err != nil {
@@ -291,9 +260,7 @@ func (s *Source) pollICS(ctx context.Context) (any, error) {
 	return s.reading(primary.Summary, primary.Location, primary.Start, now, agenda), nil
 }
 
-// reading builds the published Reading from a title, location and start
-// time, applying the notify threshold and hold duration common to both
-// modes.
+// reading builds the published Reading for either mode.
 func (s *Source) reading(title, location string, start, now time.Time, upcoming []AgendaItem) Reading {
 	minutesUntil := start.Sub(now).Minutes()
 	return Reading{

@@ -1,12 +1,6 @@
-// Package spotify reports what is playing.
-//
-// The real provider, which talks to the Spotify API, is not built yet. What is
-// here is the shape of the reading, the face that renders it, and a mock
-// provider that plays a configured track so the panel can be developed and
-// judged before any of the account plumbing exists.
-//
-// The mode has to be stated in config. Running the mock by accident and
-// believing it is real would be worse than refusing to start.
+// Package spotify reports what is playing. Mode "mock" plays a configured
+// track. Mode "api" polls the Spotify Web API. The mode is required, so the
+// mock never runs by accident. See docs/architecture.md, "Spotify".
 package spotify
 
 import (
@@ -23,24 +17,20 @@ import (
 // Name is the key this source is configured under.
 const Name = "spotify"
 
-// artPath is where the agent serves the cover from.
-//
-// The device is on a LAN with an agent that will hold the credentials, so it
-// loads one small image from the machine next to it rather than reaching a CDN
-// on every track change. That keeps the device dumb and the token in one place.
+// artPath is where the agent serves the cover from. The device loads it from
+// the agent and never reaches a CDN.
 const artPath = "/art/spotify"
 
-// connectPath starts a fresh authorization attempt. Requires the bearer
-// token, like everything else that is not the callback itself.
+// connectPath starts a fresh authorization attempt. It requires the bearer
+// token.
 const connectPath = "/spotify/connect"
 
-// callbackPath is where Spotify redirects back to after consent. This one
-// cannot require the token: the browser tab Spotify opens is freshly
-// navigated and carries none. See auth.go for what protects it instead.
+// callbackPath is where Spotify redirects after consent. It cannot require the
+// token, because the tab carries none. See auth.go for what protects it.
 const callbackPath = "/spotify/callback"
 
-// controlPath runs one playback command: pause, resume, next, or previous.
-// Requires the bearer token.
+// controlPath runs one playback command: pause, resume, next or previous. It
+// requires the bearer token.
 const controlPath = "/spotify/control"
 
 // Reading is what the spotify source publishes.
@@ -53,12 +43,8 @@ type Reading struct {
 	PositionMS int64  `json:"position_ms"`
 	DurationMS int64  `json:"duration_ms"`
 	Playing    bool   `json:"playing"`
-	// Layout is "fill" or "disc". Sent on every reading rather than left to a
-	// URL query parameter, because the shell loads one fixed URL on the real
-	// device with no way to attach one. Which layout reads better depends on
-	// the room and the sleeve, and that can only be judged with the actual
-	// panel in front of you, so it is a config setting you can flip without a
-	// rebuild rather than a choice baked in here.
+	// Layout is "fill" or "disc". It rides on every reading because the shell
+	// loads one fixed URL and cannot carry a query parameter.
 	Layout string `json:"layout"`
 }
 
@@ -67,10 +53,8 @@ const (
 	layoutDisc = "disc"
 )
 
-// normalizeLayout validates the configured layout, defaulting to "fill" when
-// unset. An invalid value is rejected at construction, the same as everywhere
-// else in this codebase a bad config value is: better to refuse to start than
-// silently fall back to a default the user did not ask for.
+// normalizeLayout validates the configured layout, defaulting to "fill". An
+// invalid value stops the agent at construction.
 func normalizeLayout(value string) (string, error) {
 	switch value {
 	case "":
@@ -109,11 +93,8 @@ type Source struct {
 	now func() time.Time
 }
 
-// New builds the spotify source: a mock that plays a configured track, or the
-// real provider talking to the Spotify API.
-//
-// Building sources.Source directly rather than *Source to accommodate the two
-// concrete implementations.
+// New builds the spotify source. It returns an interface because mock and api
+// modes are different concrete types.
 func New(cfg config.Source) (interface {
 	Name() string
 	Poll(context.Context) (any, error)
@@ -126,9 +107,8 @@ func New(cfg config.Source) (interface {
 		}
 	}
 
-	// Relative file settings mean "next to config.json". The agent may be
-	// started from anywhere, such as at login, and the working directory is not
-	// where anyone put these files.
+	// Relative paths are relative to config.json. The agent may start from any
+	// working directory.
 	s.StateFile = resolvePath(cfg.Dir, s.StateFile)
 	s.ArtFile = resolvePath(cfg.Dir, s.ArtFile)
 
@@ -150,9 +130,8 @@ func New(cfg config.Source) (interface {
 	}
 }
 
-// resolvePath makes a relative path relative to dir. An empty path, an absolute
-// one, a rooted one with no drive, or an empty dir (nothing to resolve against)
-// is returned as written.
+// resolvePath joins a relative path onto dir. Empty, absolute and drive-less
+// rooted paths, and an empty dir, are returned as written.
 func resolvePath(dir, path string) string {
 	if path == "" || dir == "" || filepath.IsAbs(path) || strings.HasPrefix(path, "/") || strings.HasPrefix(path, `\`) {
 		return path
@@ -180,11 +159,7 @@ func (s *Source) Name() string { return Name }
 // Interval is the configured poll period.
 func (s *Source) Interval() time.Duration { return s.interval }
 
-// Assets declares files this source wants the agent to serve.
-//
-// Opt-in rather than something the registry knows about: a source that has
-// nothing to serve implements nothing. When the real provider arrives this
-// becomes a cache directory rather than one configured file.
+// Assets declares the mock's art file for the agent to serve.
 func (s *Source) Assets() map[string]string {
 	if s.settings.ArtFile == "" {
 		return nil
@@ -206,10 +181,8 @@ func (s *Source) Poll(_ context.Context) (any, error) {
 		reading.ArtURL = artPath
 	}
 
-	// The position is derived from the clock rather than from a stored start
-	// time, so it advances, wraps at the end of the track, and survives a
-	// reload without jumping back to zero. A still position would make the face
-	// look frozen, which is exactly what a broken feed looks like.
+	// Derived from the clock so it advances, wraps at the track end and survives
+	// a reload. A still position looks like a broken feed.
 	if s.settings.Paused {
 		reading.PositionMS = 0
 	} else {

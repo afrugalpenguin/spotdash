@@ -13,8 +13,8 @@ import (
 	"time"
 )
 
-// accessTokenSource is satisfied by *authManager. A narrow interface here
-// keeps apiSource testable without a real HTTP round trip.
+// accessTokenSource is satisfied by *authManager. It keeps apiSource testable
+// without HTTP.
 type accessTokenSource interface {
 	accessToken(ctx context.Context) (string, error)
 }
@@ -24,11 +24,8 @@ type currentlyPlayingFetcher interface {
 	fetchCurrentlyPlaying(ctx context.Context, accessToken string) (*nowPlaying, error)
 }
 
-// playbackController is satisfied by *apiClient. Deliberately these four
-// methods and no others: volume, seek, shuffle, repeat, device transfer and
-// queueing are all part of the same OAuth scope but are not exposed here. The
-// scope grants what Spotify allows the app to do; this interface is what the
-// agent actually offers a caller with nothing but the LAN token.
+// playbackController is satisfied by *apiClient. These four methods are the
+// whole control surface. See docs/architecture.md, "Spotify".
 type playbackController interface {
 	pause(ctx context.Context, accessToken string) error
 	resume(ctx context.Context, accessToken string) error
@@ -41,7 +38,6 @@ type artDownloader interface {
 	download(ctx context.Context, url string) ([]byte, error)
 }
 
-// httpArtDownloader is the real downloader, used outside tests.
 type httpArtDownloader struct {
 	http *http.Client
 }
@@ -62,9 +58,8 @@ func (d *httpArtDownloader) download(ctx context.Context, url string) ([]byte, e
 	return io.ReadAll(resp.Body)
 }
 
-// apiSource is the real Spotify provider: OAuth via authManager, polling via
-// apiClient, with album art fetched and cached locally so the device never
-// reaches a CDN directly.
+// apiSource is the api-mode provider: OAuth through authManager, polling
+// through apiClient, art cached locally.
 type apiSource struct {
 	interval time.Duration
 	layout   string
@@ -78,51 +73,36 @@ type apiSource struct {
 	lastTrackID  string
 	hasArt       bool
 
-	// previousTrackID is the track ID as of the end of the last poll,
-	// updated unconditionally there rather than only on a successful art
-	// download like lastTrackID is. It exists purely to let poll() tell
-	// whether a fetch immediately after a next/previous actually changed
-	// anything.
+	// previousTrackID is the track ID at the end of the last poll. Unlike
+	// lastTrackID it updates even when the art download fails. awaitTrackChange
+	// compares against it.
 	previousTrackID string
 
-	// expectingChange is set by handleControl right after a successful
-	// next/previous, and consumed by the very next poll. Spotify's own
-	// currently-playing endpoint does not always reflect a skip
-	// immediately, even though the skip itself was accepted, so that next
-	// poll retries briefly rather than accepting a read that is still the
-	// track from before the control action. An atomic because it is
-	// written from an HTTP handler goroutine and read from the poller's.
+	// expectingChange is set by handleControl after a next or previous and
+	// consumed by the next poll, which retries until the track changes. Atomic
+	// because the handler and the poller run on different goroutines.
 	expectingChange atomic.Bool
 
-	// sleep waits out one consistency-retry delay, or returns early if ctx
-	// is done. Overridden in tests so the retry loop does not make them
-	// slow.
+	// sleep waits out one retry delay, or returns early if ctx is done. Tests
+	// override it.
 	sleep func(ctx context.Context, d time.Duration)
 
-	// Exposed so the app wiring can mount the OAuth routes.
 	auth *authManager
 
-	// repoll asks the runner to poll this source again immediately, bypassing
-	// the wait for its next scheduled tick. Set by the app wiring via
-	// SetRepoll once the runner exists; nil until then, and nil is a safe,
-	// silent no-op rather than something callers have to check for.
+	// repoll asks the runner for an immediate poll. Set by SetRepoll, nil until
+	// then.
 	repoll func()
 }
 
-// consistencyRetries and consistencyDelay bound how long poll() will chase
-// Spotify's own eventual consistency after a next/previous: measured live,
-// the currently-playing endpoint has taken anywhere from under 200ms to
-// over a second to reflect a skip that was already accepted. Three tries
-// roughly 400ms apart caps the extra wait around 1.2s - short of the
-// interval floor (minPollTimeout, 2s) this poll is running under, and far
-// short of waiting out a full scheduled interval to catch up instead.
+// consistencyRetries and consistencyDelay bound how long poll chases Spotify's
+// lag after a skip, measured at 200ms to over 1s. Three tries 400ms apart cap
+// the wait near 1.2s, under the 2s minPollTimeout.
 const (
 	consistencyRetries = 3
 	consistencyDelay   = 400 * time.Millisecond
 )
 
-// ctxSleep is the production sleep: a plain wait, cut short if ctx ends
-// first.
+// ctxSleep waits d, or until ctx ends.
 func ctxSleep(ctx context.Context, d time.Duration) {
 	select {
 	case <-ctx.Done():
@@ -130,11 +110,8 @@ func ctxSleep(ctx context.Context, d time.Duration) {
 	}
 }
 
-// SetRepoll implements sources.RepollRegistrar.
-//
-// It also asks for a poll when a connection completes. Until then every poll
-// fails with "not connected yet" and the runner backs off to 30 seconds, so
-// without this the first reading after Connected could be that far away.
+// SetRepoll implements sources.RepollRegistrar. It also fires when a connection
+// completes, because until then polls fail and the runner backs off to 30s.
 func (s *apiSource) SetRepoll(fn func()) {
 	s.repoll = fn
 	if s.auth != nil {
@@ -142,10 +119,8 @@ func (s *apiSource) SetRepoll(fn func()) {
 	}
 }
 
-// newAPISourceFromSettings validates api-mode settings and builds the real
-// source. Failing here, before the agent starts, is what "fail closed" means
-// for this mode: a missing client_id is a startup error, not a source that
-// silently never authorises.
+// newAPISourceFromSettings validates api-mode settings and builds the source. A
+// missing setting is a startup error.
 func newAPISourceFromSettings(interval time.Duration, s settings) (*apiSource, error) {
 	if s.ClientID == "" {
 		return nil, fmt.Errorf(`"mode" is "api" but no "client_id" is configured: create an app at https://developer.spotify.com/dashboard and paste its client ID here`)
@@ -186,17 +161,13 @@ func (s *apiSource) Name() string { return Name }
 // Interval is the configured poll period.
 func (s *apiSource) Interval() time.Duration { return s.interval }
 
-// Assets declares the cached art file, using the same path resolution the
-// mock uses: the source points the agent at wherever the current cover
-// happens to be.
+// Assets declares the cached art file.
 func (s *apiSource) Assets() map[string]string {
 	return map[string]string{artPath: s.artCachePath}
 }
 
-// Routes registers the page that starts a fresh authorization, and the
-// playback transport endpoint. Both require the bearer token, the same as
-// everything else on the agent that is not /health or the OAuth callback
-// itself.
+// Routes registers the connect page and the playback control endpoint. Both
+// require the bearer token.
 func (s *apiSource) Routes() map[string]http.Handler {
 	return map[string]http.Handler{
 		connectPath: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -211,15 +182,13 @@ func (s *apiSource) Routes() map[string]http.Handler {
 	}
 }
 
-// controlRequest is the body POST /spotify/control expects.
+// controlRequest is the body of POST /spotify/control.
 type controlRequest struct {
 	Action string `json:"action"`
 }
 
-// handleControl runs one playback command. Deliberately exactly four actions:
-// pause, resume, next, previous. Nothing else is wired to playbackController,
-// which is the actual enforcement of the narrow control surface, not just a
-// convention.
+// handleControl runs one of four playback commands: pause, resume, next or
+// previous.
 func (s *apiSource) handleControl(w http.ResponseWriter, r *http.Request) {
 	var body controlRequest
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
@@ -260,18 +229,13 @@ func (s *apiSource) handleControl(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// A skip is the case Spotify's own eventual consistency actually bites:
-	// the very next poll can still read the track from before this action.
-	// Flagged here, consumed by poll(), which retries briefly rather than
-	// accepting a stale read. Pause/resume do not need this: Playing is
-	// reflected immediately in practice, and there is no "which track"
-	// ambiguity for the retry to resolve.
+	// After a skip the next poll can still read the old track, so flag it for
+	// poll to retry. Pause and resume show up immediately.
 	if body.Action == "next" || body.Action == "previous" {
 		s.expectingChange.Store(true)
 	}
 
-	// The whole point of a transport control: the panel reflects the change
-	// right away rather than whenever the next scheduled poll happens to land.
+	// Poll now so the panel shows the change at once.
 	if s.repoll != nil {
 		s.repoll()
 	}
@@ -279,18 +243,15 @@ func (s *apiSource) handleControl(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
-// OpenRoutes registers the OAuth callback, which must be reachable without
-// the bearer token: the browser tab Spotify redirects to is freshly opened
-// and carries none. The state parameter authManager checks is what protects
-// it instead.
+// OpenRoutes registers the OAuth callback, reachable without the bearer token.
+// The state parameter checked by authManager protects it.
 func (s *apiSource) OpenRoutes() map[string]http.Handler {
 	return map[string]http.Handler{
 		callbackPath: http.HandlerFunc(s.auth.handleCallback),
 	}
 }
 
-// Poll delegates to the unexported poll, which is what the tests drive
-// directly against fakes.
+// Poll delegates to poll, which tests drive against fakes.
 func (s *apiSource) Poll(ctx context.Context) (any, error) {
 	reading, err := s.poll(ctx)
 	if err != nil {
@@ -300,11 +261,7 @@ func (s *apiSource) Poll(ctx context.Context) (any, error) {
 }
 
 // poll fetches what is playing and refreshes the cached art if the track
-// changed.
-//
-// Not connected, or a reauthorisation requirement, is a plain failure: there
-// is nothing at all to publish. Nothing currently playing is success with an
-// empty reading, because it is a normal state, not a problem.
+// changed. Not connected is a failure. Nothing playing is an empty reading.
 func (s *apiSource) poll(ctx context.Context) (Reading, error) {
 	token, err := s.tokens.accessToken(ctx)
 	if err != nil {
@@ -314,9 +271,8 @@ func (s *apiSource) poll(ctx context.Context) (Reading, error) {
 	np, err := s.playback.fetchCurrentlyPlaying(ctx, token)
 	if err != nil {
 		if err == errAccessTokenExpired {
-			// The cache believed the token was still good but Spotify
-			// disagreed, most likely a revocation mid-session or clock skew.
-			// One retry after a forced refresh is worth it before giving up.
+			// Spotify rejected a token the cache thought good (revocation or
+			// clock skew). Retry once.
 			token, err = s.tokens.accessToken(ctx)
 			if err != nil {
 				return Reading{}, s.connectionError(err)
@@ -330,8 +286,7 @@ func (s *apiSource) poll(ctx context.Context) (Reading, error) {
 		}
 	}
 
-	// Consumed regardless of what np turns out to be, so a stale flag never
-	// leaks into some much later, unrelated poll.
+	// Consumed whatever np is, so a stale flag cannot leak into a later poll.
 	expecting := s.expectingChange.Swap(false)
 	if expecting && np != nil {
 		np = s.awaitTrackChange(ctx, token, np)
@@ -355,16 +310,11 @@ func (s *apiSource) poll(ctx context.Context) (Reading, error) {
 
 	if np.ArtImageURL != "" {
 		if err := s.ensureArtCached(ctx, np.TrackID, np.ArtImageURL); err != nil {
-			// A cover that fails to download is not worth losing the rest of
-			// the reading over. The face already renders without art.
+			// The face renders without art, so keep the rest of the reading.
 			s.hasArt = false
 		} else {
-			// The track ID as a cache-busting query parameter, not just the
-			// bare path: the file behind artPath is correctly re-downloaded
-			// on every track change, but an unchanged URL means neither the
-			// browser nor the client's own same-URL guard in setArt() has
-			// any reason to treat the cover as different, and the panel
-			// would keep showing whatever track's cover loaded first.
+			// The track ID busts the cache. With a bare artPath the client's
+			// same-URL guard in setArt() would keep the first cover.
 			reading.ArtURL = artPath + "?track=" + url.QueryEscape(np.TrackID)
 		}
 	}
@@ -372,14 +322,9 @@ func (s *apiSource) poll(ctx context.Context) (Reading, error) {
 	return reading, nil
 }
 
-// awaitTrackChange retries a fetch that still shows the track from before a
-// next/previous, up to consistencyRetries times, consistencyDelay apart.
-// Bounded and best-effort: if Spotify's own endpoint is still not caught up
-// by the end of the budget, this returns whatever the last fetch had rather
-// than blocking further, so the reading is stale but the poll still
-// completes. A fetch error mid-retry keeps the last good np for the same
-// reason: a transient failure here should not turn an already-successful
-// poll into a failed one.
+// awaitTrackChange retries a fetch that still shows the pre-skip track, up to
+// consistencyRetries times. It is best effort. A stale reading or a fetch
+// error keeps the last good np, so an already successful poll stays one.
 func (s *apiSource) awaitTrackChange(ctx context.Context, token string, np *nowPlaying) *nowPlaying {
 	for attempt := 0; attempt < consistencyRetries; attempt++ {
 		if s.previousTrackID == "" || np.TrackID != s.previousTrackID {
@@ -398,9 +343,7 @@ func (s *apiSource) awaitTrackChange(ctx context.Context, token string, np *nowP
 	return np
 }
 
-// ensureArtCached downloads the cover only when the track actually changed.
-// Re-fetching on every poll, at a five second interval, would be constant
-// unnecessary network and disk work for an image that has not changed.
+// ensureArtCached downloads the cover only when the track changed.
 func (s *apiSource) ensureArtCached(ctx context.Context, trackID, imageURL string) error {
 	if s.hasArt && trackID == s.lastTrackID {
 		return nil
@@ -419,10 +362,8 @@ func (s *apiSource) ensureArtCached(ctx context.Context, trackID, imageURL strin
 	return nil
 }
 
-// connectionError turns a token failure into a message a person reads on the
-// status face, since that is the only place any of this surfaces
-// automatically. Whether this is the first connection or a revoked one, the
-// fix is the same, so both get the same actionable hint.
+// connectionError adds a connect hint to a token failure. The status face
+// shows it, and the fix is the same for a first connection or a revoked one.
 func (s *apiSource) connectionError(err error) error {
 	return fmt.Errorf("%w: visit %s on this agent to connect your spotify account", err, connectPath)
 }

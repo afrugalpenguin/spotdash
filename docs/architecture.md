@@ -137,6 +137,8 @@ Adding a source = one new package implementing the interface + one line in the f
 
 A source package can't import the registry (cycle), so each constructor returns its own concrete type and a small generic adapter widens it in the registry.
 
+A source can implement optional extras beyond the interface. `AssetProvider` serves files such as album art, and `RouteProvider` adds authenticated HTTP routes. `OpenRouteProvider` adds routes that skip the bearer token because the caller cannot carry one (an OAuth callback), so the source must protect the route itself. `RepollRegistrar` receives a function that requests an immediate re-poll, since a source has no reference to the runner. A re-poll restarts the interval from that moment, and the request channel holds one pending request, so a burst of taps neither queues polls nor bunches them closer than the configured interval.
+
 A source named in config with no implementation is a startup error, even disabled - a typo is the likeliest way a working source gets silently switched off. Sources are constructed before the listener opens, so a bad one stops the agent rather than degrading forever.
 
 ### Source status
@@ -149,13 +151,13 @@ A source named in config with no implementation is a startup error, even disable
 
 ### A third outcome: partial results
 
-Telemetry can be genuinely fine on CPU/RAM/disk but missing GPU. Forcing that into pure success/failure loses something, so a source may return a value plus a partial-marked error: stored and broadcast, source marked `degraded`, not counted toward backoff (nothing's actually failing, and polling less won't fix a missing GPU). Marker lives in its own package to avoid the registry import cycle.
+Telemetry can be genuinely fine on CPU/RAM/disk but missing GPU. Forcing that into pure success/failure loses something, so a source may return a value plus a partial-marked error: stored and broadcast, source marked `degraded`, not counted toward backoff (nothing's actually failing, and polling less won't fix a missing GPU). Marker lives in its own package to avoid the registry import cycle. A partial error with no value is treated as an ordinary failure, since there is nothing to publish.
 
 ### GPU telemetry
 
 NVML (`nvml.dll`, same lib `nvidia-smi` uses) is the only way to read utilisation/VRAM/temp/power. NVIDIA's own `go-nvml` won't build on Windows (uses `dlfcn.h`, POSIX-only, no build tags), so `nvml.dll` is bound directly via `windows.NewLazySystemDLL`, which only resolves from the system directory. Pure Go, no cgo needed for the shipped binary (a C toolchain is still needed for `go test -race`).
 
-Loaded lazily, init retried on every read that finds it unestablished - the agent often starts before the driver settles. Each field read independently so one missing metric (e.g. power draw isn't reported by every card) doesn't kill the whole GPU reading.
+Loaded lazily, init retried on every read that finds it unestablished - the agent often starts before the driver settles. Each field read independently so one missing metric (e.g. power draw isn't reported by every card) doesn't kill the whole GPU reading. If the device handle lookup fails, init state is dropped so the next poll starts again, because a driver restart invalidates earlier handles. Return codes are named from a fixed table, since reading `nvmlErrorString` needs a pointer into memory Go doesn't own and `go vet` rejects it.
 
 ### Spotify
 
@@ -173,7 +175,7 @@ Both routes are optional interfaces (`RouteProvider`, `OpenRouteProvider`), same
 
 **Storage**: refresh token in `state_file`, not `config.json` (config is hand-edited, this is agent-written). Atomic write, mode 0600 (NTFS doesn't enforce POSIX perms, so no stronger than config's exposure on Windows).
 
-**Scope**: `user-read-currently-playing`, `user-read-playback-state`, `user-modify-playback-state`. Existing connections need to reconnect for the write scope.
+**Scope**: `user-read-currently-playing`, `user-read-playback-state`, `user-modify-playback-state`. Existing connections need to reconnect for the write scope. The write scope also allows volume, seek, shuffle, repeat, device transfer and queueing. The agent exposes only pause, resume, next and previous, because those are the only methods on the `playbackController` interface.
 
 **Polling**: `GET /me/player/currently-playing`, default 5s. Token refreshed before expiry or on 401. No content/non-track = empty reading (success). Not connected/revoked = failure with a `/spotify/connect` hint.
 
@@ -193,7 +195,7 @@ Next-up event is primary: title, location (feed's raw `LOCATION`), start time, c
 
 **Recurrence** (`rrule.go`): the RFC 5545 shapes an actual calendar uses, not the full spec - `FREQ` daily/weekly/monthly/yearly, `INTERVAL`, `COUNT`, `UNTIL`, `BYDAY` (plain weekday, weekly only), `BYMONTHDAY` (positive, monthly only). `nextOccurrence` walks forward from `DTSTART` (capped at 500 occurrences) to the first hit after now.
 
-Unsupported: ordinal `BYDAY` ("3rd Thursday"), negative `BYMONTHDAY`, `BYSETPOS`, `BYWEEKNO`, `BYYEARDAY`, `WKST`, sub-daily frequencies. `parseRRule` reports these; `nextUpEvent` excludes events it can't expand.
+Unsupported: ordinal `BYDAY` ("3rd Thursday"), negative `BYMONTHDAY`, `BYSETPOS`, `BYWEEKNO`, `BYYEARDAY`, `WKST`, sub-daily frequencies. `parseRRule` reports these; `nextUpEvent` excludes events it can't expand. Each event adds one agenda entry, its next occurrence, so a daily standup can't crowd out the rest.
 
 **Auto-switch**: source decides urgency, not the client. Reading carries `urgent` (within `notify_minutes`, default 15) and `show_seconds` (default 45). Client switches to the calendar face on a new urgent event, overrides sleep window for the duration, holds `show_seconds`, then returns - unless the viewer already tapped away.
 
