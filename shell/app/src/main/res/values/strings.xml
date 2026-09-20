@@ -14,6 +14,8 @@
     <string name="settings_title">spotdash settings</string>
     <string name="settings_url_hint">Agent URL, for example http://10.0.2.2:8765</string>
     <string name="settings_token_hint">Token</string>
+    <string name="settings_wifi">Wi-Fi networks</string>
+    <string name="wifi_unavailable">This device has no Wi-Fi settings screen.</string>
     <string name="settings_save">Save</string>
     <string name="settings_cancel">Cancel</string>
 </resources>

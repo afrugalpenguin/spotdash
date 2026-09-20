@@ -290,7 +290,7 @@ WebSocket client reconnects with exponential backoff + jitter on close/error. A 
 
 Single Activity, minSdk/targetSdk 30. Fullscreen immersive, screen on, no bars. Declares `HOME`/`DEFAULT` intents so LineageOS can set it as default launcher.
 
-Agent URL and token live in `EncryptedSharedPreferences`, entered via a 3s long-press settings screen (the only UI besides the WebView - no other input on the device). Token injected as a query param on initial load only; the page holds it afterward.
+Agent URL and token live in `EncryptedSharedPreferences`, entered via a 3s long-press settings screen (the only UI besides the WebView - no other input on the device). That screen also has a "Wi-Fi networks" button that opens Android's own Wi-Fi settings, since the shell is the launcher and there is otherwise no way to them without adb. A deep link rather than a screen of our own: on API 30 `WifiManager.addNetwork` is ignored for apps targeting API 29+, and a network request only connects this process. Coming back from it retries the panel at once. Token injected as a query param on initial load only; the page holds it afterward.
 
 ### JavaScript bridge
 

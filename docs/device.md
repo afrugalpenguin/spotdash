@@ -52,7 +52,9 @@ adb shell cmd wifi start-scan
 adb shell cmd wifi list-scan-results
 ```
 
-`PSK` in the flags is WPA2. Only `SAE` means WPA3 and the Spot won't join it. Related: issue 72 (on-device provisioning).
+`PSK` in the flags is WPA2. Only `SAE` means WPA3 and the Spot won't join it.
+
+Without a PC: long-press the display, then Wi-Fi networks. That opens Android's own Wi-Fi settings, and Back returns to the panel.
 
 ## 1. Find the agent's LAN address
 
