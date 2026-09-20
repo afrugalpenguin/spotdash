@@ -137,7 +137,7 @@ Adding a source = one new package implementing the interface + one line in the f
 
 A source package can't import the registry (cycle), so each constructor returns its own concrete type and a small generic adapter widens it in the registry.
 
-A source named in config with no implementation is a startup error, even disabled - a typo is the likeliest way a working source gets silently switched off. Sources are constructed before the listener opens. A bad one stops the agent at startup, so it cannot sit degraded forever.
+A source named in config with no implementation is a startup error, even disabled - a typo is the likeliest way a working source gets silently switched off. Sources are constructed before the listener opens, so a bad one stops the agent rather than degrading forever.
 
 ### Source status
 
@@ -173,7 +173,7 @@ Both routes are optional interfaces (`RouteProvider`, `OpenRouteProvider`), same
 
 Storage: refresh token in `state_file`, never `config.json` (config is hand-edited, this is agent-written). Atomic write, mode 0600 (NTFS doesn't enforce POSIX perms, so no stronger than config's exposure on Windows).
 
-Scope: `user-read-currently-playing`, `user-read-playback-state`, `user-modify-playback-state`. Existing connections need to reconnect for the write scope.
+**Scope**: `user-read-currently-playing`, `user-read-playback-state`, `user-modify-playback-state`. Existing connections need to reconnect for the write scope.
 
 Polling: `GET /me/player/currently-playing`, default 5s. Token refreshed before expiry or on 401. No content/non-track = empty reading (success). Not connected/revoked = failure with a `/spotify/connect` hint.
 
