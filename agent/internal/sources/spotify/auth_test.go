@@ -320,3 +320,84 @@ func mustQueryFromAuthorizeURL(t *testing.T, raw, key string) string {
 	}
 	return u.Query().Get(key)
 }
+
+// completeCallback runs beginAuth and a callback carrying the given code, and
+// returns the recorder.
+func completeCallback(t *testing.T, mgr *authManager) *httptest.ResponseRecorder {
+	t.Helper()
+	raw, err := mgr.beginAuth()
+	if err != nil {
+		t.Fatalf("beginAuth: %v", err)
+	}
+	state := mustQueryFromAuthorizeURL(t, raw, "state")
+	rec := httptest.NewRecorder()
+	mgr.handleCallback(rec, httptest.NewRequest(http.MethodGet, "/spotify/callback?code=auth-code&state="+state, nil))
+	return rec
+}
+
+func TestCallbackNotifiesOnceConnected(t *testing.T) {
+	mgr, _ := newTestAuthManager(t, func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(tokenResponse{AccessToken: "a", RefreshToken: "r", ExpiresIn: 3600})
+	})
+	notified := 0
+	authorizedAtNotify := false
+	mgr.setOnConnected(func() {
+		notified++
+		authorizedAtNotify = mgr.isAuthorized()
+	})
+
+	if rec := completeCallback(t, mgr); rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+
+	if notified != 1 {
+		t.Errorf("onConnected called %d times, want 1", notified)
+	}
+	if !authorizedAtNotify {
+		t.Error("onConnected ran before the tokens were stored, so a poll started from it would still fail")
+	}
+}
+
+func TestCallbackDoesNotNotifyWhenTheExchangeFails(t *testing.T) {
+	mgr, _ := newTestAuthManager(t, func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "nope", http.StatusBadRequest)
+	})
+	notified := 0
+	mgr.setOnConnected(func() { notified++ })
+
+	if rec := completeCallback(t, mgr); rec.Code == http.StatusOK {
+		t.Fatal("a failed token exchange should not report success")
+	}
+
+	if notified != 0 {
+		t.Errorf("onConnected called %d times after a failed exchange, want 0", notified)
+	}
+}
+
+func TestCallbackDoesNotNotifyOnAWrongStateOrADenial(t *testing.T) {
+	mgr, _ := newTestAuthManager(t, nil)
+	notified := 0
+	mgr.setOnConnected(func() { notified++ })
+
+	if _, err := mgr.beginAuth(); err != nil {
+		t.Fatalf("beginAuth: %v", err)
+	}
+	mgr.handleCallback(httptest.NewRecorder(),
+		httptest.NewRequest(http.MethodGet, "/spotify/callback?code=c&state=forged", nil))
+	mgr.handleCallback(httptest.NewRecorder(),
+		httptest.NewRequest(http.MethodGet, "/spotify/callback?error=access_denied", nil))
+
+	if notified != 0 {
+		t.Errorf("onConnected called %d times, want 0", notified)
+	}
+}
+
+func TestCallbackWithNoHookStillSucceeds(t *testing.T) {
+	mgr, _ := newTestAuthManager(t, func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(tokenResponse{AccessToken: "a", RefreshToken: "r", ExpiresIn: 3600})
+	})
+
+	if rec := completeCallback(t, mgr); rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+}

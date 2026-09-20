@@ -2,6 +2,7 @@ package spotify
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -568,4 +569,24 @@ func TestControlRouteToleratesNoRepollRegistered(t *testing.T) {
 	src := &apiSource{tokens: &fakeTokenSource{token: "t"}, control: &fakeControlAPI{}}
 
 	src.handleControl(httptest.NewRecorder(), newControlRequest(t, "pause"))
+}
+
+// A source that is not connected yet fails every poll and backs off, so the
+// callback finishing has to ask for a poll itself or the first reading waits
+// out the backoff.
+func TestConnectingRepollsImmediately(t *testing.T) {
+	mgr, _ := newTestAuthManager(t, func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(tokenResponse{AccessToken: "a", RefreshToken: "r", ExpiresIn: 3600})
+	})
+	src := &apiSource{auth: mgr}
+	repolled := 0
+	src.SetRepoll(func() { repolled++ })
+
+	if rec := completeCallback(t, mgr); rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+
+	if repolled != 1 {
+		t.Errorf("repoll called %d times after connecting, want 1", repolled)
+	}
 }

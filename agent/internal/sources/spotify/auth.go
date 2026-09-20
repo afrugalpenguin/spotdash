@@ -65,6 +65,19 @@ type authManager struct {
 	refreshToken      string
 	accessTokenCache  string
 	accessTokenExpiry time.Time
+
+	// onConnected runs after a callback has stored working tokens, so the
+	// source can poll straight away instead of waiting out the backoff it built
+	// up while unconnected. Nil is a silent no-op.
+	onConnected func()
+}
+
+// setOnConnected registers the function handleCallback calls once a connection
+// has been made.
+func (m *authManager) setOnConnected(fn func()) {
+	m.mu.Lock()
+	m.onConnected = fn
+	m.mu.Unlock()
 }
 
 // newAuthManager builds a manager and loads any previously saved
@@ -167,7 +180,14 @@ func (m *authManager) handleCallback(w http.ResponseWriter, r *http.Request) {
 	m.refreshToken = tok.RefreshToken
 	m.accessTokenCache = tok.AccessToken
 	m.accessTokenExpiry = tok.ExpiresAt
+	onConnected := m.onConnected
 	m.mu.Unlock()
+
+	// Outside the lock: the hook asks the runner for a poll, and that poll
+	// takes this same lock through accessToken.
+	if onConnected != nil {
+		onConnected()
+	}
 
 	writeAuthResult(w, http.StatusOK, "Connected", "You can close this tab.")
 }
