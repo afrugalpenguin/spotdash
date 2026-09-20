@@ -306,4 +306,4 @@ One blemish fixed: the not-configured message listed the same resolved path twic
 
 ### What phase 1 doesn't cover
 
-Everything needing the hardware - see `docs/device.md`. One known defect waiting there: issue 12, source ages are device-clock-minus-agent-timestamp and the Echo Spot has no battery-backed RTC.
+Everything needing the hardware - see `docs/device.md`. Issue 12 (source ages wrong under device clock skew) is fixed in software, the panel corrects for the offset it reads from `/health`, but only the hardware can show it working against a real skewed clock.

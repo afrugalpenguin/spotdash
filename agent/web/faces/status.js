@@ -112,7 +112,7 @@ function drawList(names) {
 
     const ageEl = document.createElement("span");
     ageEl.className = "status-age";
-    ageEl.textContent = relativeAge(source.lastUpdate);
+    ageEl.textContent = relativeAge(source.lastUpdate, currentState.clockOffsetMs);
 
     row.appendChild(nameEl);
     row.appendChild(valueEl);
@@ -153,7 +153,10 @@ function drawFooter() {
   footerEl.appendChild(link);
 }
 
-export function relativeAge(iso) {
+// relativeAge is how long ago an agent timestamp was. offsetMs is how far the
+// device clock is ahead of the agent's (state.clockOffsetMs), taken off so the
+// age is not out by the skew.
+export function relativeAge(iso, offsetMs = 0) {
   if (!iso) {
     return "never";
   }
@@ -161,7 +164,7 @@ export function relativeAge(iso) {
   if (Number.isNaN(then)) {
     return "never";
   }
-  const seconds = Math.max(0, Math.round((Date.now() - then) / 1000));
+  const seconds = Math.max(0, Math.round((Date.now() - offsetMs - then) / 1000));
   if (seconds < 60) {
     return `${seconds}s`;
   }
