@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 	"syscall"
 
+	agentroot "github.com/afrugalpenguin/spotdash/agent"
 	"github.com/afrugalpenguin/spotdash/agent/internal/app"
 	"github.com/afrugalpenguin/spotdash/agent/internal/autostart"
 	"github.com/afrugalpenguin/spotdash/agent/internal/config"
@@ -27,10 +28,7 @@ import (
 // version is overridden at build time with -ldflags "-X main.version=...".
 var version = "dev"
 
-const (
-	configFileName = "config.json"
-	logFileName    = "spotdash.log"
-)
+const logFileName = "spotdash.log"
 
 func main() {
 	if err := run(); err != nil {
@@ -40,7 +38,8 @@ func main() {
 }
 
 func run() error {
-	configPath := flag.String("config", "", "path to config.json (default: next to the binary, then the working directory)")
+	configPath := flag.String("config", "", "path to config.json (default: next to the binary, then the working directory, then the per-user folder, which a first run creates)")
+	showConfigPath := flag.Bool("config-path", false, "print the config.json this agent would use and exit, creating nothing")
 	noTray := flag.Bool("no-tray", false, "run without the tray icon, for a console or a machine with no desktop session")
 	showVersion := flag.Bool("version", false, "print the version and exit")
 	flag.Parse()
@@ -50,15 +49,34 @@ func run() error {
 		return nil
 	}
 
-	// A failure before the logger exists is still written to the log file, next
-	// to the config when there is one and next to the binary when there is not.
-	// Returning it only prints to stderr, which a build with no console does not
-	// have, and the agent would just never appear.
-	resolved, err := resolveConfigPath(*configPath)
+	loc, err := locateConfig(*configPath)
 	if err != nil {
 		logging.LogFailure(filepath.Join(binaryDir(), logFileName), err)
 		return err
 	}
+	if *showConfigPath {
+		printLine(loc.Path)
+		return nil
+	}
+
+	// No config anywhere and no -config: this is a first run, so make one. Only
+	// ever for a clear "not there": a config that exists but is broken is the
+	// person's to fix, and is never replaced. A failure here is still written to
+	// the log file, since a build with no console has nowhere else to say it.
+	created := false
+	if !loc.Exists && *configPath == "" {
+		switch err := config.CreateDefault(loc.Path, agentroot.ExampleConfig); {
+		case err == nil:
+			created = true
+		case errors.Is(err, os.ErrExist):
+			// Another copy created it a moment ago. Use theirs.
+		default:
+			err = fmt.Errorf("creating a first-run config at %s: %w", loc.Path, err)
+			logging.LogFailure(filepath.Join(binaryDir(), logFileName), err)
+			return err
+		}
+	}
+	resolved := loc.Path
 	logPath := filepath.Join(filepath.Dir(resolved), logFileName)
 
 	// Read once here only to configure logging. The app reads the file itself
@@ -85,6 +103,9 @@ func run() error {
 	}()
 
 	log.Info("starting", "version", version, "config", resolved, "log_file", logPath)
+	if created {
+		log.Info("config created", "path", resolved)
+	}
 
 	// Started at login and again by hand, two agents would only find out when the
 	// second failed to bind the port. Say why instead, and leave quietly: exit
@@ -117,6 +138,14 @@ func run() error {
 		<-signals
 		log.Info("shutdown requested")
 		return finish(agent, log)
+	}
+
+	// A first run has nothing to show until the panel is open, and the address
+	// with its token is only known now, so open it for them.
+	if created {
+		if err := tray.OpenInBrowser(agent.OpenURL()); err != nil {
+			log.Warn("could not open the browser", "error", err)
+		}
 	}
 
 	// Ctrl+C and tray Quit converge on the same path. A signal has to take the
@@ -175,40 +204,14 @@ func finish(agent *app.App, log *slog.Logger) error {
 	return nil
 }
 
-// resolveConfigPath finds config.json. An explicit flag wins. Otherwise the
-// directory holding the binary is searched first, then the working directory,
-// so that both a built binary and `go run` behave sensibly.
-func resolveConfigPath(flagValue string) (string, error) {
-	if flagValue != "" {
-		return flagValue, nil
-	}
-
-	// The binary usually sits in the working directory, in which case both
-	// candidates are the same path and listing it twice in the error reads as a
-	// bug in the message rather than a missing file.
-	var candidates []string
-	seen := map[string]bool{}
-	add := func(path string) {
-		if path == "" || seen[path] {
-			return
-		}
-		seen[path] = true
-		candidates = append(candidates, path)
-	}
+// locateConfig finds config.json: see config.Resolve for the order. Each
+// directory is best effort, since an unknown one only removes a place to look.
+func locateConfig(flagValue string) (config.Location, error) {
+	exeDir := ""
 	if exe, err := os.Executable(); err == nil {
-		add(filepath.Join(filepath.Dir(exe), configFileName))
+		exeDir = filepath.Dir(exe)
 	}
-	if wd, err := os.Getwd(); err == nil {
-		add(filepath.Join(wd, configFileName))
-	}
-
-	for _, candidate := range candidates {
-		if _, err := os.Stat(candidate); err == nil {
-			return candidate, nil
-		}
-	}
-	if len(candidates) == 0 {
-		return "", errors.New("cannot determine where to look for config.json: pass -config")
-	}
-	return "", fmt.Errorf("config file not found: looked in %v. Copy config.example.json to config.json, or pass -config", candidates)
+	workDir, _ := os.Getwd()
+	userDir, _ := os.UserConfigDir()
+	return config.Resolve(flagValue, exeDir, workDir, userDir)
 }
