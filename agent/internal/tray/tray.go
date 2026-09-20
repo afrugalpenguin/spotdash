@@ -29,6 +29,9 @@ type Options struct {
 	Controller Controller
 	Version    string
 	Log        *slog.Logger
+	// LogPath is the agent's log file, opened by the "View log" item. Empty
+	// means there is no file to show.
+	LogPath string
 	// OnQuit runs after the tray has gone, so the caller can unblock whatever
 	// is waiting for shutdown.
 	OnQuit func()
@@ -51,5 +54,26 @@ func openInBrowser(target string) error {
 		return exec.Command("open", target).Start()
 	default:
 		return exec.Command("xdg-open", target).Start()
+	}
+}
+
+// openLog shows the log file in a text viewer.
+func openLog(path string) error {
+	name, args := logCommand(runtime.GOOS, path)
+	return exec.Command(name, args...).Start()
+}
+
+// logCommand is the command that shows path on the given OS.
+//
+// Not the OS default handler, unlike openInBrowser: a .log file often has none
+// on Windows, and start then raises the "Open With" dialog rather than the log.
+func logCommand(goos, path string) (string, []string) {
+	switch goos {
+	case "windows":
+		return "notepad.exe", []string{path}
+	case "darwin":
+		return "open", []string{"-t", path}
+	default:
+		return "xdg-open", []string{path}
 	}
 }
