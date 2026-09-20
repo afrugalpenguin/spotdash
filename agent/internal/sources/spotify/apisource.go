@@ -131,8 +131,15 @@ func ctxSleep(ctx context.Context, d time.Duration) {
 }
 
 // SetRepoll implements sources.RepollRegistrar.
+//
+// It also asks for a poll when a connection completes. Until then every poll
+// fails with "not connected yet" and the runner backs off to 30 seconds, so
+// without this the first reading after Connected could be that far away.
 func (s *apiSource) SetRepoll(fn func()) {
 	s.repoll = fn
+	if s.auth != nil {
+		s.auth.setOnConnected(fn)
+	}
 }
 
 // newAPISourceFromSettings validates api-mode settings and builds the real
