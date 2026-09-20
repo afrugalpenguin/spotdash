@@ -192,5 +192,6 @@ known, accepted tradeoff for a desk toy on a home network. See
 
 - [`docs/architecture.md`](docs/architecture.md) - how it's put together, and the full source config reference.
 - [`docs/verify.md`](docs/verify.md) - how each piece was tested.
+- [`docs/rooting.md`](docs/rooting.md) - getting a stock Echo Spot onto LineageOS.
 - [`docs/device.md`](docs/device.md) - bringing up a real Echo Spot.
 - [`CONTRIBUTING.md`](CONTRIBUTING.md) - house style for commits, pull requests, issues, comments and docs.
