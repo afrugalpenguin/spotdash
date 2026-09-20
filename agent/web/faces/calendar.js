@@ -1,25 +1,15 @@
-// Calendar face. The next-up event is the whole point, front and centre in
-// its own card; a short agenda of what follows sits below it, quieter, for
-// "what else is coming" without turning this into a calendar app on a 480px
-// circle.
-//
-// The rim carries urgency rather than a fixed quantity: it fills as the event
-// approaches within a lookahead window, and its colour steps from live to
-// warn to alert the same way the telemetry gauges do, so "getting close"
-// reads the same language as everywhere else on the panel.
+// Calendar face: the next-up event in a card, a short agenda below it. The
+// rim fills as the event approaches and steps from live to warn to alert
+// like the telemetry gauges.
 
 import { createRim, setArc } from "./rim.js";
 
-// The rim's lookahead window. An event further out than this shows an empty
-// rim rather than a barely-moving one; a ring that has visibly not started
-// filling yet is more honest than one implying "soon" for something hours
-// away.
+// The rim's lookahead window. An event further out shows an empty rim.
 const LOOKAHEAD_MINUTES = 60;
 // Below this many minutes the countdown and rim read as urgent (alert).
 const ALERT_MINUTES = 5;
-// Below this many minutes they read as approaching (warn). Independent of,
-// though normally equal to or above, the panel-wide auto-switch threshold
-// configured on the source: this is purely a visual cue on the face itself.
+// Below this many minutes they read as approaching (warn). A visual cue
+// only, separate from the source's auto-switch threshold.
 const WARN_MINUTES = 15;
 
 let arcEl = null;
@@ -45,9 +35,7 @@ export function render(container, state) {
   const face = document.createElement("div");
   face.className = "face calendar";
 
-  // Title, time and countdown sit together in one card, the way a single
-  // event reads in a calendar app's day view, rather than as bare text
-  // floating in the circle.
+  // Title, time and countdown share one card.
   pillEl = document.createElement("div");
   pillEl.className = "calendar-pill";
 
@@ -55,9 +43,7 @@ export function render(container, state) {
   titleEl.className = "calendar-title calendar-idle";
   titleEl.textContent = "Nothing scheduled";
 
-  // Whatever the calendar itself put in the event's location, shown exactly
-  // as the source gave it rather than reformatted, the same way spotify's
-  // artist and album lines pass their fields through untouched.
+  // Location is shown as the source gave it.
   locationEl = document.createElement("p");
   locationEl.className = "calendar-location";
 
@@ -73,8 +59,7 @@ export function render(container, state) {
   pillEl.appendChild(countdownEl);
   face.appendChild(pillEl);
 
-  // The rest of the agenda: quieter than the pill, below it, empty (and
-  // taking no space) whenever there is nothing after the primary event.
+  // Empty, and taking no space, when nothing follows the primary event.
   agendaEl = document.createElement("ul");
   agendaEl.className = "calendar-agenda";
   face.appendChild(agendaEl);
@@ -106,9 +91,7 @@ function showIdle() {
   arcEl.classList.add("is-off");
 }
 
-// urgency classifies minutesUntil into the same three-step vocabulary the
-// telemetry gauges use, so a viewer does not have to learn a second meaning
-// for orange and red on this panel.
+// urgency classifies minutesUntil into the telemetry gauges' three levels.
 export function urgency(minutesUntil) {
   if (minutesUntil <= ALERT_MINUTES) return "alert";
   if (minutesUntil <= WARN_MINUTES) return "warn";
@@ -136,9 +119,7 @@ function paint(minutesUntil) {
   if (level === "alert") arcEl.classList.add("is-alert");
 }
 
-// renderAgenda fills in what follows the primary event: time and title only,
-// no location or countdown, since those stay specific to the one event the
-// rim and auto-switch actually key off.
+// renderAgenda lists what follows the primary event: time and title only.
 function renderAgenda(items) {
   agendaEl.innerHTML = "";
   for (const item of items || []) {

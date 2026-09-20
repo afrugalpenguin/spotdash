@@ -256,9 +256,13 @@ Tap order: `clock`, `calendar`, `spotify`, `telemetry`, `status`. `clock` first 
 
 **CSS gotcha**: `.face` centres via `transform: translate(-50%, -50%)`, which creates a stacking context - any descendant `z-index` is trapped inside it and can never outrank a sibling like `.zone` (the tap zones). `.spotify` and `.calendar` override with `transform: none` for this reason; without it, scroll gestures on `.calendar-agenda` get swallowed by `.zone`.
 
+`spotify` has two layouts. The default lets the cover fill the panel, which has the most presence but depends on the sleeve being dark where the type sits. `?layout=disc` keeps the type on flat black, for a bright or busy sleeve. The agent's config also sets the layout, because the real device loads one fixed URL and cannot carry a query parameter; a config value wins on every reading and an absent one leaves the query default alone. The transport buttons need a stacking order above `.zone` for the same reason as the CSS gotcha above, and a tap applies its known outcome to the icon at once without waiting for the next reading.
+
 ### The rim
 
 Every face draws quantity on a circular track, detail in the centre - clock sweeps seconds, status splits into per-source segments, telemetry hangs four gauges on the quarters. Load-bearing, not decorative: health/progress/load readable across the room. New faces get the language for free.
+
+On `calendar` the rim carries urgency. It fills over a 60 minute lookahead window, so an event further out shows an empty rim, and it steps from live to warn at 15 minutes and to alert at 5, matching the telemetry vocabulary. Those thresholds are only a visual cue and are separate from the source's auto-switch.
 
 ### Colour
 
@@ -280,6 +284,8 @@ All four settings ride `/health` and apply live client-side, guarded to a no-op 
 
 480x480 square, circular clip-path, dark background. Large high-contrast type sized for ~60cm viewing. Corners are invisible on the real device - content stays inside the inscribed circle.
 
+The target WebView (LineageOS 18.1) is around Chromium 83. It has no `inset` shorthand, no flex `gap` (added in 84, silently ignored before it, so items touch), and no `:focus-visible`. The stylesheet uses explicit `top/right/bottom/left` offsets and sibling margins instead. `.zone:focus` has its outline removed because a tap leaves the zone focused and the circular clip turns the WebView's ring into a stray vertical line; `:focus-visible` restores a ring for keyboard use on desktop, and Chromium 83 ignores that rule.
+
 ### Token handling in the UI
 
 Token arrives once as `?token=`, stripped from the URL via `replaceState`, held in memory only (never localStorage/sessionStorage). Only used afterward for the WebSocket handshake, as a subprotocol value (browsers can't set WS headers; a query param would get logged).
@@ -288,9 +294,13 @@ Token arrives once as `?token=`, stripped from the URL via `replaceState`, held 
 
 Socket carries readings. Status/uptime/last-error come from `/health`, polled every 5s - unauthenticated, keeps answering when the socket is down, which is exactly when the status face needs to be truthful.
 
+`/health` also carries the agent's clock. The panel keeps the difference from the device clock as `clockOffsetMs` and subtracts it before showing an age, so a skewed device clock does not make healthy sources look stale. The offset includes the response's travel time, which is milliseconds on a LAN and far below the whole seconds ages are shown in. It stays zero until the agent has reported a time.
+
 ### Reconnection
 
 WebSocket client reconnects with exponential backoff + jitter on close/error. A connection can go silently stale without either firing (WebView backgrounding is the leading suspect) - a watchdog closes the connection if 60s pass with nothing heard while it still thinks it's live, feeding into the same close handler as a real disconnect.
+
+The watchdog checks every 10 seconds, well under its 60 second threshold, so it gets several chances before the threshold passes. It acts only while the panel believes it is live, since a connection already in backoff has no meaningful last-heard time, and it never fires for a panel that has not yet connected.
 
 ## Shell
 

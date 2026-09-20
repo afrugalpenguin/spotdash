@@ -1,8 +1,5 @@
-// The rim: a circular track just inside the edge of the panel.
-//
-// Every face draws quantity here and detail in the centre. The clock sweeps a
-// seconds arc, the status face splits the rim into one segment per source, and
-// the telemetry face will hang its gauges on the same geometry.
+// The rim: a circular track just inside the edge of the panel. Faces draw
+// quantity here and detail in the centre. See docs/architecture.md, "The rim".
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
@@ -27,7 +24,7 @@ export function createRim() {
   arc.setAttribute("cx", "240");
   arc.setAttribute("cy", "240");
   arc.setAttribute("r", String(RIM_RADIUS));
-  // Start at twelve o'clock rather than three.
+  // Start at twelve o'clock.
   arc.setAttribute("transform", "rotate(-90 240 240)");
   setArc(arc, 0);
 
@@ -93,10 +90,6 @@ export function createSegmentedRim(count) {
 
 // createGaugeRim splits the rim into count equal arcs, each with its own unlit
 // track, and returns a setter per arc.
-//
-// The clock sweeps the whole rim, the status face segments it per source, and
-// the telemetry face hangs one gauge on each quarter. Same geometry every time,
-// so the panel reads as one instrument rather than three unrelated screens.
 export function createGaugeRim(count) {
   const svg = document.createElementNS(SVG_NS, "svg");
   svg.setAttribute("class", "rim");
@@ -108,8 +101,7 @@ export function createGaugeRim(count) {
     return { svg, gauges };
   }
 
-  // A gap between arcs so four gauges read as four, not as one ring with
-  // colour changes.
+  // The gap keeps four gauges from reading as one ring.
   const gap = 16;
   const span = RIM_CIRCUMFERENCE / count - gap;
 

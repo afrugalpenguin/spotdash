@@ -1,6 +1,5 @@
-// Tests for the spotify face's pure logic.
-//
-// Run with: node --test agent/web/spotify.test.js
+// Tests for the spotify face's pure logic. Run with:
+// node --test agent/web/spotify.test.js
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
@@ -33,8 +32,7 @@ test("progress is the fraction of the track elapsed", () => {
 });
 
 test("progress copes with a missing or zero duration", () => {
-  // A zero duration would be a division by zero, and NaN passed to the rim
-  // silently draws nothing.
+  // Zero duration would divide by zero, and NaN draws nothing on the rim.
   assert.equal(progressFraction(1000, 0), 0);
   assert.equal(progressFraction(1000, null), 0);
   assert.equal(progressFraction(null, 342000), 0);
@@ -53,8 +51,7 @@ test("a reading with no title is not playable", () => {
 });
 
 test("the position advances by the time elapsed", () => {
-  // The agent sends a position once a second. Between those, the face carries
-  // the counter itself, so it ticks rather than stepping.
+  // The face carries the counter between agent readings.
   assert.equal(advancePosition(115000, 1000, 342000), 116000);
   assert.equal(advancePosition(115000, 8000, 342000), 123000);
 });

@@ -1,7 +1,5 @@
-// Status face. The debug view, and the fallback whenever the socket is down.
-//
-// This face has to be truthful when everything else is broken, so it reads only
-// from state it already holds and never assumes a live connection.
+// Status face: the debug view and the fallback when the socket is down. It
+// reads only state it already holds.
 
 import { createSegmentedRim } from "./rim.js";
 
@@ -41,8 +39,7 @@ export function render(container, state) {
   update();
 }
 
-// The manager mutates its state object in place, so the reference handed to
-// render stays current and onState only has to trigger a redraw.
+// The state object is mutated in place, so onState only has to redraw.
 export function onState(_source, _data) {
   update();
 }
@@ -60,8 +57,8 @@ function update() {
 }
 
 function drawRim(names) {
-  // The rim is rebuilt only when the number of sources changes, which is once
-  // in practice. A weak SoC should not redraw SVG every second.
+  // Rebuild only when the source count changes. Redrawing SVG every second
+  // is too much for a weak SoC.
   if (segments.length !== names.length) {
     rimHost.innerHTML = "";
     const rim = createSegmentedRim(names.length);
@@ -122,8 +119,8 @@ function drawList(names) {
 }
 
 function drawFirstError(names) {
-  // One error at a time. The panel is 480px across and a wall of text at that
-  // size is unreadable; the rest are in the agent log.
+  // One error at a time. More would be unreadable at 480px. The agent log
+  // has the rest.
   const withError = names.find(
     (name) => (currentState.sources[name] || {}).lastError
   );
@@ -153,9 +150,8 @@ function drawFooter() {
   footerEl.appendChild(link);
 }
 
-// relativeAge is how long ago an agent timestamp was. offsetMs is how far the
-// device clock is ahead of the agent's (state.clockOffsetMs), taken off so the
-// age is not out by the skew.
+// relativeAge is how long ago an agent timestamp was. offsetMs is
+// state.clockOffsetMs, taken off to cancel device clock skew.
 export function relativeAge(iso, offsetMs = 0) {
   if (!iso) {
     return "never";

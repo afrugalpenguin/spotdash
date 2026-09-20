@@ -36,8 +36,7 @@
         margin: 0;
       }
 
-      /* The bezel makes the circular crop obvious, so it is clear when content
-       * is about to fall off the real panel. */
+      /* The bezel shows the circular crop. */
       .bezel {
         width: 480px;
         height: 480px;
@@ -128,7 +127,7 @@
 
       const faces = [clockFace, telemetryFace, statusFace];
 
-      // One state object, mutated in place, exactly as the real panel does.
+      // One state object, mutated in place like the real panel's.
       const state = {
         connection: "live",
         uptimeSeconds: 0,
@@ -378,9 +377,8 @@
         faceControls.appendChild(button);
       });
 
-      // The real panel drives this off the agent's config (see
-      // syncClockStyle in app.js); the harness has no agent, so it's a
-      // button group here instead, same as face and scenario.
+      // The real panel takes this from the agent's config. The harness has no
+      // agent, so it gets a button group.
       let currentClockStyle = state.clockStyle;
       function paintClockStyleButtons() {
         for (const button of document.querySelectorAll("[data-clock-style]")) {
@@ -401,9 +399,7 @@
           currentClockStyle = styleName;
           state.clockStyle = styleName;
           paintClockStyleButtons();
-          // Only the clock face reads clockStyle, but re-rendering
-          // whichever face is up is simplest and matches showFace's own
-          // re-render-from-state behaviour.
+          // Only the clock reads clockStyle. Re-render whichever face is up.
           showFace(currentIndex);
         });
         clockStyleControls.appendChild(button);
@@ -424,7 +420,7 @@
         scenarioControls.appendChild(button);
       }
 
-      // Tapping the panel halves, the same input the device has.
+      // Tap the panel halves, as on the device.
       const prev = document.createElement("button");
       prev.className = "zone zone-prev";
       prev.type = "button";
@@ -443,8 +439,7 @@
         if (event.key === "ArrowRight") showFace(currentIndex + 1);
       });
 
-      // Deep links, so a particular face and state can be reopened or shared
-      // without clicking through to it.
+      // Deep links reopen a particular face and state.
       const params = new URLSearchParams(window.location.search);
       const requestedFace = faces.findIndex(
         (face) => face.title === params.get("face")
