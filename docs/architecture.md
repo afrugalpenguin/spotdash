@@ -60,7 +60,11 @@ Agent owns everything that can fail. Shell owns the glass.
 | `clock_style`  | string | `"digital"` or `"analogue"`, default `"digital"`. Set via Options page. |
 | `sources`      | object | Name -> settings. Every source has `enabled`, `interval_ms`, plus its own keys. |
 
-Validation is strict and total: missing file, invalid JSON, unknown top-level key, empty token, bad `listen`, unknown `log_level`, or non-positive `interval_ms` on an enabled source all exit non-zero naming the key. Unknown top-level keys are rejected (a typo shouldn't silently no-op); keys inside a source block pass through untouched so a source can add settings without touching config.
+`config.json` is read at startup, on the tray's Reload config, and when the settings page saves. Any other edit needs one of those or a restart.
+
+`agent/config.example.json` has a block for every source. `calendar` and `spotify` are switched off with placeholder values so a fresh copy runs clean. A test in `internal/sources` fails if a source is missing from it, and builds every block switched on so the example cannot drift into keys the source rejects.
+
+Validation is strict and total: missing file, invalid JSON, unknown top-level key, empty or placeholder token, bad `listen`, unknown `log_level`, or non-positive `interval_ms` on an enabled source all exit non-zero naming the key. Unknown top-level keys are rejected (a typo shouldn't silently no-op); keys inside a source block pass through untouched so a source can add settings without touching config.
 
 Log file lives next to the resolved config file.
 
