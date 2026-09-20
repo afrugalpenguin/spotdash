@@ -139,7 +139,7 @@ A source package can't import the registry (cycle), so each constructor returns 
 
 A source can implement optional extras beyond the interface. `AssetProvider` serves files such as album art, and `RouteProvider` adds authenticated HTTP routes. `OpenRouteProvider` adds routes that skip the bearer token because the caller cannot carry one (an OAuth callback), so the source must protect the route itself. `RepollRegistrar` receives a function that requests an immediate re-poll, since a source has no reference to the runner. A re-poll restarts the interval from that moment, and the request channel holds one pending request, so a burst of taps neither queues polls nor bunches them closer than the configured interval.
 
-A source named in config with no implementation is a startup error, even disabled - a typo is the likeliest way a working source gets silently switched off. Sources are constructed before the listener opens, so a bad one stops the agent rather than degrading forever.
+A source named in config with no implementation is a startup error, even disabled - a typo is the likeliest way a working source gets silently switched off. Sources are constructed before the listener opens. A bad one stops the agent at startup, so it cannot sit degraded forever.
 
 ### Source status
 
@@ -175,7 +175,7 @@ Both routes are optional interfaces (`RouteProvider`, `OpenRouteProvider`), same
 
 **Storage**: refresh token in `state_file`, not `config.json` (config is hand-edited, this is agent-written). Atomic write, mode 0600 (NTFS doesn't enforce POSIX perms, so no stronger than config's exposure on Windows).
 
-**Scope**: `user-read-currently-playing`, `user-read-playback-state`, `user-modify-playback-state`. Existing connections need to reconnect for the write scope. The write scope also allows volume, seek, shuffle, repeat, device transfer and queueing. The agent exposes only pause, resume, next and previous, because those are the only methods on the `playbackController` interface.
+Scope: `user-read-currently-playing`, `user-read-playback-state`, `user-modify-playback-state`. Existing connections need to reconnect for the write scope. The write scope also allows volume, seek, shuffle, repeat, device transfer and queueing. The agent exposes only pause, resume, next and previous, because those are the only methods on the `playbackController` interface.
 
 **Polling**: `GET /me/player/currently-playing`, default 5s. Token refreshed before expiry or on 401. No content/non-track = empty reading (success). Not connected/revoked = failure with a `/spotify/connect` hint.
 
