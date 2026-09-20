@@ -39,7 +39,7 @@ class ShellBridge(private val activity: Activity) {
             Log.i(
                 TAG,
                 "setBrightness($clamped) ignored: WRITE_SETTINGS is not granted. " +
-                    "Grant it with: adb shell pm grant ${activity.packageName} android.permission.WRITE_SETTINGS",
+                    "Grant it with: adb shell appops set ${activity.packageName} WRITE_SETTINGS allow",
             )
             return
         }
