@@ -9,6 +9,9 @@ spotify_art.*
 agent/spotify_art.*
 *_state.json
 
+# Partition backups from tools/spot-backup.ps1: unique to one device, never commit.
+spot-backup-*/
+
 # Go build output
 /agent/spotdash
 /agent/spotdash.exe

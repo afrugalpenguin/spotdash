@@ -11,7 +11,7 @@ No official build for `rook` (Echo Spot 2017). These two XDA threads:
 - [\[UNLOCK\]\[ROOT\]\[TWRP\]\[UNBRICK\] Amazon Echo Spot 2017 (rook)](https://xdaforums.com/t/unlock-root-twrp-unbrick-amazon-echo-spot-2017-rook.4754878/) - bootloader unlock + TWRP, do first.
 - [\[ROM\]\[UNOFFICIAL\]\[11\]\[rook\] LineageOS 18.1](https://xdaforums.com/t/rom-unofficial-11-rook-lineageos-18-1-for-the-amazon-echo-spot-2017.4762459/) - flash through TWRP.
 
-Flashing steps live in those threads, not here. Known rough edges: WPA3 unsupported (WPA2 only); speaker, Bluetooth, camera, mic, sensors all experimental. spotdash only touches display and network (for now).
+Flashing steps live in those threads, not here. Before you flash anything, back the device up while it is in TWRP: `tools\spot-backup.ps1` pulls the partitions and proves each copy against the device, and `-VerifyOnly <folder>` re-checks one later. It is the only way back to stock, so copy the folder somewhere else too and keep it private. Known rough edges: WPA3 unsupported (WPA2 only); speaker, Bluetooth, camera, mic, sensors all experimental. spotdash only touches display and network (for now).
 
 Once booted: Settings > About > tap build number 7x for Developer Options, then enable USB debugging.
 
