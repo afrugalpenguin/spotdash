@@ -11,7 +11,7 @@ No official build for `rook` (Echo Spot 2017). These two XDA threads:
 - [\[UNLOCK\]\[ROOT\]\[TWRP\]\[UNBRICK\] Amazon Echo Spot 2017 (rook)](https://xdaforums.com/t/unlock-root-twrp-unbrick-amazon-echo-spot-2017-rook.4754878/) - bootloader unlock + TWRP, do first.
 - [\[ROM\]\[UNOFFICIAL\]\[11\]\[rook\] LineageOS 18.1](https://xdaforums.com/t/rom-unofficial-11-rook-lineageos-18-1-for-the-amazon-echo-spot-2017.4762459/) - flash through TWRP.
 
-Flashing steps live in those threads, not here. Known rough edges: WPA3 unsupported (WPA2 only); speaker, Bluetooth, camera, mic, sensors all experimental. spotdash only touches display and network (for now).
+Flashing steps are in those threads. Known rough edges: WPA3 unsupported (WPA2 only); speaker, Bluetooth, camera, mic, sensors all experimental. spotdash only touches display and network (for now).
 
 Once booted: Settings > About > tap build number 7x for Developer Options, then enable USB debugging.
 
@@ -65,11 +65,11 @@ ipconfig | Select-String IPv4
 curl http://<desktop-ip>:8765/health   # from another machine, before touching the Spot
 ```
 
-Fails remotely but works locally -> Windows firewall, not the agent (it listens on `0.0.0.0` by default).
+Fails remotely but works locally -> Windows firewall. The agent listens on `0.0.0.0` by default.
 
 ### Wi-Fi MAC and DHCP
 
-The Spot's Wi-Fi MAC is a generic chipset default, not randomised. A DHCP reservation keyed on it therefore survives reboots and forgetting the network, which is what you want for a fixed agent address. It also means two units of the same ROM may report the same address, and two devices with one MAC cannot share a LAN. Read it before adding a second:
+The Spot's Wi-Fi MAC is a generic chipset default and is not randomised. A DHCP reservation keyed on it survives reboots and forgetting the network, which is what you want for a fixed agent address. It also means two units of the same ROM may report the same address, and two devices with one MAC cannot share a LAN. Read it before adding a second:
 
 ```bat
 adb shell cat /sys/class/net/wlan0/address
@@ -126,7 +126,7 @@ adb shell am start -n dev.spotdash.shell/.PanelActivity
 adb logcat -d -s spotdash
 ```
 
-The first `am start` makes the shell create its folder. The log should say `provisioning applied for <desktop-ip>` and then `page loaded`, and the file is deleted as soon as it is read, whether or not it was any good. A bad file changes nothing and the log says why (`provisioning ignored: ...`); the log never contains the token. Delete `provision.json` from the PC afterwards, it holds the token.
+The first `am start` makes the shell create its folder. The log should say `provisioning applied for <desktop-ip>` and then `page loaded`, and the file is deleted as soon as it is read, whether or not it was any good. A bad file changes nothing and the log says why (`provisioning ignored: ...`); the log never contains the token. Delete `provision.json` from the PC afterwards: it holds the token.
 
 The push has to be as root and to that underlying path: as the plain `shell` user, `Android/data/<package>` is not writable on Android 11. See "Provisioning from adb" in `architecture.md`.
 
@@ -166,7 +166,7 @@ Keep the stock launcher installed. It is what HOME falls back to if the shell cr
 
 ## 6. Grant brightness control
 
-`window.shell.setBrightness()` no-ops without this and can't be prompted for. WRITE_SETTINGS is an app-op, not a runtime permission, so the runtime-permission grant command refuses it ("not a changeable permission type"). Set the app-op:
+`window.shell.setBrightness()` no-ops without this and can't be prompted for. WRITE_SETTINGS is an app-op. The runtime-permission grant command refuses it ("not a changeable permission type"). Set the app-op:
 
 ```bat
 adb shell appops set dev.spotdash.shell WRITE_SETTINGS allow
@@ -186,7 +186,7 @@ No battery-backed RTC, so after a power cut the clock is wrong until NTP settles
 adb shell date
 ```
 
-To see it work, note how far `adb shell date` is from the desktop, then check the ages on the status face read a few seconds, not that difference.
+To see it work, note how far `adb shell date` is from the desktop, then check the ages on the status face. They should read a few seconds and ignore that difference.
 
 The device timezone defaults to GMT. The clock and calendar faces show text the agent has already formatted in the desktop's timezone, so this does not change what the panel shows. Set it anyway so `adb shell date` and logcat read in local time. Needs root adb (a plain shell is refused):
 
@@ -198,11 +198,11 @@ adb shell date
 
 ## 8. Sleep window
 
-Set `sleep_start`/`sleep_end` in `config.json`, reload from the tray, wait for the window. Should go true black with one dim dot. Worth checking at the real time, not by moving the clock forward - you're judging comfort in a dark room.
+Set `sleep_start`/`sleep_end` in `config.json`, reload from the tray, wait for the window. Should go true black with one dim dot. Check at the real time and do not move the clock forward: you're judging comfort in a dark room.
 
 ## Troubleshooting
 
-**Black panel.** A rejected token or an unreachable agent now shows an error screen instead of black, so check for that first (`adb logcat -d -s spotdash`). If it is still black, take the shell out of the picture and load the panel URL in the Jelly browser:
+Black panel. A rejected token or an unreachable agent now shows an error screen instead of black, so check for that first (`adb logcat -d -s spotdash`). If it is still black, take the shell out of the picture and load the panel URL in the Jelly browser:
 
 ```bat
 adb shell am start -a android.intent.action.VIEW -d "<url>"
@@ -210,10 +210,10 @@ adb shell am start -a android.intent.action.VIEW -d "<url>"
 
 Then inspect that page from chrome://inspect/#devices on the desktop. Chromium prints "tile memory limits exceeded" on this low_ram build. It is noise and was not the cause of the black screen.
 
-**Trust prompt.** LineageOS shows a one-time Trust onboarding prompt after boot. It is harmless.
+Trust prompt. LineageOS shows a one-time Trust onboarding prompt after boot. It is harmless.
 
 ## What is likely to need a change
 
-1. **Type sizes** - sized for 60cm viewing distance on a simulated panel; only the real thing judges it. `agent/web/style.css`.
-2. **Brightness at night** if too bright even dimmed - bridge can set it, could drive from the sleep window.
-3. **Touch accuracy** on the tap zones (half the panel each) - real digitiser isn't the emulator's.
+1. Type sizes - sized for 60cm viewing distance on a simulated panel; only the real thing judges it. `agent/web/style.css`.
+2. Brightness at night if too bright even dimmed - bridge can set it, could drive from the sleep window.
+3. Touch accuracy on the tap zones (half the panel each) - real digitiser isn't the emulator's.

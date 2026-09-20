@@ -164,24 +164,24 @@ Two providers, one `Reading` shape, selected by required `mode` (no default - ac
 - `mode: "mock"` - configured track, no network.
 - `mode: "api"` - real Spotify Web API.
 
-**Auth**: Authorization Code + PKCE, no client secret. Settings: `client_id`, `redirect_uri` (must match the Spotify app), `state_file`.
+Auth: Authorization Code + PKCE, no client secret. Settings: `client_id`, `redirect_uri` (must match the Spotify app), `state_file`.
 
 - `GET /spotify/connect` - starts auth, requires bearer token.
 - `GET /spotify/callback` - OAuth redirect target, can't require the token (fresh tab has none). Protected by single-use `state` value, 10 min expiry (RFC 8252 loopback-redirect model).
 
 Both routes are optional interfaces (`RouteProvider`, `OpenRouteProvider`), same pattern as `AssetProvider` for album art.
 
-**Storage**: refresh token in `state_file`, not `config.json` (config is hand-edited, this is agent-written). Atomic write, mode 0600 (NTFS doesn't enforce POSIX perms, so no stronger than config's exposure on Windows).
+Storage: refresh token in `state_file`, never `config.json` (config is hand-edited, this is agent-written). Atomic write, mode 0600 (NTFS doesn't enforce POSIX perms, so no stronger than config's exposure on Windows).
 
 **Scope**: `user-read-currently-playing`, `user-read-playback-state`, `user-modify-playback-state`. Existing connections need to reconnect for the write scope.
 
-**Polling**: `GET /me/player/currently-playing`, default 5s. Token refreshed before expiry or on 401. No content/non-track = empty reading (success). Not connected/revoked = failure with a `/spotify/connect` hint.
+Polling: `GET /me/player/currently-playing`, default 5s. Token refreshed before expiry or on 401. No content/non-track = empty reading (success). Not connected/revoked = failure with a `/spotify/connect` hint.
 
-**Art**: fetched once per track, cached next to `state_file`, served from the agent's own origin. Re-fetched only on track ID change. `ArtURL` carries track ID as a query param so the cache/URL guard don't freeze the cover on the first track's art.
+Art: fetched once per track, cached next to `state_file`, served from the agent's own origin. Re-fetched only on track ID change. `ArtURL` carries track ID as a query param so the cache/URL guard don't freeze the cover on the first track's art.
 
-**Consistency after a skip**: `currently-playing` doesn't reliably reflect a `next`/`previous` right away (measured: <200ms to >1s). `handleControl` flags `expectingChange`; the next poll retries briefly (`consistencyRetries`, `consistencyDelay`) rather than trusting a stale read. Pause/resume skip this - `Playing` reflects immediately.
+Consistency after a skip: `currently-playing` doesn't reliably reflect a `next`/`previous` right away (measured: <200ms to >1s). `handleControl` flags `expectingChange`; the next poll does not trust a stale read and retries briefly (`consistencyRetries`, `consistencyDelay`). Pause/resume skip this - `Playing` reflects immediately.
 
-**Layout**: `"fill"` or `"disc"`, default `"fill"`, config-only (shell loads one fixed URL, no room for a query param).
+Layout: `"fill"` or `"disc"`, default `"fill"`, config-only (shell loads one fixed URL, no room for a query param).
 
 ### Calendar
 
@@ -189,13 +189,13 @@ Same two-provider shape as Spotify: `mode: "mock"` or `mode: "ics"` (real feed, 
 
 Next-up event is primary: title, location (feed's raw `LOCATION`), start time, countdown ticking locally between polls (same as Spotify's position). Below it, a short agenda (`AgendaSize`, 3 total) of what follows - title and start time only. No multi-calendar merge, no editing.
 
-**Parsing** (`ics.go`): minimal hand-rolled RFC 5545 reader, not a library. Reads `SUMMARY`, `LOCATION`, `DTSTART` (UTC, named `TZID`, or floating local), `RRULE`. `time/tzdata` embedded so `TZID` resolves without a host timezone DB. All-day events excluded from next-up (a countdown means nothing for one).
+Parsing (`ics.go`): minimal hand-rolled RFC 5545 reader with no library. Reads `SUMMARY`, `LOCATION`, `DTSTART` (UTC, named `TZID`, or floating local), `RRULE`. `time/tzdata` embedded so `TZID` resolves without a host timezone DB. All-day events excluded from next-up (a countdown means nothing for one).
 
-**Recurrence** (`rrule.go`): the RFC 5545 shapes an actual calendar uses, not the full spec - `FREQ` daily/weekly/monthly/yearly, `INTERVAL`, `COUNT`, `UNTIL`, `BYDAY` (plain weekday, weekly only), `BYMONTHDAY` (positive, monthly only). `nextOccurrence` walks forward from `DTSTART` (capped at 500 occurrences) to the first hit after now.
+Recurrence (`rrule.go`): the RFC 5545 shapes an actual calendar uses, a subset of the full spec - `FREQ` daily/weekly/monthly/yearly, `INTERVAL`, `COUNT`, `UNTIL`, `BYDAY` (plain weekday, weekly only), `BYMONTHDAY` (positive, monthly only). `nextOccurrence` walks forward from `DTSTART` (capped at 500 occurrences) to the first hit after now.
 
 Unsupported: ordinal `BYDAY` ("3rd Thursday"), negative `BYMONTHDAY`, `BYSETPOS`, `BYWEEKNO`, `BYYEARDAY`, `WKST`, sub-daily frequencies. `parseRRule` reports these; `nextUpEvent` excludes events it can't expand.
 
-**Auto-switch**: source decides urgency, not the client. Reading carries `urgent` (within `notify_minutes`, default 15) and `show_seconds` (default 45). Client switches to the calendar face on a new urgent event, overrides sleep window for the duration, holds `show_seconds`, then returns - unless the viewer already tapped away.
+Auto-switch: source decides urgency, not the client. Reading carries `urgent` (within `notify_minutes`, default 15) and `show_seconds` (default 45). Client switches to the calendar face on a new urgent event, overrides sleep window for the duration, holds `show_seconds`, then returns - unless the viewer already tapped away.
 
 ### State and transport
 
@@ -229,13 +229,13 @@ Connect snapshot is a sequence of the same message shape. A source that's never 
 
 ### Backpressure
 
-Store fans out without blocking. Each subscriber gets a small buffer; one that fills it is dropped (channel closed) rather than silently skipped - reconnect gets a fresh snapshot instead of quietly stale data. Keeps one wedged panel from stalling every source.
+Store fans out without blocking. Each subscriber gets a small buffer. One that fills it is dropped (channel closed) and reconnects to a fresh snapshot. Silently skipping messages would leave it quietly stale. Keeps one wedged panel from stalling every source.
 
 ### Liveness
 
 Panel only listens, so the server never reads from the connection - meaning close isn't acknowledged and a vanished client isn't noticed, without help. Handler drains/discards incoming frames (fast close ack + peer-gone detection) and pings every 30s to catch silent drops (wifi kiosk disappearing without closing).
 
-`/health` unauthenticated on purpose - status/errors only, never data or the token.
+`/health` is unauthenticated. It carries status and errors only, never data or the token.
 
 ## Web UI
 
@@ -248,23 +248,23 @@ export function render(container, state) {}
 export function onState(source, data) {}
 ```
 
-`render` builds DOM once, `onState` mutates it. One face shown at a time, tap left/right half to switch, `?face=` on load. A throwing face is contained, not fatal.
+`render` builds DOM once, `onState` mutates it. One face shown at a time, tap left/right half to switch, `?face=` on load. A throwing face is contained and never fatal.
 
 Tap order: `clock`, `calendar`, `spotify`, `telemetry`, `status`. `clock` first (shown most), `status` last (debug face: every source's status/last update/last error, agent uptime, socket state - fallback when the socket is down).
 
 `clock_style` (`"digital"`/`"analogue"`) picks how `clock` draws (text + seconds arc vs hands). `hide_next_event` (bool, default false) independently hides the next calendar line. Digital: next-up sits below the date. Analogue: no room on the rim for a second line, so it moves inward between hub and numeral ring, drawn over the hands (they sweep behind it). Hand math (`handAngles` in `clock.js`) is pure and unit tested apart from the DOM.
 
-**CSS gotcha**: `.face` centres via `transform: translate(-50%, -50%)`, which creates a stacking context - any descendant `z-index` is trapped inside it and can never outrank a sibling like `.zone` (the tap zones). `.spotify` and `.calendar` override with `transform: none` for this reason; without it, scroll gestures on `.calendar-agenda` get swallowed by `.zone`.
+CSS gotcha: `.face` centres via `transform: translate(-50%, -50%)`, which creates a stacking context - any descendant `z-index` is trapped inside it and can never outrank a sibling like `.zone` (the tap zones). `.spotify` and `.calendar` override with `transform: none` for this reason; without it, scroll gestures on `.calendar-agenda` get swallowed by `.zone`.
 
 ### The rim
 
-Every face draws quantity on a circular track, detail in the centre - clock sweeps seconds, status splits into per-source segments, telemetry hangs four gauges on the quarters. Load-bearing, not decorative: health/progress/load readable across the room. New faces get the language for free.
+Every face draws quantity on a circular track, detail in the centre - clock sweeps seconds, status splits into per-source segments, telemetry hangs four gauges on the quarters. It carries meaning: health/progress/load readable across the room. New faces get the language for free.
 
 ### Colour
 
 Resting = cool (`--live`, blue), alerts = warm (amber >80%, red >95%, or >83C GPU temp). `--live` is the one accent token everything derives from - configurable via `accent_color`, applies live within one `/health` poll.
 
-Missing reading is a third state (not zero) - absent GPU renders as absent with a reason, not a calm empty gauge or a false alarm.
+Missing reading is a third state, distinct from zero. An absent GPU renders as absent with a reason, never as a calm empty gauge or a false alarm.
 
 ### Settings
 
@@ -272,7 +272,7 @@ Missing reading is a third state (not zero) - absent GPU renders as absent with 
 
 Settings page groups `clock_style`/`hide_next_event` under "Clock" ahead of the generic "Faces" list; `clock` has no row there since it can't be hidden.
 
-Reload is scheduled via `time.AfterFunc` shortly after the response is sent, not called inline - calling it inside the POST handler would deadlock (`Shutdown` waits on the handler, handler waits on `Reload`).
+Reload is scheduled via `time.AfterFunc` shortly after the response is sent. Calling it inside the POST handler would deadlock (`Shutdown` waits on the handler, handler waits on `Reload`).
 
 All four settings ride `/health` and apply live client-side, guarded to a no-op when nothing changed (this runs every health poll; rebuilding the current face's DOM needlessly would reset scroll position etc).
 
@@ -296,7 +296,7 @@ WebSocket client reconnects with exponential backoff + jitter on close/error. A 
 
 Single Activity, minSdk/targetSdk 30. Fullscreen immersive, screen on, no bars. Declares `HOME`/`DEFAULT` intents so LineageOS can set it as default launcher.
 
-Agent URL and token live in `EncryptedSharedPreferences`, entered via a 3s long-press settings screen (the only UI besides the WebView - no other input on the device). That screen also has a "Wi-Fi networks" button that opens Android's own Wi-Fi settings, since the shell is the launcher and there is otherwise no way to them without adb. A deep link rather than a screen of our own: on API 30 `WifiManager.addNetwork` is ignored for apps targeting API 29+, and a network request only connects this process. Coming back from it retries the panel at once. Token injected as a query param on initial load only; the page holds it afterward.
+Agent URL and token live in `EncryptedSharedPreferences`, entered via a 3s long-press settings screen (the only UI besides the WebView - no other input on the device). That screen also has a "Wi-Fi networks" button that opens Android's own Wi-Fi settings, since the shell is the launcher and there is otherwise no way to reach them without adb. It is a deep link because a screen of our own cannot join a network: on API 30 `WifiManager.addNetwork` is ignored for apps targeting API 29+, and a network request only connects this process. Coming back from it retries the panel at once. Token injected as a query param on initial load only; the page holds it afterward.
 
 ### Provisioning from adb
 
@@ -314,7 +314,7 @@ Threat model, for a single-purpose device with SELinux permissive and adb alread
 
 Rules, all fail closed:
 
-- One flat JSON object, `{"version":1,"agent_url":"...","token":"..."}`. A repeated or unknown key, a wrong type, a wrong version, a missing field, trailing text or a truncated file rejects the whole payload. Read by a small strict parser rather than `org.json`, which is stubbed out in JVM unit tests.
+- One flat JSON object, `{"version":1,"agent_url":"...","token":"..."}`. A repeated or unknown key, a wrong type, a wrong version, a missing field, trailing text or a truncated file rejects the whole payload. Read by a small strict parser, since `org.json` is stubbed out in JVM unit tests.
 - The address must be `http` or `https` with a host, no credentials, a port of 1 to 65535 if any, and no path, query or fragment. The token must be non-empty printable ASCII, at most 256 characters, no whitespace. There is no minimum length: the agent decides what a token has to be.
 - The address and token are stored in one commit, or not at all. A rejected payload changes nothing and logs `provisioning ignored: <reason>`. The reason never contains a value from the payload, so the token is never in logcat. A good one logs `provisioning applied for <host>`.
 - The file is deleted in every case, valid or not, and at most 4 KiB is read. A leading byte order mark is tolerated, since Windows PowerShell 5.1 writes one.
@@ -337,9 +337,9 @@ Each no-ops (and logs why) when the permission is missing - keeps the UI working
 
 ### Failure behaviour
 
-WebView load failure, an HTTP error on the panel page (a 401 or 403 says the token was rejected), or agent unreachable 30s+, shows a native fallback (agent URL without the token, the error, how to open settings) and retries with a growing delay, 5s doubling to 60s. Native because the web layer is what's in question. Shell polls `/health` itself rather than asking the page, so the fallback still works if the WebView itself is broken.
+WebView load failure, an HTTP error on the panel page (a 401 or 403 says the token was rejected), or agent unreachable 30s+, shows a native fallback (agent URL without the token, the error, how to open settings) and retries with a growing delay, 5s doubling to 60s. Native because the web layer is what's in question. Shell polls `/health` itself, so the fallback still works if the WebView itself is broken.
 
-30s delay is deliberate - a restarting agent is usually back in a second or two, and flashing a fallback on every restart would be worse than a briefly stale dashboard.
+The 30s delay is there because a restarting agent is usually back in a second or two, and flashing a fallback on every restart would be worse than a briefly stale dashboard.
 
 ### Debugging the panel
 
