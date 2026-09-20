@@ -13,6 +13,8 @@ import android.view.View
 import android.view.ViewGroup
 import android.view.WindowManager
 import android.webkit.WebResourceError
+import android.webkit.ConsoleMessage
+import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebView
@@ -63,6 +65,12 @@ class PanelActivity : AppCompatActivity() {
         // decor view, which does not exist until the content is set, and asking
         // for it earlier returns null and takes the process down on launch.
         goFullscreen()
+
+        // Static and process wide, so before the WebView exists. Only for a
+        // debug build: it lets anything on the USB cable inspect the panel.
+        if (isDebuggable(applicationInfo.flags)) {
+            WebView.setWebContentsDebuggingEnabled(true)
+        }
 
         webView = buildWebView()
         root.addView(
@@ -180,6 +188,19 @@ class PanelActivity : AppCompatActivity() {
 
         bridge = ShellBridge(this)
         view.addJavascriptInterface(bridge, "shell")
+
+        // Face script errors and socket failures land here and nowhere else:
+        // the device has no console to look at.
+        view.webChromeClient = object : WebChromeClient() {
+            override fun onConsoleMessage(message: ConsoleMessage): Boolean {
+                Log.println(
+                    consolePriority(message.messageLevel()),
+                    TAG,
+                    consoleLine(message.message(), message.sourceId(), message.lineNumber()),
+                )
+                return true
+            }
+        }
 
         view.webViewClient = object : WebViewClient() {
             override fun onReceivedError(
