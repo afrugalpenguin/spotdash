@@ -5,9 +5,8 @@
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <!--
-        Granted only through Settings or adb, never by a prompt. The bridge
-        treats it as optional and logs when it is missing, so the same build
-        runs unchanged on an emulator where it is not granted.
+        Granted through Settings or adb, never by a prompt. The bridge logs and
+        carries on without it.
     -->
     <uses-permission android:name="android.permission.WRITE_SETTINGS"
         tools:ignore="ProtectedPermissions"
@@ -29,16 +28,14 @@
             android:configChanges="orientation|screenSize|keyboardHidden|uiMode|density"
             android:theme="@style/Theme.Spotdash">
 
-            <!-- Normal launcher entry, so it can be started before it is the
-                 default home app. -->
+            <!-- Launcher entry, so it can start before it is the default home app. -->
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
-            <!-- HOME and DEFAULT together are what let LineageOS offer this as
-                 the default launcher, which is how the panel survives a reboot
-                 without anyone touching the device. -->
+            <!-- HOME and DEFAULT let LineageOS offer this as the default launcher,
+                 so the panel survives a reboot. -->
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.HOME" />

@@ -9,28 +9,15 @@ import java.nio.charset.CharacterCodingException
 import java.nio.charset.CodingErrorAction
 
 /**
- * Receiving the agent URL and token from adb, so nobody types them on a 480px
- * round on-screen keyboard.
- *
- * A file called provision.json is pushed into the app's own external files
- * directory, read once when the panel comes to the front, and deleted whether or
- * not it was any good. Nothing here needs Android, so it is all unit tested.
- *
- * Every decision is fail closed. A payload is applied whole or not at all, and a
- * payload that is wrong in any way changes nothing. The reason it was refused
- * goes to logcat, which anyone with adb can read, so a reason never contains a
- * value from the payload. (An I/O error message names a path and an errno, never
- * file contents, so it is safe to include.)
+ * Takes the agent URL and token from a provision.json that adb pushed. Every rule fails closed and
+ * no rejection reason quotes the payload (an I/O error message is safe). See docs/architecture.md,
+ * "Provisioning from adb".
  */
 
 /** The file adb pushes, in the directory getExternalFilesDir returns. */
 internal const val PROVISIONING_FILE_NAME = "provision.json"
 
-/**
- * The largest payload read. A real one is about 100 bytes; anything near this
- * is not a provisioning file, and a file pushed by mistake (a log, a disk image)
- * must not be read whole.
- */
+/** The largest payload read. A real one is about 100 bytes. A file pushed by mistake is not read whole. */
 internal const val MAX_PROVISIONING_BYTES = 4096
 
 private const val PROVISIONING_VERSION = 1L
@@ -40,8 +27,7 @@ private val ALLOWED_KEYS = setOf("version", "agent_url", "token")
 
 internal sealed class ProvisioningResult {
     data class Valid(val agentUrl: String, val token: String) : ProvisioningResult() {
-        // A data class prints its fields, and this is one log line away from
-        // logcat.
+        // The default data class toString would print the token.
         override fun toString() = "Valid(agentUrl=$agentUrl, token=<redacted>)"
     }
 
@@ -51,13 +37,7 @@ internal sealed class ProvisioningResult {
 /** A result, and whether the file it came from could be removed afterwards. */
 internal class Consumed(val result: ProvisioningResult, val deleted: Boolean)
 
-/**
- * Reads and removes the provisioning file, or returns null when there is none.
- *
- * The file is deleted in every case, valid or not, so it cannot be replayed and
- * a token is never left on shared storage. The caller is told when the delete
- * failed, since then it is still there.
- */
+/** Reads and deletes the provisioning file, or returns null if there is none. Deleting stops a replay. */
 internal fun consumeProvisioning(file: File): Consumed? {
     if (!file.exists()) return null
 
@@ -95,8 +75,7 @@ private fun parseProvisioningBytes(bytes: ByteArray): ProvisioningResult {
     } catch (error: CharacterCodingException) {
         return ProvisioningResult.Rejected("the payload is not valid UTF-8")
     }
-    // Windows PowerShell 5.1 writes a byte order mark with -Encoding utf8, and
-    // that is the most likely editor to have touched this file.
+    // Windows PowerShell 5.1 writes a byte order mark with -Encoding utf8.
     return parseProvisioning(text.removePrefix(BYTE_ORDER_MARK))
 }
 
@@ -155,8 +134,8 @@ private fun checkAgentUrl(url: String): String? {
     if (parsed.host.isNullOrEmpty()) return "\"agent_url\" has no valid host"
     if (parsed.rawUserInfo != null) return "\"agent_url\" must not contain credentials"
     if (parsed.port != -1 && parsed.port !in 1..65535) return "\"agent_url\" port must be 1 to 65535"
-    // The shell appends its own token query to this address, and the panel is
-    // the agent's root page, so anything more would point somewhere else.
+    // The shell appends its own token query and loads the root page, so a path
+    // would point somewhere else.
     if (!parsed.rawPath.isNullOrEmpty() && parsed.rawPath != "/") return "\"agent_url\" must not have a path"
     if (parsed.rawQuery != null) return "\"agent_url\" must not have a query"
     if (parsed.rawFragment != null) return "\"agent_url\" must not have a fragment"
@@ -164,11 +143,9 @@ private fun checkAgentUrl(url: String): String? {
 }
 
 /**
- * Null when the token is acceptable, otherwise why not.
- *
- * Printable ASCII with no whitespace, because it ends up in a URL query and a
- * WebSocket subprotocol. There is no minimum length here: the agent decides what
- * a token has to be, and a rule of its own would only disagree with it.
+ * Null when the token is acceptable, otherwise why not. Printable ASCII with no
+ * whitespace, since it goes into a URL query and a WebSocket subprotocol. There
+ * is no minimum length: the agent decides what a token has to be.
  */
 private fun checkToken(token: String): String? {
     if (token.isEmpty()) return "\"token\" is empty"
@@ -179,15 +156,7 @@ private fun checkToken(token: String): String? {
 
 private class BadPayload(message: String) : Exception(message)
 
-/**
- * A reader for exactly the JSON this payload uses: one flat object whose values
- * are strings or whole numbers. Nothing else is accepted, so a nested value, a
- * null, an array, a repeated key, trailing text or a truncated file is refused
- * rather than interpreted.
- *
- * Written out rather than using org.json, which is stubbed out in JVM unit
- * tests, so the strictness could not be tested with it.
- */
+/** Reads one flat JSON object of strings and whole numbers. Hand written since org.json is stubbed in unit tests. */
 private class FlatJson(private val text: String) {
     private var pos = 0
 
@@ -235,7 +204,6 @@ private class FlatJson(private val text: String) {
         val digits = text.substring(start, pos)
         if (digits.length > 1 && digits[0] == '0') fail("a number has a leading zero")
         if (digits.length > 9) fail("a number is too large")
-        // A fraction or exponent is not a whole number.
         if (peek() == '.' || peek() == 'e' || peek() == 'E') fail("a value is not a whole number")
         return digits.toLong()
     }

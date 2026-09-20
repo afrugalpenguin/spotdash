@@ -23,14 +23,13 @@ class ProvisioningTest {
 
     private fun assertRejected(text: String, reasonContains: String? = null) {
         val result = parseProvisioning(text)
-        assertTrue("expected a rejection but got $result", result is ProvisioningResult.Rejected)
+        assertTrue("got $result, want a rejection", result is ProvisioningResult.Rejected)
         val reason = (result as ProvisioningResult.Rejected).reason
         if (reasonContains != null) {
-            assertTrue("reason \"$reason\" should mention \"$reasonContains\"", reason.contains(reasonContains))
+            assertTrue("reason = \"$reason\", want \"$reasonContains\"", reason.contains(reasonContains))
         }
-        // Whatever went wrong, the reason ends up in logcat, which anyone with
-        // adb can read, so it must never carry the secret.
-        assertFalse("the reason leaked the token: $reason", reason.contains(token))
+        // The reason ends up in logcat, so it must never carry the secret.
+        assertFalse("reason leaks the token: $reason", reason.contains(token))
     }
 
     // ---- valid ----
@@ -62,9 +61,8 @@ class ProvisioningTest {
 
     @Test
     fun `json string escapes are decoded`() {
-        // In the JSON text: a slash written as an escaped slash, and the letter A
-        // written as a four digit unicode escape. Doubled backslashes because
-        // this is an ordinary Kotlin string.
+        // The JSON has an escaped slash and a four digit unicode escape for A.
+        // The backslashes are doubled because this is an ordinary Kotlin string.
         val text = "{\"version\":1,\"agent_url\":\"http:\\/\\/192.0.2.10:8765\"," +
             "\"token\":\"\\u0041bc123Def456Ghi789Jkl012Mno345Pq\"}"
         assertEquals(
@@ -251,7 +249,7 @@ class ProvisioningTest {
 
         assertEquals(ProvisioningResult.Valid(url, token), consumed.result)
         assertTrue(consumed.deleted)
-        assertFalse("the token file must not persist once consumed", provisionFile().exists())
+        assertFalse("file exists after consume", provisionFile().exists())
     }
 
     @Test
