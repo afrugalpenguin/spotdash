@@ -35,6 +35,7 @@ jobs:
           cp agent/spotdash.exe dist/
           cp agent/config.example.json dist/
           cp agent/tools/autostart.ps1 dist/tools/
+          cp tools/provision.ps1 dist/tools/
           cp LICENSE dist/
           cd dist && zip -r ../spotdash-${GITHUB_REF_NAME}-windows-amd64.zip .
 
