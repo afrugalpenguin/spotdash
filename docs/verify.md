@@ -137,7 +137,7 @@ Clock running at `interval_ms` 1000: `/health` shows `status: ok`, `last_update`
 $ go test -race -count=1 ./...
 ```
 
-Store tests cover 500 updates against a subscriber that never reads, completing without blocking, and that subscriber getting dropped rather than silently skipping messages.
+Store tests cover 500 updates against a subscriber that never reads, completing without blocking, and that subscriber getting dropped with no messages silently skipped.
 
 `wsprobe` (dials like the panel does):
 
@@ -154,7 +154,7 @@ Clock face rendered live via headless Chrome screenshot: `11:01`, `Mon 14 Sep`, 
 
 **Found via a slow test, not inspection**: every socket test took exactly 5.00s (a timeout, not real work), because the panel-only-listens design meant the handler never read the connection, so a client close was never acknowledged until timeout - same defect means a vanished device is never noticed either. Fixed with `CloseRead` (drains frames, cancels handler context on peer-gone) plus a 30s keepalive ping. Same tests after: 0.00s each, 0.725s total for the package.
 
-**Measurement artifact, checked not assumed**: a screenshot showed `clock ok 7s` for a 1s-interval source. Cause: `--virtual-time-budget` fast-forwards `Date.now()` while socket messages arrive in real time. A shorter budget reads `1s` correctly. Surfaced a real hardware risk though - age is browser clock minus agent timestamp, and the Echo Spot has no battery-backed RTC. Filed as issue 12.
+**Measurement artifact, verified**: a screenshot showed `clock ok 7s` for a 1s-interval source. Cause: `--virtual-time-budget` fast-forwards `Date.now()` while socket messages arrive in real time. A shorter budget reads `1s` correctly. Surfaced a real hardware risk though - age is browser clock minus agent timestamp, and the Echo Spot has no battery-backed RTC. Filed as issue 12.
 
 ## 5. Static UI, status and clock faces, dev.html
 
@@ -260,7 +260,7 @@ Panel ran live in the shell: clock face at 480x480 with teal connection dot, tap
 
 Fallback and recovery: agent stopped, shell noticed immediately, showed the real connection error after the 30s threshold, retried on schedule, and recovered with no intervention once the agent came back.
 
-One false alarm, checked rather than assumed: a screenshot showed an amber dot and frozen gauges mid-verification. Not a reconnect failure - the agent had just been restarted (log level change) and the console message was the old app instance timing out against a now-closed port. Agent log confirmed one socket open and holding.
+One false alarm, verified before it was dismissed: a screenshot showed an amber dot and frozen gauges mid-verification. Not a reconnect failure - the agent had just been restarted (log level change) and the console message was the old app instance timing out against a now-closed port. Agent log confirmed one socket open and holding.
 
 ## 10. End to end
 
@@ -302,7 +302,7 @@ $ ls app\build\outputs\apk\debug\app-debug.apk   # 9711395 bytes
 
 APK has no native libraries, so this ARM-targeting build never needed touching for the x86_64 emulator either.
 
-One blemish fixed: the not-configured message listed the same resolved path twice (both candidates pointed at the same place) - read like a bug in the message rather than a missing file. Deduplicated.
+One blemish fixed: the not-configured message listed the same resolved path twice (both candidates pointed at the same place), which read like a bug in the message. Deduplicated.
 
 ### What phase 1 doesn't cover
 

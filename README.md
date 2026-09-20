@@ -113,7 +113,7 @@ adb shell am start -n dev.spotdash.shell/.PanelActivity
 Long-press the display for 3 seconds to enter the agent URL and token
 (from the emulator that's `http://10.0.2.2:8765`). The same screen has a
 Wi-Fi button that opens Android's own Wi-Fi settings, for a device that
-moves network. That's the only UI the shell has, there's no other input on
+moves network. That's the only UI the shell has: there is no other input on
 the real device.
 
 Want to work on faces without running the agent at all? Open
@@ -124,12 +124,12 @@ faking state.
 
 Both sources have a `mock` mode for testing and a real mode:
 
-- **Spotify**: `mode: "api"`, needs a Spotify app (Client ID only, PKCE, no
+- Spotify: `mode: "api"`, needs a Spotify app (Client ID only, PKCE, no
   secret) and a redirect URI of `http://127.0.0.1:8765/spotify/callback`.
   Then visit `/spotify/connect` to authorise. There is no shared app to use:
   Spotify limits an app like this to five users, so everyone creates their
   own. See [`docs/spotify-setup.md`](docs/spotify-setup.md) for the steps.
-- **Calendar**: `mode: "ics"`, just a published ICS feed URL (Outlook: Share
+- Calendar: `mode: "ics"`, just a published ICS feed URL (Outlook: Share
   calendar > Publish). Keep the link private, anyone with it can read your
   calendar.
 
@@ -163,9 +163,9 @@ to `config.json`, wherever it was started from.
 
 Prefer a scheduled task (restart on failure, a 15 second delay after logon)?
 `.\tools\autostart.ps1 -Install` registers one instead (`-Status` and
-`-Uninstall` do what you'd expect). It is not a service, a service has no
+`-Uninstall` do what you'd expect). It is not a service: a service has no
 desktop session to put a tray on. Use one or the other. Running both is
-safe, the second copy just exits.
+safe, and the second copy just exits.
 
 ## Releases
 
@@ -178,15 +178,15 @@ config with a generated token (see "Getting it running") and opens the panel.
 `config.example.json` is there as a reference for the settings. A tag with a
 hyphen, such as `v0.2.0-rc1`, is marked as a pre-release.
 
-The exe is not code signed, this is a one-person desk toy and a signing
+The exe is not code signed: this is a one-person desk toy and a signing
 certificate is not worth the cost. SmartScreen will flag it as an unrecognised
 publisher on first run ("More info", then "Run anyway"); that's expected.
 
 ## Security
 
 Shared bearer token over plain HTTP on a trusted LAN, no TLS. That's a
-known, accepted tradeoff for a desk toy on a home network, not an
-oversight, see `docs/architecture.md` for the reasoning.
+known, accepted tradeoff for a desk toy on a home network. See
+`docs/architecture.md` for the reasoning.
 
 ## More docs
 
