@@ -112,9 +112,9 @@ Both sources have a `mock` mode for testing and a real mode:
 
 - **Spotify**: `mode: "api"`, needs a Spotify app (Client ID only, PKCE, no
   secret) and a redirect URI of `http://127.0.0.1:8765/spotify/callback`.
-  Then visit `/spotify/connect` to authorise. Want full control instead of
-  depending on a shared app? See [`docs/spotify-setup.md`](docs/spotify-setup.md)
-  for rolling your own.
+  Then visit `/spotify/connect` to authorise. There is no shared app to use:
+  Spotify limits an app like this to five users, so everyone creates their
+  own. See [`docs/spotify-setup.md`](docs/spotify-setup.md) for the steps.
 - **Calendar**: `mode: "ics"`, just a published ICS feed URL (Outlook: Share
   calendar > Publish). Keep the link private, anyone with it can read your
   calendar.

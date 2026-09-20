@@ -1,11 +1,11 @@
 # Rolling your own Spotify app
 
-The shared spotdash Spotify app is capped at whatever Spotify's Development
-Mode allows (or Extended Quota Mode, if granted - see the repo issues for
-where that stands). If you'd rather not depend on it, or just want your own
-account fully under your own control, auth is Authorization Code with PKCE
-and no client secret, so anyone can create their own Spotify app and point
-their own `config.json` at it. Takes about five minutes.
+Every spotdash setup needs its own Spotify app. There is no shared one to
+point at: an app can only serve a handful of people (see "New apps and
+Development Mode" below), so one app can't cover everyone who uses this.
+Auth is Authorization Code with PKCE and no client secret, so anyone can
+create their own Spotify app and point their own `config.json` at it. Takes
+about five minutes.
 
 ## 1. Create the app
 
@@ -47,8 +47,26 @@ on a page that says **Connected**.
 
 ## New apps and Development Mode
 
-A freshly created app starts in Development Mode with a 25-user allowlist.
-That's not a problem here - you're the only person using it, so under
-**Users Management** in the dashboard, add the Spotify account you're
-actually going to connect with, before hitting `/spotify/connect`. You don't
-need Extended Quota Mode for a personal setup.
+A freshly created app starts in Development Mode. As of September 2026,
+Spotify's rules for it are:
+
+- Up to five authorised users per Client ID, each added by you under
+  **Users Management** in the dashboard before they connect.
+- The account that owns the app must have Spotify Premium.
+
+That's not a problem here - you're the only person using it, so add the
+Spotify account you're actually going to connect with under **Users
+Management** before hitting `/spotify/connect`.
+
+Separately, pause, resume, next and previous need Premium on the connected
+account. Spotify refuses them otherwise, and the panel briefly turns the
+button red.
+
+There is no way to lift the five user cap for a project like this.
+Extended Quota Mode is only open to registered organisations with at least
+250,000 monthly active users, and individuals aren't accepted. That is why
+each person creates their own app rather than sharing one.
+
+The current rules are on Spotify's side, so check them if this looks out of
+date: [quota modes](https://developer.spotify.com/documentation/web-api/concepts/quota-modes)
+and the [February 2026 Development Mode changes](https://developer.spotify.com/blog/2026-02-06-update-on-developer-access-and-platform-security).
