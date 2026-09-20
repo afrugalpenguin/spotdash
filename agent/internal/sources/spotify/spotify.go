@@ -13,6 +13,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/afrugalpenguin/spotdash/agent/internal/config"
@@ -124,6 +126,12 @@ func New(cfg config.Source) (interface {
 		}
 	}
 
+	// Relative file settings mean "next to config.json". The agent may be
+	// started from anywhere, such as at login, and the working directory is not
+	// where anyone put these files.
+	s.StateFile = resolvePath(cfg.Dir, s.StateFile)
+	s.ArtFile = resolvePath(cfg.Dir, s.ArtFile)
+
 	layout, err := normalizeLayout(s.Layout)
 	if err != nil {
 		return nil, err
@@ -140,6 +148,16 @@ func New(cfg config.Source) (interface {
 	default:
 		return nil, fmt.Errorf(`"mode" is %q, want "mock" or "api"`, s.Mode)
 	}
+}
+
+// resolvePath makes a relative path relative to dir. An empty path, an absolute
+// one, a rooted one with no drive, or an empty dir (nothing to resolve against)
+// is returned as written.
+func resolvePath(dir, path string) string {
+	if path == "" || dir == "" || filepath.IsAbs(path) || strings.HasPrefix(path, "/") || strings.HasPrefix(path, `\`) {
+		return path
+	}
+	return filepath.Join(dir, path)
 }
 
 func newMockSource(interval time.Duration, s settings) (*Source, error) {

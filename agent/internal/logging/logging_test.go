@@ -82,3 +82,46 @@ func TestNewRespectsLevel(t *testing.T) {
 		t.Error("a warn record was not written at warn level")
 	}
 }
+
+// errWriter stands in for the stderr of a process with no console, which is
+// what a windowsgui build has: every write to it fails.
+type errWriter struct{}
+
+func (errWriter) Write([]byte) (int, error) { return 0, os.ErrInvalid }
+
+func TestNewStillWritesTheFileWhenStderrFails(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "spotdash.log")
+
+	log, closeFn, err := New(Options{Level: slog.LevelInfo, FilePath: path, Stderr: errWriter{}})
+	if err != nil {
+		t.Fatalf("New returned an error: %v", err)
+	}
+	log.Info("serving", "marker", "no-console-marker")
+	if err := closeFn(); err != nil {
+		t.Fatalf("closing the logger: %v", err)
+	}
+
+	contents, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("the log file should exist: %v", err)
+	}
+	if !strings.Contains(string(contents), "no-console-marker") {
+		t.Errorf("a dead stderr stopped the record reaching the file:\n%s", contents)
+	}
+}
+
+func TestLogFailureRecordsAnErrorLine(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "spotdash.log")
+
+	LogFailure(path, os.ErrPermission)
+
+	contents, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("LogFailure should have created the log file: %v", err)
+	}
+	for _, want := range []string{"level=ERROR", "startup failed", os.ErrPermission.Error()} {
+		if !strings.Contains(string(contents), want) {
+			t.Errorf("log should contain %q:\n%s", want, contents)
+		}
+	}
+}

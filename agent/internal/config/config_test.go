@@ -467,3 +467,58 @@ func TestSaveWritesAtomically(t *testing.T) {
 		}
 	}
 }
+
+// A source resolves relative file settings against the directory config.json is
+// in, not the working directory, so it needs to know where that is.
+func TestLoadTellsEverySourceWhereTheConfigLives(t *testing.T) {
+	path := writeConfig(t, `{"token":"s3cret","sources":{"clock":{"enabled":true,"interval_ms":1000},"telemetry":{"enabled":false}}}`)
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	want := filepath.Dir(path)
+	for _, name := range cfg.SourceNames() {
+		if got := cfg.Sources[name].Dir; got != want {
+			t.Errorf("source %q Dir = %q, want %q", name, got, want)
+		}
+	}
+}
+
+func TestLoadMakesARelativeConfigPathAbsolute(t *testing.T) {
+	path := writeConfig(t, `{"token":"s3cret","sources":{"clock":{"enabled":true,"interval_ms":1000}}}`)
+	dir := filepath.Dir(path)
+	old, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Chdir(old) })
+
+	cfg, err := Load("config.json")
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	got := cfg.Sources["clock"].Dir
+	if !filepath.IsAbs(got) {
+		t.Errorf("Dir = %q, want an absolute path so a later change of working directory cannot move it", got)
+	}
+}
+
+func TestSaveDoesNotWriteTheDirBack(t *testing.T) {
+	path := writeConfig(t, `{"token":"s3cret","sources":{"clock":{"enabled":true,"interval_ms":1000}}}`)
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	if err := Save(path, cfg); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	data, _ := os.ReadFile(path)
+	if strings.Contains(string(data), filepath.Dir(path)) || strings.Contains(strings.ToLower(string(data)), `"dir"`) {
+		t.Errorf("the config directory leaked into config.json:\n%s", data)
+	}
+}

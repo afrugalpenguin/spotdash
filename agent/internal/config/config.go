@@ -52,6 +52,11 @@ type Source struct {
 	Enabled    bool
 	IntervalMS int
 	Settings   json.RawMessage
+	// Dir is the directory config.json was loaded from, set by Load. A source
+	// resolves relative file settings against it rather than the working
+	// directory, which the agent does not control when it starts at login. Not
+	// part of the file: MarshalJSON writes Settings only.
+	Dir string
 }
 
 // Interval is the poll period for this source.
@@ -149,6 +154,7 @@ func Load(path string) (*Config, error) {
 	if err := cfg.applyDefaults(); err != nil {
 		return nil, fmt.Errorf("in %s: %w", path, err)
 	}
+	cfg.tellSourcesWhereTheConfigLives(path)
 	if err := cfg.Validate(); err != nil {
 		return nil, fmt.Errorf("in %s: %w", path, err)
 	}
@@ -191,6 +197,19 @@ func Save(path string, cfg *Config) error {
 	}
 	cleanup = false
 	return nil
+}
+
+// tellSourcesWhereTheConfigLives sets Source.Dir on every source. The path is
+// made absolute first, so a later change of working directory cannot move it.
+func (c *Config) tellSourcesWhereTheConfigLives(path string) {
+	if abs, err := filepath.Abs(path); err == nil {
+		path = abs
+	}
+	dir := filepath.Dir(path)
+	for name, src := range c.Sources {
+		src.Dir = dir
+		c.Sources[name] = src
+	}
 }
 
 func (c *Config) applyDefaults() error {

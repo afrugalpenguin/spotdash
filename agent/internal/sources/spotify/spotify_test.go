@@ -3,6 +3,8 @@ package spotify
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -251,5 +253,63 @@ func TestInvalidLayoutIsRejected(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "layout") {
 		t.Errorf("error should name the offending setting, got: %v", err)
+	}
+}
+
+func sourceIn(t *testing.T, dir, settings string) any {
+	t.Helper()
+	built, err := New(config.Source{Enabled: true, IntervalMS: 1000, Dir: dir, Settings: []byte(settings)})
+	if err != nil {
+		t.Fatalf("New returned an error: %v", err)
+	}
+	return built
+}
+
+const apiSettings = `{"mode":"api","client_id":"id","redirect_uri":"http://127.0.0.1:8765/spotify/callback","state_file":"%s"}`
+
+// The agent is started at login from a directory nobody chose, so a relative
+// state_file has to mean "next to config.json", or the connection is silently
+// lost and a new state file appears somewhere else.
+func TestARelativeStateFileResolvesAgainstTheConfigDirectory(t *testing.T) {
+	dir := t.TempDir()
+
+	built := sourceIn(t, dir, fmt.Sprintf(apiSettings, "spotify_state.json"))
+
+	api := built.(*apiSource)
+	if want := filepath.Join(dir, "spotify_state.json"); api.auth.statePath != want {
+		t.Errorf("state path = %q, want %q", api.auth.statePath, want)
+	}
+	if want := filepath.Join(dir, "spotify_art.jpg"); api.artCachePath != want {
+		t.Errorf("art cache path = %q, want %q (it sits next to the state file)", api.artCachePath, want)
+	}
+}
+
+func TestAnAbsoluteStateFileIsLeftAlone(t *testing.T) {
+	dir := t.TempDir()
+	abs := filepath.Join(t.TempDir(), "elsewhere", "state.json")
+
+	built := sourceIn(t, dir, fmt.Sprintf(apiSettings, filepath.ToSlash(abs)))
+
+	if got := built.(*apiSource).auth.statePath; filepath.Clean(got) != filepath.Clean(abs) {
+		t.Errorf("state path = %q, want the absolute path %q untouched", got, abs)
+	}
+}
+
+func TestWithNoConfigDirectoryAPathIsLeftAsWritten(t *testing.T) {
+	built := sourceIn(t, "", fmt.Sprintf(apiSettings, "spotify_state.json"))
+
+	if got := built.(*apiSource).auth.statePath; got != "spotify_state.json" {
+		t.Errorf("state path = %q, want it unchanged when the source was told no directory", got)
+	}
+}
+
+func TestARelativeMockArtFileResolvesAgainstTheConfigDirectory(t *testing.T) {
+	dir := t.TempDir()
+
+	built := sourceIn(t, dir, `{"mode":"mock","track":"t","duration_ms":1000,"art_file":"cover.png"}`)
+
+	assets := built.(*Source).Assets()
+	if want := filepath.Join(dir, "cover.png"); assets[artPath] != want {
+		t.Errorf("art file = %q, want %q", assets[artPath], want)
 	}
 }
