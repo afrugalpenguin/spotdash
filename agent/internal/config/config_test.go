@@ -152,6 +152,16 @@ func TestLoadRejectsInvalidInput(t *testing.T) {
 			wantIn:   "token",
 		},
 		{
+			name:     "example placeholder token",
+			contents: `{"token":"` + PlaceholderToken + `","sources":{}}`,
+			wantIn:   "token",
+		},
+		{
+			name:     "example placeholder token with padding",
+			contents: `{"token":"  ` + PlaceholderToken + ` ","sources":{}}`,
+			wantIn:   "token",
+		},
+		{
 			name:     "listen without a port",
 			contents: `{"token":"s3cret","listen":"0.0.0.0","sources":{}}`,
 			wantIn:   "listen",
@@ -198,6 +208,19 @@ func TestLoadRejectsInvalidInput(t *testing.T) {
 				t.Errorf("error should mention %q, got: %v", tt.wantIn, err)
 			}
 		})
+	}
+}
+
+// The example file is what a fresh clone copies, so it must be refused until
+// the token is replaced. Reading the real file keeps PlaceholderToken and
+// config.example.json from drifting apart.
+func TestLoadRejectsTheShippedExampleUntouched(t *testing.T) {
+	_, err := Load(filepath.Join("..", "..", "config.example.json"))
+	if err == nil {
+		t.Fatal("config.example.json loaded as is, so a fresh clone would serve with a public token")
+	}
+	if !strings.Contains(err.Error(), "token") {
+		t.Errorf("error should mention the token, got: %v", err)
 	}
 }
 
