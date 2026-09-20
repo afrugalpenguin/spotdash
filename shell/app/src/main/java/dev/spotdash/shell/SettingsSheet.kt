@@ -12,17 +12,7 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatDialogFragment
 
-/**
- * The settings screen: agent URL and token, and a way into the system Wi-Fi
- * settings.
- *
- * Built in code rather than from a layout file because it is two fields on a
- * 480px circle, and because the shell is meant to stay small enough to read in
- * one sitting.
- *
- * Reached only by a three second long press on the panel, since the device has
- * no buttons and no keyboard worth using.
- */
+/** The settings screen: agent URL, token and a way into the system Wi-Fi settings. Reached by the long press. */
 class SettingsSheet(
     private val onWifi: () -> Unit = {},
     private val onClosed: (saved: Boolean) -> Unit = {},
@@ -47,9 +37,8 @@ class SettingsSheet(
         val tokenField = EditText(activity).apply {
             hint = getString(R.string.settings_token_hint)
             setText(settings.token)
-            // Visible: it is typed once, on a device nobody is shoulder surfing,
-            // and a masked field is miserable to enter accurately on a 480px
-            // circle with an on-screen keyboard.
+            // Visible: a masked field is miserable to type accurately on a 480px
+            // circle.
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD
             setSingleLine()
             setTextColor(Color.parseColor("#EDF1EE"))
@@ -64,10 +53,8 @@ class SettingsSheet(
             gravity = Gravity.CENTER
         }
 
-        // The shell is the launcher, so without this there is no way to reach
-        // Android's own Wi-Fi settings short of adb. Kept on this screen because
-        // it works with nothing configured: a device that cannot reach the agent
-        // is exactly when it is needed.
+        // The shell is the launcher, so this is the only way to the system Wi-Fi
+        // settings without adb. It works with nothing configured.
         val wifiButton = Button(activity).apply {
             text = getString(R.string.settings_wifi)
             setOnClickListener { onWifi() }

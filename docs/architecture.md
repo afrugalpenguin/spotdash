@@ -324,6 +324,10 @@ Single Activity, minSdk/targetSdk 30. Fullscreen immersive, screen on, no bars. 
 
 Agent URL and token live in `EncryptedSharedPreferences`, entered via a 3s long-press settings screen (the only UI besides the WebView - no other input on the device). That screen also has a "Wi-Fi networks" button that opens Android's own Wi-Fi settings, since the shell is the launcher and there is otherwise no way to reach them without adb. It is a deep link because a screen of our own cannot join a network: on API 30 `WifiManager.addNetwork` is ignored for apps targeting API 29+, and a network request only connects this process. Coming back from it retries the panel at once. Token injected as a query param on initial load only; the page holds it afterward.
 
+The wifi screen is the system one because it already handles WPA2 and WPA3, hidden networks and forgetting a network, which a screen of our own would have to rebuild. The button sits on the settings screen because it works with nothing configured, and a device that cannot reach the agent is when it is needed.
+
+The URL and token are encrypted because the token is a shared secret on a device anyone can pick up. If the keystore is corrupted the shell falls back to plain storage. Otherwise the launcher would crash at boot, and with no other launcher that bricks the device until it is reflashed. The token field on the settings screen is visible, since a masked field is hard to type accurately on the 480px circle. The long press takes three seconds so dusting the screen does not open settings. The touch listener never consumes the event, so the page still gets its own taps. The back button does nothing. The WebView cache is off because the agent is rebuilt often and a stale panel with no address bar is hard to diagnose.
+
 ### Provisioning from adb
 
 Typing a URL and a long token on the 480px circle is the worst step of setup, so the shell can also take both from a file pushed with adb (`Provisioning.kt`, applied from `PanelActivity`). The long-press settings screen stays as the manual route.
@@ -346,6 +350,8 @@ Rules, all fail closed:
 - The file is deleted in every case, valid or not, and at most 4 KiB is read. A leading byte order mark is tolerated, since Windows PowerShell 5.1 writes one.
 - The file is looked at when the panel comes to the front and again from `onNewIntent`, because `am start` on an activity that is already in front only delivers an intent and does not pause and resume it.
 
+The address and token are written with a single `commit()` because the alternatives are both bad. A new address with the old token gives a panel that loads and is rejected. A new token with the old address sends a secret to the wrong host. The settings screen still writes the two fields separately, since a person edits one box at a time.
+
 Verified on an API 30 emulator (userdebug, SELinux enforcing), not yet on the Spot. There, the shell user cannot write to `Android/data/<package>` at all, since the directory belongs to the app and the group `ext_data_rw`, which `shell` is not in. A root push through the normal `/sdcard` path lands with the wrong security label (`storage_file`) and the app gets `EACCES`. What works is `adb root` and pushing straight to the underlying path `/data/media/0/Android/data/dev.spotdash.shell/files/`, where the file gets the right label and the app can read and delete it. The directory is created when the shell first starts, so start it once before pushing. `docs/device.md` already relies on `adb root` for this ROM (Wi-Fi join, timezone). Not tried: whether `/data/media/0` is the right path on the Spot's ROM.
 
 ### JavaScript bridge
@@ -361,11 +367,17 @@ Verified on an API 30 emulator (userdebug, SELinux enforcing), not yet on the Sp
 
 Each no-ops (and logs why) when the permission is missing - keeps the UI working unchanged in an emulator.
 
+Nothing in the bridge throws, so the panel behaves the same on the Echo Spot, which grants some of these permissions, and on an emulator, which grants none. Each method hops to the main thread, because WebView calls from its own JavaScript thread and touching a window from there crashes. `screenOff()` sets the brightness to zero. Powering the display down would need `DEVICE_ADMIN`, a heavier grant that an emulator does not offer.
+
 ### Failure behaviour
 
 WebView load failure, an HTTP error on the panel page (a 401 or 403 says the token was rejected), or agent unreachable 30s+, shows a native fallback (agent URL without the token, the error, how to open settings) and retries with a growing delay, 5s doubling to 60s. Native because the web layer is what's in question. Shell polls `/health` itself, so the fallback still works if the WebView itself is broken.
 
 The 30s delay is there because a restarting agent is usually back in a second or two, and flashing a fallback on every restart would be worse than a briefly stale dashboard.
+
+WebView also calls `onPageFinished` after a failed load, and again when a retry abandons a load that was hanging on an unreachable agent. Neither means the panel is showing. A finished page hides the fallback only when the load had no error and the watcher does not consider the agent down. The watcher keeps that down state across a stop and start. It is stopped whenever the panel pauses, for example while the Wi-Fi settings are open, and forgetting the outage would let a hung load clear the fallback. Recovery is still reported, because the first good probe calls the up callback.
+
+An unconfigured shell and a rejected token get their own fallback titles, since neither is an unreachable agent. The retry delay starts at 5s because the usual cause is an agent about to come back. It stops at 60s because the other cause is a token nobody has fixed, and retrying faster does not help. It resets after a successful load, a settings change or a recovery. `/health` needs no token, which is why it still works when everything else is broken.
 
 ### Debugging the panel
 
@@ -376,6 +388,8 @@ A debuggable build also turns on WebView remote debugging, so the panel shows up
 ### Scaling
 
 480 CSS px fixed layout; shell computes initial scale from real display width so it fits whatever density it lands on (Spot's density need not match the emulator's).
+
+The display is 240dpi, so without scaling the 480 CSS px layout would render at 720 physical pixels and overflow the glass. The shell turns on wide viewport handling and sets the initial scale to the display width over 480, clamped to 25 to 400 percent, and logs the result.
 
 ## Security posture for phase 1
 

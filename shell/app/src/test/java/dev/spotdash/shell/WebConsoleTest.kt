@@ -32,9 +32,8 @@ class WebConsoleTest {
         assertEquals("console: boom", consoleLine("boom", "", 0))
     }
 
-    // The panel URL carries the token once, and a failed load of it is reported
-    // by WebView with that URL as the source. logcat is readable by anyone with
-    // adb, so it must never get there.
+    // A failed load of the panel URL is reported with that URL as the source.
+    // The token must not reach logcat that way.
     @Test
     fun `the token is redacted from the source url`() {
         val line = consoleLine("Failed to load resource", "http://host:8765/?token=s3cretvalue&face=clock", 0)
