@@ -76,10 +76,17 @@ runs in a browser and the shell runs in a 480x480 emulator.
 
 ```powershell
 cd agent
-copy config.example.json config.json
-# edit config.json, set a non-empty "token"
 go run ./cmd/spotdash
 ```
+
+With no config the agent makes one: `%APPDATA%\spotdash\config.json`, with a
+random token, the same defaults as `config.example.json`, and the panel opens
+in your browser. It looks for a config in this order and uses the first it
+finds: `-config <path>`, `config.json` next to the executable, `config.json`
+in the working directory, then that per-user file. The log and the Spotify
+state file live next to whichever it used. `spotdash.exe -config-path` prints
+which one that is without creating anything. An existing config is never
+replaced, even a broken one: fix it, or point `-config` somewhere else.
 
 The example also has `calendar` and `spotify` blocks, switched off with
 placeholder values. Fill one in and set `"enabled": true` to use it (see
@@ -87,8 +94,9 @@ placeholder values. Fill one in and set `"enabled": true` to use it (see
 and again on **Reload config** in the tray or when the settings page is
 saved. Any other edit needs one of those, or a restart.
 
-Open `http://localhost:8765/?token=<your token>`. The agent won't start
-without a token in `config.json` (which is gitignored, keep it that way).
+Open `http://localhost:8765/?token=<your token>`. The agent won't start with
+an empty or placeholder token in `config.json` (which is gitignored, keep it
+that way).
 
 For the shell, spin up the matching emulator and install the app:
 
@@ -165,9 +173,10 @@ Tag a version (`git tag v0.1.0 && git push --tags`) and CI cross-compiles
 `spotdash.exe` and attaches it to a GitHub Release, no local Go toolchain
 needed to just run it. The zip has `spotdash.exe` (no console window, version
 taken from the tag), `config.example.json`, `tools\autostart.ps1` and the
-licence. Unzip it, copy `config.example.json` to `config.json` and set a
-token, then run `spotdash.exe`. A tag with a hyphen, such as `v0.2.0-rc1`,
-is marked as a pre-release.
+licence. Unzip it and run `spotdash.exe`: on first run it creates its own
+config with a generated token (see "Getting it running") and opens the panel.
+`config.example.json` is there as a reference for the settings. A tag with a
+hyphen, such as `v0.2.0-rc1`, is marked as a pre-release.
 
 The exe is not code signed, this is a one-person desk toy and a signing
 certificate is not worth the cost. SmartScreen will flag it as an unrecognised

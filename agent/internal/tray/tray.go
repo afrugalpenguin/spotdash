@@ -43,6 +43,10 @@ type Options struct {
 // Icon is the tray image, exported so a caller can reuse it.
 func Icon() []byte { return iconICO }
 
+// OpenInBrowser launches the default browser, for a caller outside the tray such
+// as a first run that has just created its config.
+func OpenInBrowser(target string) error { return openInBrowser(target) }
+
 // openInBrowser launches the default browser.
 //
 // Windows needs the shell to resolve the default handler, and "start" is a
