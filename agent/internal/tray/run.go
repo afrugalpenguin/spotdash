@@ -2,6 +2,7 @@ package tray
 
 import (
 	"log/slog"
+	"os"
 
 	"fyne.io/systray"
 )
@@ -37,6 +38,7 @@ func onReady(opts Options, log *slog.Logger) {
 	openItem := systray.AddMenuItem("Open UI", "Open the dashboard in your browser")
 	optionsItem := systray.AddMenuItem("Options", "Change panel settings, such as the accent colour")
 	reloadItem := systray.AddMenuItem("Reload config", "Re-read config.json")
+	logItem := systray.AddMenuItem("View log", "Open spotdash.log")
 	systray.AddSeparator()
 	quitItem := systray.AddMenuItem("Quit", "Stop the agent")
 
@@ -72,6 +74,19 @@ func onReady(opts Options, log *slog.Logger) {
 					continue
 				}
 				log.Info("configuration reloaded from the tray")
+
+			case <-logItem.ClickedCh:
+				if opts.LogPath == "" {
+					log.Warn("cannot open the log, there is no log file")
+					continue
+				}
+				if _, err := os.Stat(opts.LogPath); err != nil {
+					log.Warn("cannot open the log", "path", opts.LogPath, "error", err)
+					continue
+				}
+				if err := openLog(opts.LogPath); err != nil {
+					log.Error("could not open the log", "path", opts.LogPath, "error", err)
+				}
 
 			case <-quitItem.ClickedCh:
 				log.Info("quit chosen from the tray")

@@ -106,6 +106,7 @@ func run() error {
 		Controller: agent,
 		Version:    version,
 		Log:        log,
+		LogPath:    logPath,
 	})
 
 	return finish(agent, log)
