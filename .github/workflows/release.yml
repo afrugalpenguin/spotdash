@@ -1,0 +1,47 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: agent/go.mod
+
+      # No cgo in the shipped binary, so this cross-compiles from Linux.
+      # -H=windowsgui is what stops it opening a console window at login.
+      - name: Build spotdash.exe
+        working-directory: agent
+        env:
+          GOOS: windows
+          GOARCH: amd64
+          CGO_ENABLED: "0"
+        run: |
+          go build -trimpath -ldflags "-s -w -H=windowsgui -X main.version=${GITHUB_REF_NAME}" -o spotdash.exe ./cmd/spotdash
+
+      - name: Package release zip
+        run: |
+          mkdir -p dist/tools
+          cp agent/spotdash.exe dist/
+          cp agent/config.example.json dist/
+          cp agent/tools/autostart.ps1 dist/tools/
+          cp LICENSE dist/
+          cd dist && zip -r ../spotdash-${GITHUB_REF_NAME}-windows-amd64.zip .
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: spotdash-${{ github.ref_name }}-windows-amd64.zip
+          generate_release_notes: true
+          # A tag such as v0.2.0-rc1 is a pre-release, not the latest.
+          prerelease: ${{ contains(github.ref_name, '-') }}
