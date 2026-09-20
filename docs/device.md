@@ -6,7 +6,7 @@ Command blocks below are for cmd on Windows unless they say PowerShell.
 
 ## 0. Get LineageOS onto the device
 
-No official build for `rook` (Echo Spot 2017). These two XDA threads:
+No official build for `rook` (Echo Spot 2017). [`docs/rooting.md`](rooting.md) walks from a stock device to LineageOS, building on these two XDA threads:
 
 - [\[UNLOCK\]\[ROOT\]\[TWRP\]\[UNBRICK\] Amazon Echo Spot 2017 (rook)](https://xdaforums.com/t/unlock-root-twrp-unbrick-amazon-echo-spot-2017-rook.4754878/) - bootloader unlock + TWRP, do first.
 - [\[ROM\]\[UNOFFICIAL\]\[11\]\[rook\] LineageOS 18.1](https://xdaforums.com/t/rom-unofficial-11-rook-lineageos-18-1-for-the-amazon-echo-spot-2017.4762459/) - flash through TWRP.
