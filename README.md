@@ -123,14 +123,35 @@ Full config keys and setup steps are in `docs/architecture.md`.
 
 ## Running it automatically
 
+Build the everyday binary. It has no console window, which is what you want
+for a tray app that starts at login:
+
 ```powershell
 cd agent
-.\tools\autostart.ps1 -Install
+.\tools\build.ps1
 ```
 
-Registers a scheduled task at logon (tray icon included, not a service, a
-service has no desktop session to put a tray on). `-Status` and
-`-Uninstall` do what you'd expect.
+Run `agent\spotdash.exe` and tick **Start with Windows** in its tray menu.
+That adds one value to your own login list (no admin rights), and unticking
+removes it. It won't let you tick it for a copy running from a temp folder,
+such as `go run`, since that won't exist at next login. To remove it by
+hand:
+
+```bat
+reg delete HKCU\Software\Microsoft\Windows\CurrentVersion\Run /v spotdash /f
+```
+
+There is no console, so everything goes to `spotdash.log` next to
+`config.json`, including why it failed to start. **View log** in the tray
+menu opens it. A second copy exits quietly with a line in that log.
+Relative paths in `config.json` (such as Spotify's `state_file`) mean next
+to `config.json`, wherever it was started from.
+
+Prefer a scheduled task (restart on failure, a 15 second delay after logon)?
+`.\tools\autostart.ps1 -Install` registers one instead (`-Status` and
+`-Uninstall` do what you'd expect). It is not a service, a service has no
+desktop session to put a tray on. Use one or the other. Running both is
+safe, the second copy just exits.
 
 ## Security
 

@@ -64,6 +64,8 @@ Validation is strict and total: missing file, invalid JSON, unknown top-level ke
 
 Log file lives next to the resolved config file.
 
+Relative file paths in a source (spotify `state_file`, mock `art_file`) resolve against the directory `config.json` is in, never the working directory, which the agent does not control when it starts at login. `config.Load` hands each source that directory as `Source.Dir`; it is not written back by `Save`. Absolute paths are used as written.
+
 ### Source settings reference
 
 Every source block takes `enabled` (bool) and `interval_ms` (int, required > 0 when enabled), plus whatever's below.
@@ -87,11 +89,11 @@ Every source block takes `enabled` (bool) and `interval_ms` (int, required > 0 w
 | `artist`        | string | mock   | Optional.                                                            |
 | `album`         | string | mock   | Optional.                                                            |
 | `duration_ms`   | int    | mock   | Required with `mode: "mock"`, must be positive. Track length in ms. |
-| `art_file`      | string | mock   | Optional path to a local image, served as the mock's album art.     |
+| `art_file`      | string | mock   | Optional path to a local image, served as the mock's album art. Relative to `config.json`'s directory. |
 | `paused`        | bool   | mock   | Optional, default `false`.                                          |
 | `client_id`     | string | api    | Required. Spotify app's Client ID (no secret, PKCE).                 |
 | `redirect_uri`  | string | api    | Required. Must exactly match the Spotify app's configured redirect. |
-| `state_file`    | string | api    | Required. Where the refresh token is persisted (not `config.json`). The cover art cache sits next to it. A relative path is relative to the working directory, not to `config.json`. |
+| `state_file`    | string | api    | Required. Where the refresh token is persisted (not `config.json`). The cover art cache sits next to it. A relative path is relative to the directory `config.json` is in, not the working directory. |
 
 **`calendar`** - `mode` is required, no default.
 
@@ -337,9 +339,15 @@ Reload replaces the whole running config (listen/token/sources can all change) -
 
 Shutdown: stop accepting requests, close connections, stop sources, wait for their goroutines. Ctrl+C and tray Quit converge here; a signal also kills the tray.
 
+One agent per config: `internal/instance` takes a named mutex keyed on the config path (Local namespace, so per user session). A second copy logs "another spotdash is already running for this config" and exits 0 - zero so a scheduled task set to restart on failure does not respawn it. A development copy with its own config still runs.
+
+Start with Windows is a tray checkbox backed by one value under `HKCUSoftwareMicrosoftWindowsCurrentVersionRun` (`internal/autostart`): the quoted absolute path of the running binary, no admin rights. The tick is read from the registry, not remembered, and refreshed on every click and every few seconds, since systray gives no menu-open event on Windows. It refuses, with the reason in the menu text, when the binary is under the temp directory, which is where `go run` builds. The registry sits behind an interface so the logic is tested without it.
+
 ## Logging
 
-Structured, to stderr and a rotating file next to the binary. Every source poll logged at debug with outcome + duration.
+Structured, to stderr and a rotating file next to the config. Every source poll logged at debug with outcome + duration.
+
+The release build (`agent/tools/build.ps1`, `-H=windowsgui`) has no console, so its stderr is dead and the file is the only record. Stderr writes are best effort so a dead one cannot starve the file (`io.MultiWriter` stops at the first error), and startup failures - bad JSON, an empty or placeholder token, no config, a busy port - are written to the file before the process exits 1. The tray's "View log" opens it.
 
 ## Non-goals for phase 1
 

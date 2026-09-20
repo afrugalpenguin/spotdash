@@ -35,7 +35,9 @@ their own `config.json` at it. Takes about five minutes.
 ```
 
 `state_file` is where the agent writes your refresh token once you connect;
-it's gitignored, same as `config.json`.
+it's gitignored, same as `config.json`. A relative path like this one is
+relative to the folder `config.json` is in, wherever the agent is started
+from, so it still finds your connection when started at login.
 
 ## 3. Connect
 
