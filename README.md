@@ -97,8 +97,10 @@ adb shell am start -n dev.spotdash.shell/.PanelActivity
 ```
 
 Long-press the display for 3 seconds to enter the agent URL and token
-(from the emulator that's `http://10.0.2.2:8765`). That's the only UI the
-shell has, there's no other input on the real device.
+(from the emulator that's `http://10.0.2.2:8765`). The same screen has a
+Wi-Fi button that opens Android's own Wi-Fi settings, for a device that
+moves network. That's the only UI the shell has, there's no other input on
+the real device.
 
 Want to work on faces without running the agent at all? Open
 `agent/web/dev.html` directly, it's got a toolbar for switching faces and

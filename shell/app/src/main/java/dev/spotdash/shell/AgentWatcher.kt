@@ -38,8 +38,13 @@ class AgentWatcher(
     fun start() {
         if (running) return
         running = true
+        // The failure clock starts over, but a down agent stays down across a
+        // stop and start. The watcher is stopped whenever the panel is paused,
+        // such as while the Wi-Fi settings are open, and forgetting that the
+        // agent was down would let a load that never finished hide the fallback
+        // again. Coming back up is still reported: the first good probe sees
+        // reportedDown and calls onUp.
         firstFailureAt = 0L
-        reportedDown = false
         main.post(pollTask)
     }
 

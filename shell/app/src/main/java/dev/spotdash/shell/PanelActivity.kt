@@ -1,6 +1,8 @@
 package dev.spotdash.shell
 
 import android.annotation.SuppressLint
+import android.content.ActivityNotFoundException
+import android.content.Intent
 import android.graphics.Color
 import android.os.Build
 import android.os.Bundle
@@ -23,6 +25,7 @@ import android.widget.Button
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
+import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 
 /**
@@ -51,6 +54,11 @@ class PanelActivity : AppCompatActivity() {
     // Whether the agent is down is asked of the watcher instead, for loads that
     // never fail at all, they just hang.
     private var pageFailed = false
+
+    // Set when the Wi-Fi settings screen was opened, so coming back from it can
+    // try the panel again straight away instead of waiting out a backoff that
+    // was worked up while the network was down.
+    private var wifiOpened = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -113,6 +121,14 @@ class PanelActivity : AppCompatActivity() {
         goFullscreen()
         if (settings.isConfigured) {
             watcher.start()
+        }
+        if (wifiOpened) {
+            wifiOpened = false
+            if (settings.isConfigured && fallback.visibility == View.VISIBLE) {
+                Log.i(TAG, "back from the wifi settings, retrying the panel")
+                backoff.reset()
+                loadPanel()
+            }
         }
     }
 
@@ -343,12 +359,33 @@ class PanelActivity : AppCompatActivity() {
 
     private fun openSettings() {
         if (supportFragmentManager.findFragmentByTag(SettingsSheet.TAG) != null) return
-        SettingsSheet { saved ->
+        SettingsSheet(onWifi = { openWifiSettings() }) { saved ->
             if (saved) {
                 Log.i(TAG, "settings saved, reloading")
                 hideFallbackAndReload()
             }
         }.show(supportFragmentManager, SettingsSheet.TAG)
+    }
+
+    /**
+     * Hands over to Android's own Wi-Fi settings.
+     *
+     * The system screen already lists nearby networks, takes the password, and
+     * handles WPA2 and WPA3, hidden networks and forgetting one, which a screen
+     * of our own would have to rebuild. On API 30 the alternatives do not fit an
+     * app that is not the system: WifiManager.addNetwork is ignored for apps
+     * targeting API 29 or later, and a network request only connects this
+     * process rather than the device.
+     */
+    private fun openWifiSettings() {
+        wifiOpened = true
+        try {
+            startActivity(Intent(android.provider.Settings.ACTION_WIFI_SETTINGS))
+        } catch (error: ActivityNotFoundException) {
+            wifiOpened = false
+            Log.w(TAG, "this device has no wifi settings screen", error)
+            Toast.makeText(this, R.string.wifi_unavailable, Toast.LENGTH_LONG).show()
+        }
     }
 
     @Suppress("DEPRECATION")

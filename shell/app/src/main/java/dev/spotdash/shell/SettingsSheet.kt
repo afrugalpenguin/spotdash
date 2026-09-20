@@ -13,7 +13,8 @@ import android.widget.TextView
 import androidx.appcompat.app.AppCompatDialogFragment
 
 /**
- * The settings screen: agent URL and token.
+ * The settings screen: agent URL and token, and a way into the system Wi-Fi
+ * settings.
  *
  * Built in code rather than from a layout file because it is two fields on a
  * 480px circle, and because the shell is meant to stay small enough to read in
@@ -23,6 +24,7 @@ import androidx.appcompat.app.AppCompatDialogFragment
  * no buttons and no keyboard worth using.
  */
 class SettingsSheet(
+    private val onWifi: () -> Unit = {},
     private val onClosed: (saved: Boolean) -> Unit = {},
 ) : AppCompatDialogFragment() {
 
@@ -62,6 +64,15 @@ class SettingsSheet(
             gravity = Gravity.CENTER
         }
 
+        // The shell is the launcher, so without this there is no way to reach
+        // Android's own Wi-Fi settings short of adb. Kept on this screen because
+        // it works with nothing configured: a device that cannot reach the agent
+        // is exactly when it is needed.
+        val wifiButton = Button(activity).apply {
+            text = getString(R.string.settings_wifi)
+            setOnClickListener { onWifi() }
+        }
+
         val saveButton = Button(activity).apply {
             text = getString(R.string.settings_save)
         }
@@ -87,6 +98,7 @@ class SettingsSheet(
             addView(title)
             addView(urlField)
             addView(tokenField)
+            addView(wifiButton)
             addView(buttons)
         }
 
