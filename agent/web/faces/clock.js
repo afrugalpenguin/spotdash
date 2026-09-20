@@ -1,18 +1,11 @@
-// Clock face. Digital by default: large time, small date, and a seconds arc
-// on the rim. clockStyle "analogue" on the panel state swaps the centre for
-// a drawn clock face with hour/minute/second hands instead, still on the
-// same rim.
-//
-// The rim arc is the same structural device every other face uses: the rim
-// carries the quantity, the centre carries the reading.
+// Clock face. Digital by default: time, date and a seconds arc on the rim.
+// clockStyle "analogue" swaps the centre for a dial with hands.
 
 import { createRim, RIM_CIRCUMFERENCE, RIM_RADIUS, setArc } from "./rim.js";
 import { urgency, formatCountdown } from "./calendar.js";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
-// Centre and radius match the rim's own 480x480 viewBox and RIM_RADIUS, so
-// the hands read as pointing at the rim's ticks rather than floating free of
-// them at a different scale.
+// Centre and radii match the rim's 480x480 viewBox and RIM_RADIUS.
 const CENTER = 240;
 const HAND_RADII = { hour: 120, minute: 168, second: 200 };
 
@@ -30,18 +23,15 @@ let nextCountdownEl = null;
 let analogueNextEl = null;
 let infoEl = null;
 
-// The calendar reading, kept only so paintNext can recompute the countdown
-// on every clock tick (once a second) rather than running a second local
-// ticker: the clock source already provides that heartbeat for free.
-// Ported from the old overview.js face.
+// The calendar reading, kept so paintNext can recompute the countdown on
+// each clock tick. This face needs no ticker of its own.
 let calendarData = null;
 let calendarSyncedAt = 0;
 let hideNextEvent = false;
 
-// handAngles turns a "HH:MM" reading and a seconds count into degrees of
-// clockwise rotation from twelve o'clock, one per hand. Pure so the sweep
-// math can be tested without a DOM: get the hour hand's fraction through the
-// current hour wrong and it visibly snaps instead of sweeping.
+// handAngles turns a "HH:MM" reading and a seconds count into degrees
+// clockwise from twelve o'clock, one per hand. Pure, so it is tested without
+// a DOM.
 export function handAngles(time, seconds) {
   const match = /^(\d{1,2}):(\d{2})$/.exec(time || "");
   if (!match) {
@@ -58,11 +48,8 @@ export function handAngles(time, seconds) {
   };
 }
 
-// tickMarks returns all sixty minute positions as degrees clockwise from
-// twelve o'clock, each flagged major at the twelve hour positions (drawn
-// longer and bolder, the same weight distinction a real watch face uses).
-// Sixty rather than twelve reads as an instrument face rather than a plain
-// dial - it is what the numerals below sit inside of.
+// tickMarks returns the sixty minute positions in degrees clockwise from
+// twelve o'clock. The twelve hour positions are flagged major.
 export function tickMarks() {
   const ticks = [];
   for (let i = 0; i < 60; i += 1) {
@@ -71,10 +58,8 @@ export function tickMarks() {
   return ticks;
 }
 
-// hourNumerals returns the twelve hour labels in clock order, starting at
-// twelve, each with the angle its tick sits at. Rendered upright rather than
-// rotated with the tick: a clock's numerals always read right-way-up, only
-// their position goes around the dial.
+// hourNumerals returns the twelve labels from twelve onward, each with its
+// tick angle. They are drawn upright.
 export function hourNumerals() {
   const numerals = [];
   for (let i = 0; i < 12; i += 1) {
@@ -83,10 +68,8 @@ export function hourNumerals() {
   return numerals;
 }
 
-// compactNextEventLabel is the analogue face's one-line next-up text: no
-// room for a stacked title-then-countdown block in the hub-to-numeral gap,
-// so both live on one line, joined by a middle dot the way a watch's
-// complications get abbreviated.
+// compactNextEventLabel is the analogue next-up text. The gap between hub
+// and numerals only fits one line.
 export function compactNextEventLabel(title, minutesUntil) {
   return `${title} · ${formatCountdown(minutesUntil)}`;
 }
@@ -104,10 +87,7 @@ function createTick(tick) {
   return mark;
 }
 
-// NUMERAL_RADIUS sits inside the ticks, clear of the hour and minute hands'
-// own lengths. The second hand alone reaches past it, close to the ticks -
-// same as a real watch face, where only the thin second hand sweeps over
-// the numerals.
+// NUMERAL_RADIUS sits inside the ticks. Only the second hand reaches past it.
 const NUMERAL_RADIUS = 184;
 
 function createNumeral(numeral) {
@@ -122,9 +102,8 @@ function createNumeral(numeral) {
   return text;
 }
 
-// A hand is a plain straight stroke with a rounded tip, running only from
-// the centre outward - no back-tail, no taper. Width is what tells hour
-// from minute from second apart, the same as a real clock's hands.
+// A hand is a straight stroke from the centre outward. Width tells the three
+// apart.
 function createHand(className, length) {
   const hand = document.createElementNS(SVG_NS, "line");
   hand.setAttribute("class", className);
@@ -139,10 +118,8 @@ function setHand(hand, degrees) {
   if (!hand) {
     return;
   }
-  // Rotate first (the hand's points are defined around its own origin),
-  // then move that origin to the dial's centre: composed in that order so
-  // the rotation happens in hand-local space rather than around the corner
-  // of the viewBox.
+  // The transform list applies right to left: rotate about the hand's own
+  // origin, then translate to the dial centre.
   hand.setAttribute("transform", `translate(${CENTER} ${CENTER}) rotate(${degrees})`);
 }
 
@@ -184,12 +161,8 @@ export function render(container, state) {
 
     container.appendChild(hands);
 
-    // Not wrapped in .face: .face is positioned and sized for the digital
-    // layout's centred text block, but this info sits low in the circle
-    // (or, once a next event is showing, in the open disc between the hub
-    // and the numeral ring), clear of the hands, the same way .rim and
-    // #connection are positioned straight off #panel rather than through
-    // .face.
+    // Not wrapped in .face, which is sized for the digital layout. This
+    // block is positioned straight off #panel like .rim and #connection.
     const info = document.createElement("div");
     info.className = "clock-analogue-info";
 
@@ -263,8 +236,7 @@ export function onState(source, data) {
     dateEl.textContent = data.date || "";
   }
 
-  // Sleep is a panel-wide state rather than a face-local one, so later faces
-  // can dim without each reimplementing it.
+  // Sleep is panel-wide, so other faces can dim without their own logic.
   const panel = document.getElementById("panel");
   if (panel) {
     panel.dataset.sleep = data.sleep ? "true" : "false";

@@ -1,21 +1,15 @@
-/* spotdash panel styles.
- *
- * Target is a 480x480 circular LCD on a weak SoC, viewed at about 60cm. That
- * rules out webfonts, shadows, blurs, and anything that repaints continuously.
- * Everything is drawn with flat colour and SVG strokes. */
+/* spotdash panel styles. Target is a 480x480 circular LCD on a weak SoC
+ * viewed at about 60cm: flat colour and SVG strokes only, no webfonts,
+ * shadows, blurs or continuous repaints. */
 
 :root {
-  /* True black, not a tinted near-black. The sleep state needs real black, and
-   * a dark room needs no glare. */
+  /* True black. The sleep state needs it. */
   --black: #000000;
-  /* The unlit rim track. Visible enough to read as a track, dim enough to
-   * disappear when nothing is on it. Hue-biased toward --live, the same
-   * reasoning a chosen neutral always follows here. */
+  /* The unlit rim track, biased toward --live. */
   --track: #171b21;
   --text: #edf1ee;
   --muted: #76878a;
-  /* Resting signal. Cool on purpose: the alert colours below are warm, so a
-   * warning is unmistakable at a glance rather than a hue judgement. */
+  /* Resting signal. Cool, so the warm alert colours stand out. */
   --live: #4e9eea;
   --warn: #f0a63c;
   --alert: #e04e3c;
@@ -36,8 +30,7 @@ body {
   background: var(--black);
   color: var(--text);
   overflow: hidden;
-  /* No webfont. A panel that depends on fetching a font renders wrong exactly
-   * when the network is down, which is when you are looking at it. */
+  /* No webfont. A fetched font renders wrong when the network is down. */
   font-family: ui-sans-serif, system-ui, "Segoe UI", Roboto, "Helvetica Neue",
     Arial, sans-serif;
   font-variant-numeric: tabular-nums;
@@ -57,12 +50,9 @@ body {
   overflow: hidden;
 }
 
-/* The rim. One SVG per face, absolutely positioned so face content can sit on
- * top of it without affecting layout. */
-/* Explicit offsets rather than the inset shorthand. LineageOS 18.1 ships a
- * WebView around Chromium 83, which predates inset. It happens to render
- * correctly there anyway because of the width and height below, which is
- * exactly the kind of accident that stops being true after one layout change. */
+/* The rim. One SVG per face, absolutely positioned under the content. */
+/* Explicit offsets, not the inset shorthand. See docs/architecture.md,
+ * "Layout". */
 .rim {
   position: absolute;
   top: 0;
@@ -110,8 +100,7 @@ body {
   text-align: center;
 }
 
-/* Tap zones. Left half previous, right half next. No hover states: there is no
- * pointer on the device. */
+/* Tap zones. Left half previous, right half next. No hover states. */
 .zone {
   position: absolute;
   top: 0;
@@ -137,18 +126,15 @@ body {
   right: 0;
 }
 
-/* A tap leaves the zone focused, and the WebView then draws its own focus ring.
- * The circular clip hides three of its four edges, so it appears as a stray
- * vertical line down the middle of the panel. Keyboard focus still gets a ring,
- * because that one is navigation rather than an artefact of touching the glass. */
+/* A tap leaves the zone focused and the WebView draws a ring, which the
+ * circular clip turns into a stray vertical line. Keyboard focus keeps
+ * its ring. */
 .zone:focus {
   outline: none;
 }
 
-/* Chromium 83 does not know :focus-visible, so this rule is simply ignored on
- * the device. That is the right way round: the rule above removes the ring a
- * tap would leave behind, and this one restores it for keyboard navigation in a
- * desktop browser, which is where the developing happens. */
+/* Chromium 83 ignores :focus-visible, so this restores the ring for
+ * keyboard use in a desktop browser only. */
 .zone:focus-visible {
   outline: 2px solid var(--live);
   outline-offset: -4px;
@@ -195,13 +181,9 @@ body {
   margin: 14px 0 0;
 }
 
-/* Analogue clock face. Hands are a second full-panel SVG, the same absolute
- * sizing as .rim and deliberately not nested inside .face: .face's
- * translate(-50%, -50%) creates a stacking context that has already once
- * silently trapped a descendant's z-index against a sibling (see the
- * calendar agenda's scroll gesture in docs/architecture.md), so anything
- * that has to draw across the whole circle sits alongside .face, not
- * inside it. */
+/* Analogue hands are a second full-panel SVG beside .face, not inside it.
+ * The .face transform makes a stacking context (see the CSS gotcha in
+ * docs/architecture.md, "Faces"). */
 .clock-hands {
   position: absolute;
   top: 0;
@@ -223,9 +205,7 @@ body {
   stroke-width: 2;
 }
 
-/* Upright labels at each hour, the dial's primary markers - the ticks are
- * secondary texture once these are on, the reverse of the plain-tick-only
- * first pass of this face. */
+/* Upright hour labels. Once present they are the primary markers. */
 .clock-numeral {
   fill: var(--text);
   font-size: 22px;
@@ -233,9 +213,7 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
-/* Plain straight hands, rounded tip, running only outward from the hub -
- * no taper, no back-tail. Width is what separates hour from minute from
- * second, not shape. */
+/* Plain straight hands with a rounded tip. Width tells them apart. */
 .clock-hand {
   stroke: var(--text);
   stroke-linecap: round;
@@ -251,13 +229,10 @@ body {
 }
 
 .clock-hand-second {
-  /* Pale like the other hands, not the live accent colour - the dial reads
-   * as one monochrome instrument rather than the second hand standing out
-   * as a status indicator it isn't. */
+  /* Pale like the other hands, so the dial reads as one instrument. */
   stroke: var(--text);
   stroke-width: 2;
-  /* The second hand jumps once a second, same as the rim's own seconds arc
-   * on the digital face; easing it would make it lag a real reading. */
+  /* The second hand jumps once a second like the digital seconds arc. */
   transition: none;
 }
 
@@ -265,18 +240,14 @@ body {
   fill: var(--text);
 }
 
-/* The connection dot's fixed bottom position sits right on the 6 o'clock
- * tick on this face alone (every other face has open space there); nudge
- * it up into the gap between the tick and the "6" numeral instead of
- * moving it panel-wide. */
+/* The connection dot sits on the 6 o'clock tick on this face only, so
+ * nudge it up into the gap above the "6". */
 #panel:has(.clock-hands) #connection {
   bottom: 33px;
 }
 
-/* The date is all .face holds in analogue mode (the hands take the centre),
- * so it sits low in the circle rather than dead centre, clear of the hands
- * at every hour - unless a next event is showing, in which case
- * .clock-analogue-info.has-next moves the whole block inward instead. */
+/* The date sits low in the circle, clear of the hands. With a next event,
+ * .clock-analogue-info.has-next moves the block inward. */
 .clock-analogue-info {
   position: absolute;
   left: 50%;
@@ -289,15 +260,9 @@ body {
   margin: 0;
 }
 
-/* Moved into the open disc between the hub and the numeral ring, centred
- * in its lower half - furthest from the ticks and numerals, closest to
- * where a real watch's date-wheel complication sits. The hands (drawn
- * earlier in the DOM, so this sits later in paint order, on top of them)
- * are meant to sweep fully behind this text as they pass, same as a watch
- * complication - an opaque backing is what actually delivers that: without
- * one, the div's own background stays transparent, and a hand shows
- * straight through the empty space around and between the thin glyphs,
- * reading as "cutting through the text" rather than "behind it". */
+/* Moved into the open disc between hub and numerals. The hands paint
+ * earlier, so the text draws over them. The opaque backing hides a
+ * hand behind the text instead of showing it between the glyphs. */
 .clock-analogue-info.has-next {
   bottom: auto;
   top: 300px;
@@ -338,10 +303,8 @@ body {
   }
 }
 
-/* The clock face's next-up line, shown under the date when calendar
- * integration is on (hide_next_event false) and something is upcoming.
- * Hidden entirely (not just empty) when there is nothing scheduled, so an
- * idle calendar costs no vertical space under the date. */
+/* The clock's next-up line under the date. Hidden entirely when nothing
+ * is scheduled, so it takes no space. */
 .clock-next {
   display: flex;
   flex-direction: column;
@@ -375,8 +338,7 @@ body {
   color: var(--alert);
 }
 
-/* Sleep. The panel goes to real black with one dim dot, so it reads as resting
- * rather than as a dead screen. */
+/* Sleep. Real black with one dim dot, so it reads as resting. */
 #panel[data-sleep="true"] .clock-time,
 #panel[data-sleep="true"] .clock-date,
 #panel[data-sleep="true"] .clock-hands,
@@ -403,9 +365,7 @@ body {
   display: block;
 }
 
-/* Status face. This is the debug face, so it is dense by design: completeness
- * beats glanceability here. Rows share a left edge because a list is scanned,
- * not read. */
+/* Status face. The debug view, so dense: completeness over glanceability. */
 .status {
   text-align: left;
   font-size: 17px;
@@ -421,10 +381,8 @@ body {
 .status-row {
   display: flex;
   align-items: baseline;
-  /* Not flex gap: LineageOS 18.1 ships a WebView around Chromium 83, which
-   * predates flex gap support (added in 84) and silently ignores it rather
-   * than erroring, so items render with no space at all. The sibling
-   * margin below works everywhere. */
+  /* Not flex gap: Chromium 83 ignores it, so items render with no space.
+   * Sibling margins work everywhere. See docs/architecture.md, "Layout". */
   padding: 3px 0;
 }
 
@@ -476,9 +434,7 @@ body {
 .status-footer {
   display: flex;
   justify-content: space-between;
-  /* No gap: space-between alone separates its two items correctly even on
-   * the Chromium 83 WebView that does not support flex gap; unlike the
-   * other rows here this one needs no sibling-margin replacement. */
+  /* No gap needed: space-between separates the two items. */
   color: var(--muted);
   font-size: 14px;
   border-top: 1px solid var(--track);
@@ -496,8 +452,7 @@ body {
   padding: 10px 0;
 }
 
-/* A face that throws is contained and reported rather than taking the panel
- * down. */
+/* A face that throws is contained and reported. */
 .face-error {
   color: var(--alert);
   font-size: 15px;
@@ -512,8 +467,7 @@ body {
   }
 }
 
-/* Telemetry face. Four gauges on the rim carry the reading you take from
- * across the room; the numbers are for when you have actually looked. */
+/* Telemetry face. The gauges are read from across the room. */
 .gauge-readout {
   position: absolute;
   transform: translate(-50%, -50%);
@@ -588,21 +542,12 @@ body {
   margin: 8px 0 0;
 }
 
-/* Calendar face. The primary event in one card, the way a single event
- * reads in a calendar app's day view rather than as bare text floating in
- * the circle, with a short scrollable agenda underneath. The rim fills as
- * the event approaches within its lookahead window; the card's border and
- * the countdown's colour step through the same live/warn/alert vocabulary
- * the telemetry gauges use, so the whole face reads "how urgent" at a
- * glance. */
+/* Calendar face. The primary event sits in one card above a short
+ * scrollable agenda. The card border and countdown colour step through
+ * the same live/warn/alert levels as the telemetry gauges. */
 .calendar {
-  /* Overrides .face, the same reasoning and the same fix .spotify uses:
-   * .face centres its content with transform, which creates a new CSS
-   * stacking context and traps any z-index set on a descendant (such as
-   * .calendar-agenda, which needs to out-rank .zone to receive scroll
-   * gestures) inside it, unable to actually compete with a sibling of
-   * .face like .zone. Positioned and centred without transform instead,
-   * so a descendant's z-index means what it says. */
+  /* Overrides .face, as .spotify does. The .face transform makes a stacking
+   * context that traps .calendar-agenda's z-index below .zone. */
   position: absolute;
   top: 0;
   left: 0;
@@ -688,24 +633,17 @@ body {
   color: var(--alert);
 }
 
-/* The rest of the agenda: quieter than the pill, and taking no space at all
- * when there is nothing after the primary event. */
+/* The rest of the agenda. Takes no space when nothing follows. */
 .calendar-agenda {
-  /* Needs its own stacking order for the same reason .spotify-controls
-   * does: the panel's left/right face-switch tap zones (.zone) are
-   * z-index 3 and would otherwise sit above this and swallow the scroll
-   * gesture before it ever reaches the list underneath. */
+  /* Needs its own stacking order above .zone, as .spotify-controls does,
+   * or .zone swallows the scroll gesture. */
   position: relative;
   z-index: 6;
   list-style: none;
   width: 100%;
   max-width: 280px;
-  /* Bounded and scrollable rather than growing with however many events
-   * the source sends: the pill above already uses most of the circle's
-   * safe area, and AgendaSize allows up to 7 entries here. Touch scroll on
-   * an overflow:auto element is native WebView behaviour, nothing to wire
-   * up. The visible ~2.5 rows is a deliberate hint that there is more
-   * below, the same way a partially cut-off list item reads anywhere else. */
+  /* Bounded and scrollable, since AgendaSize allows 7 entries. Showing about
+   * 2.5 rows hints that there is more below. */
   max-height: 98px;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
@@ -716,12 +654,7 @@ body {
 .calendar-agenda-row {
   display: flex;
   align-items: baseline;
-  /* Left-aligned within the row, deliberately not centred: the row's own
-   * box is already centred on screen (.calendar-agenda's max-width and
-   * margin: auto), but centring each row's content independently on top
-   * of that would stagger the left edge by however long each title is,
-   * which reads as messy rather than tidy. A shared left edge for the
-   * time column reads as one aligned list instead. */
+  /* Left-aligned so the time column shares one left edge. */
   /* Not flex gap: see the note on .status-row. */
   padding: 7px 6px;
   border-top: 1px solid rgba(237, 241, 238, 0.08);
@@ -744,10 +677,8 @@ body {
   color: #b9c0c6;
 }
 
-/* Spotify face. Two layouts: the cover as a disc concentric with the progress
- * rim, which keeps type on flat black and is the more legible at 60cm, or the
- * cover filling the panel, which has more presence and depends on the sleeve
- * being dark where the type sits. Choose with ?layout=fill. */
+/* Spotify face. Two layouts: the cover as a disc concentric with the
+ * rim, or the cover filling the panel. Chosen with ?layout=. */
 .spotify {
   /* Overrides .face, which centres a 320px box. Both layouts need the panel. */
   position: absolute;
@@ -776,9 +707,8 @@ body {
   object-fit: cover;
 }
 
-/* The scrim is what makes type legible over a sleeve. A flat gradient rather
- * than a blur: blurring a 480px image on every track change is real work on a
- * MediaTek SoC and buys no legibility a gradient does not already give. */
+/* The scrim keeps type legible over a sleeve. A gradient is cheaper than
+ * blurring a 480px image on each track change. */
 .spotify-scrim {
   position: absolute;
   top: 0;
@@ -817,28 +747,23 @@ body {
   line-height: 1.1;
   margin: 0;
   max-width: 300px;
-  /* Real track names overrun the safe area. Two lines then clamp beats a
-   * shrinking type size, and beats a marquee that never stops moving on a panel
-   * you only glance at. */
+  /* Track names overrun the safe area. Clamp to two lines. */
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
 
-/* Transport row: previous, play/pause, next. Sits under the title in normal
- * flex flow, but needs its own stacking order: the panel's left/right
- * face-switch tap zones (.zone) are z-index 3 and would otherwise swallow a
- * tap meant for a button underneath them. position: relative is required for
- * z-index to apply to a flex child at all. */
+/* Transport row. It needs a stacking order above .zone (z-index 3), or a
+ * tap would switch faces. z-index needs position: relative on a flex
+ * child. */
 .spotify-controls {
   position: relative;
   z-index: 6;
   display: flex;
   align-items: center;
   justify-content: center;
-  /* Not flex gap: see the note on .status-row. Without this fix the three
-   * buttons render edge to edge with no space at all. */
+  /* Not flex gap: see the note on .status-row. */
   margin: 14px 0 0;
 }
 
@@ -866,16 +791,12 @@ body {
   pointer-events: none;
 }
 
-/* No permanent button chrome, matching the panel's quiet-except-the-rim
- * design elsewhere; a faint fill on tap is enough confirmation that
- * something was pressed. */
+/* No permanent button chrome. A faint fill on tap confirms the press. */
 .spotify-control:active {
   background: rgba(237, 241, 238, 0.12);
 }
 
-/* Same reasoning as .zone: a tap leaves the button focused and the WebView
- * draws its own ring, which lingers after the tap ends. Keyboard focus still
- * gets one, since that is navigation rather than a touch artefact. */
+/* As with .zone: suppress the lingering tap ring, keep keyboard focus. */
 .spotify-control:focus {
   outline: none;
 }
@@ -885,9 +806,7 @@ body {
   outline-offset: 2px;
 }
 
-/* A tap that Spotify rejected, most commonly no active device. Brief and
- * unmissable, since there is nowhere else on the panel for a one-off error
- * like this to show up. */
+/* A tap Spotify rejected, most often for want of an active device. */
 .spotify-control.is-denied {
   color: var(--alert);
 }
@@ -984,16 +903,15 @@ body {
   color: #55606a;
 }
 
-/* With no cover there is nothing for the type to sit under, in either layout,
- * so it centres instead of hugging an edge and leaving a hole. */
+/* With no cover, in either layout, the type centres. */
 .spotify[data-art="none"] .spotify-content {
   justify-content: center;
   padding-top: 0;
   padding-bottom: 0;
 }
 
-/* Paused changes form, not just a word: the cover drops out and the type dims,
- * which reads from across the room before anything is read. */
+/* Paused drops out the cover and dims the type, which reads from across
+ * the room. */
 .spotify.is-paused .spotify-art {
   filter: grayscale(1) brightness(0.42);
 }

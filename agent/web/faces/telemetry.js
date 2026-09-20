@@ -1,9 +1,5 @@
-// Telemetry face: four gauges on the rim, the GPU's temperature and power in
-// the centre.
-//
-// The gauges are what you read from across the room, so they carry colour and
-// nothing else competes with them. The numbers are for when you have actually
-// looked.
+// Telemetry face: four gauges on the rim, GPU temperature and power in the
+// centre. The gauges carry colour for reading across the room.
 
 import { createGaugeRim } from "./rim.js";
 
@@ -13,11 +9,8 @@ const WARN_PERCENT = 80;
 const ALERT_PERCENT = 95;
 const ALERT_TEMPERATURE_C = 83;
 
-// gaugeSeverity classifies a percentage.
-//
-// A missing reading is "absent" rather than 0. An unavailable GPU that rendered
-// as a calm empty gauge would be a lie, and rendering it as a red alarm would
-// be a different lie.
+// gaugeSeverity classifies a percentage. A missing reading is "absent", never
+// 0. See docs/architecture.md, "Colour".
 export function gaugeSeverity(percent) {
   if (typeof percent !== "number" || Number.isNaN(percent)) {
     return "absent";
@@ -61,9 +54,7 @@ export function formatTemperature(celsius) {
 }
 
 // gaugeValues maps a telemetry reading onto the four gauges, in rim order.
-//
-// It never throws. A malformed message should leave gauges empty rather than
-// take the face down.
+// It never throws. A malformed message leaves the gauges empty.
 export function gaugeValues(reading) {
   const safe = reading || {};
   const gpu = safe.gpu || null;
@@ -80,8 +71,7 @@ export function gaugeValues(reading) {
   ];
 }
 
-// Where each gauge's readout sits, matching the quarter of the rim it belongs
-// to. Percentages of the panel, so the CSS stays in one place.
+// Where each gauge's readout sits, matching its quarter of the rim.
 const READOUT_POSITIONS = [
   { top: "27%", left: "72%" },
   { top: "73%", left: "72%" },
@@ -173,8 +163,7 @@ export function onState(source, data) {
   temperatureEl.dataset.severity = gpuTemperatureSeverity(temperature);
   powerEl.textContent = gpu ? formatPower(gpu.power_watts) : "";
 
-  // A missing GPU is stated rather than left to be inferred from two gauges
-  // that happen to be empty.
+  // State a missing GPU outright.
   noticeEl.textContent = gpu ? "" : "no gpu reading";
 }
 

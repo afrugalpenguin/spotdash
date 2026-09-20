@@ -1,9 +1,5 @@
-// spotdash panel bootstrap: token handling, the live feed, and the face
-// manager.
-//
-// The panel holds one state object and mutates it in place. Faces are handed
-// that object once in render and are told when something changed, so no face
-// has to re-read or copy it.
+// Panel bootstrap: token handling, the live feed, and the face manager.
+// Faces get the shared state object once in render and mutate from onState.
 
 import * as clockFace from "./faces/clock.js";
 import * as spotifyFace from "./faces/spotify.js";
@@ -11,46 +7,31 @@ import * as calendarFace from "./faces/calendar.js";
 import * as telemetryFace from "./faces/telemetry.js";
 import * as statusFace from "./faces/status.js";
 
-// Every face that exists, in the order tapping cycles through when none are
-// hidden. clock first because it is what the panel shows most of the time
-// (and, with hide_next_event false, carries the next-up calendar line the
-// same as the old dedicated overview face did); status last because it is
-// the debug face. Titles here have to match config.KnownFaces on the agent
-// side, which is what actually validates hidden_faces.
+// Tap order. Titles must match config.KnownFaces on the agent, which
+// validates hidden_faces.
 const ALL_FACES = [clockFace, calendarFace, spotifyFace, telemetryFace, statusFace];
 
-// The active subset, filtered by state.hiddenFaces via syncFaces(). Plain
-// `let` rather than const: which faces are active can change at runtime,
-// from the settings page, without a page reload.
+// The visible subset. syncFaces reassigns it when settings change.
 let FACES = ALL_FACES;
 let FACE_NAMES = FACES.map((face) => face.title);
 
-// visibleFaces filters allFaces down to whatever is not named in
-// hiddenTitles. Falls back to allFaces if that would hide every face:
-// config.Validate already refuses to save a hidden_faces that hides
-// everything, but this stays defensive against, say, an old cached /health
-// response briefly disagreeing with a config that has since changed.
+// visibleFaces drops the faces named in hiddenTitles. It returns allFaces if
+// that would hide every face, in case a stale /health response disagrees
+// with the config.
 export function visibleFaces(allFaces, hiddenTitles) {
   const hidden = new Set(hiddenTitles || []);
   const visible = allFaces.filter((face) => !hidden.has(face.title));
   return visible.length > 0 ? visible : allFaces;
 }
 
-// Reconnection backoff. Starts fast because the common case is the agent
-// restarting, and settles slowly because the other case is the agent being
-// gone for the evening.
+// Reconnection backoff starts fast for an agent restart and settles slowly
+// for an agent gone for the evening.
 const BACKOFF_MIN_MS = 500;
 const BACKOFF_MAX_MS = 15000;
 const HEALTH_INTERVAL_MS = 5000;
 
-// A live connection has been observed, on this device, to go silently stale:
-// the socket never fires close or error, the status face keeps reporting
-// "live", and some sources keep updating while at least one stops, with no
-// visible sign anything is wrong. Never fully explained (WebView
-// backgrounding is the leading suspect), so this does not try to prevent it
-// - it detects and recovers instead. STALE_CHECK_MS has to be well under
-// STALE_THRESHOLD_MS so the check actually gets a few chances to run before
-// the threshold is reached.
+// A live socket can go silently stale. See docs/architecture.md,
+// "Reconnection". The check interval must be well under the threshold.
 const STALE_THRESHOLD_MS = 60000;
 const STALE_CHECK_MS = 10000;
 
@@ -62,10 +43,8 @@ export const state = {
   hiddenFaces: [],
   clockStyle: "digital",
   hideNextEvent: false,
-  // How far the device clock is ahead of the agent's, in ms (negative when it
-  // is behind). Worked out from /health; subtracted from Date.now() before an
-  // age is shown, so a skewed device clock does not make healthy sources look
-  // stale. Zero until the agent has reported its time.
+  // Device clock minus agent clock, in ms. Zero until /health reports the
+  // agent's time.
   clockOffsetMs: 0,
   sources: {},
   lastError: "",
@@ -81,20 +60,14 @@ let socket = null;
 let backoffMs = BACKOFF_MIN_MS;
 let reconnectTimer = null;
 let lastMessageAt = 0;
-// Auto-switch on an imminent calendar event. urgentKey identifies the event
-// currently holding the panel, so a reading that is still the same urgent
-// event (just a lower countdown) does not retrigger the switch on every
-// poll; a different key (a new event went urgent, or the same title moved to
-// a different start time) does. urgentHoldTimer and urgentReturnTo track the
-// pending revert; both are null when no auto-switch is in flight.
+// Auto-switch state. urgentKey identifies the event holding the panel.
+// The timer and return index are null when no switch is in flight.
 let urgentKey = "";
 let urgentHoldTimer = null;
 let urgentReturnTo = null;
 
-// readToken takes the token from the query string, holds it in memory, and
-// removes it from the visible URL. It is never written to storage: a kiosk
-// panel that persists a bearer token is a panel that leaks it to anyone who
-// opens the browser later.
+// readToken takes the token from the query string and removes it from the
+// visible URL. It is never written to storage.
 export function readToken(location, history) {
   const url = new URL(location.href);
   const value = url.searchParams.get("token") || "";
@@ -121,17 +94,13 @@ export function nextBackoff(current) {
   return Math.min(BACKOFF_MAX_MS, Math.max(BACKOFF_MIN_MS, current * 2));
 }
 
-// jitter spreads reconnection attempts so several panels do not retry in
-// lockstep against an agent that has just come back.
+// jittered spreads reconnects so panels do not retry in lockstep.
 export function jittered(delay) {
   return Math.round(delay * (0.5 + Math.random() * 0.5));
 }
 
-// isStale reports whether too long has passed since anything was last heard
-// on the socket, given how the connect open handler and every message both
-// count as "heard from it". lastMessageAt of 0 means never connected, which
-// is not staleness, just not there yet - a real connection attempt is
-// already in flight or about to be, and this is not its job to chase.
+// isStale reports whether the socket has been quiet for over thresholdMs.
+// A lastMessageAt of 0 means never connected, which is not stale.
 export function isStale(lastMessageAt, now, thresholdMs) {
   if (lastMessageAt === 0) {
     return false;
@@ -165,15 +134,9 @@ export function showFace(index) {
   }
 }
 
-// handleCalendarUrgency switches to the calendar face when a reading says an
-// event is urgent, holds it for the reading's own show_seconds, then returns
-// to whatever face was showing before. Overrides sleep for the duration: an
-// imminent event is worth waking the panel for, the same as it is worth
-// interrupting whatever face was up.
-//
-// urgentKey guards against retriggering on every poll while the same event
-// stays urgent; a genuinely new urgent event (different title or start time)
-// gets its own switch.
+// handleCalendarUrgency shows the calendar face for an urgent event, holds it
+// for show_seconds, then returns to the previous face. It also wakes a
+// sleeping panel. urgentKey stops the same event retriggering on every poll.
 function handleCalendarUrgency(data) {
   if (!data || !data.urgent) {
     return;
@@ -192,9 +155,8 @@ function handleCalendarUrgency(data) {
   if (urgentHoldTimer !== null) {
     window.clearTimeout(urgentHoldTimer);
   } else {
-    // Only remember where to return to on the first switch of a hold; a
-    // retrigger mid-hold (a different event going urgent while the panel is
-    // already showing this one) must not overwrite it with "calendar".
+    // First switch of a hold only: a retrigger must not overwrite the
+    // return index with "calendar".
     urgentReturnTo = currentIndex;
   }
 
@@ -206,9 +168,7 @@ function handleCalendarUrgency(data) {
   const holdMs = (data.show_seconds || 45) * 1000;
   urgentHoldTimer = window.setTimeout(() => {
     urgentHoldTimer = null;
-    // Only revert if the panel is still showing the face this hold put it
-    // on. If someone tapped away during the hold, leave them where they are
-    // rather than yanking them back.
+    // Leave the panel alone if someone tapped away during the hold.
     if (currentIndex === calendarIndex && urgentReturnTo !== null) {
       showFace(urgentReturnTo);
     }
@@ -216,9 +176,8 @@ function handleCalendarUrgency(data) {
   }, holdMs);
 }
 
-// reportFaceError contains a broken face rather than letting it take the panel
-// down. The message goes on screen because there is nobody at the device to
-// read a console, and to the console too, which the shell forwards to logcat.
+// reportFaceError contains a broken face. The message goes on screen, since
+// nobody reads a console at the device, and to the console for logcat.
 export function reportFaceError(err) {
   console.error(`face failed: ${err && err.message ? err.message : err}`);
   if (!faceHost) {
@@ -264,15 +223,9 @@ export function applyMessage(message) {
   };
 }
 
-// applyHealth folds a /health response into the state object.
-//
-// Status, uptime, and last error come from /health rather than the socket,
-// because /health needs no auth and keeps answering when the socket is down.
-// That is exactly when the status face has to be truthful.
-//
-// receivedAtMs is the device clock when the response arrived. The offset it
-// gives includes the response's travel time, which is milliseconds on a LAN
-// and well under the whole seconds ages are shown in.
+// applyHealth folds a /health response into the state object. receivedAtMs
+// is the device clock at arrival. See docs/architecture.md, "Where status
+// comes from".
 export function applyHealth(health, receivedAtMs = Date.now()) {
   if (!health) {
     return;
@@ -300,10 +253,8 @@ export function applyHealth(health, receivedAtMs = Date.now()) {
   }
 }
 
-// applyAccentColor pushes the configured accent onto the document, live,
-// without a page reload. Kept separate from applyHealth, which is plain
-// state and unit tested without a DOM: this is the one place that touches
-// document, and only ever called from the real browser bootstrap below.
+// applyAccentColor is the only place that touches document, which keeps
+// applyHealth testable without a DOM.
 function applyAccentColor() {
   if (!state.accentColor) {
     return;
@@ -311,13 +262,9 @@ function applyAccentColor() {
   document.documentElement.style.setProperty("--live", state.accentColor);
 }
 
-// syncFaces applies state.hiddenFaces to the active FACES list, live,
-// without a page reload - the same "settings page saves, panel picks it up
-// on its next /health poll" pattern the accent colour already uses. A
-// no-op, deliberately, whenever the visible set has not actually changed:
-// this runs on every health poll (every few seconds), and rebuilding the
-// current face's DOM that often for no reason would reset things like the
-// calendar agenda's scroll position and interrupt spotify's ticking timer.
+// syncFaces applies state.hiddenFaces to FACES. It does nothing when the set
+// is unchanged, since a rebuild on every health poll would reset scroll
+// position and the spotify timer.
 function syncFaces() {
   const next = visibleFaces(ALL_FACES, state.hiddenFaces);
   const sameSet =
@@ -330,9 +277,7 @@ function syncFaces() {
   FACES = next;
   FACE_NAMES = FACES.map((face) => face.title);
 
-  // Stay on the same face if it is still visible, otherwise land on
-  // whatever is now first rather than an index that may no longer mean the
-  // same face, or may not exist at all in a shorter list.
+  // Keep the current face if still visible, else go to the first.
   const stillVisible = FACES.findIndex((face) => face.title === currentTitle);
   showFace(stillVisible === -1 ? 0 : stillVisible);
 }
@@ -340,12 +285,8 @@ function syncFaces() {
 let lastClockStyle = "digital";
 let lastHideNextEvent = false;
 
-// syncClockSettings re-renders the clock face when clock_style or
-// hide_next_event changes under it, live. A plain onState update cannot do
-// this: digital, analogue, and calendar-on/off build different DOM (text
-// versus SVG hands, an extra next-up line or not), so a change needs the
-// same teardown-then-render showFace already does, not just a new reading
-// fed into whatever shape is already on screen.
+// syncClockSettings re-renders the clock when its style or next-event line
+// changes. Each variant builds different DOM, so onState cannot switch it.
 function syncClockSettings() {
   if (state.clockStyle === lastClockStyle && state.hideNextEvent === lastHideNextEvent) {
     return;
@@ -380,9 +321,8 @@ function connect() {
 
   setConnection("connecting");
 
-  // The token travels as a subprotocol rather than a query parameter. A
-  // browser cannot set headers on a WebSocket, and a query parameter would put
-  // the secret somewhere it can be logged.
+  // A browser cannot set WebSocket headers, and a query parameter gets
+  // logged, so the token rides as a subprotocol.
   try {
     socket = new WebSocket(url, ["spotdash.v1", `bearer.${token}`]);
   } catch (err) {
@@ -411,10 +351,8 @@ function connect() {
     if (message.source === "calendar") {
       handleCalendarUrgency(message.data);
     }
-    // The clock face writes panel.dataset.sleep on every one of its own
-    // ticks, which would otherwise put a sleeping panel back to sleep a
-    // second after an urgent switch woke it. Reassert the override for as
-    // long as the hold is active, regardless of which source just updated.
+    // The clock face rewrites dataset.sleep every tick, so reassert the wake
+    // for as long as the hold is active.
     if (urgentHoldTimer !== null && panel) {
       panel.dataset.sleep = "false";
     }
@@ -430,12 +368,8 @@ function connect() {
   });
 }
 
-// checkStaleness closes a connection that has gone quiet for too long, so
-// the existing close handler's setConnection("down") and scheduleReconnect
-// take over from there - one recovery path rather than two. Only acts while
-// the panel believes it is live: a connection already reconnecting through
-// the normal backoff path needs no help here, and lastMessageAt is not
-// meaningful yet during that window anyway.
+// checkStaleness closes a quiet socket so the close handler reconnects. It
+// only acts while live, since lastMessageAt means nothing during a backoff.
 function checkStaleness() {
   if (state.connection !== "live") {
     return;
@@ -476,7 +410,7 @@ function wireInput() {
   panel.appendChild(prev);
   panel.appendChild(next);
 
-  // Arrow keys are for developing on a desktop. The device has no keyboard.
+  // Arrow keys are for desktop development. The device has no keyboard.
   window.addEventListener("keydown", (event) => {
     if (event.key === "ArrowLeft") {
       showFace(currentIndex - 1);

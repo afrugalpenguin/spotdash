@@ -1,6 +1,5 @@
-// Tests for the calendar face's pure logic.
-//
-// Run with: node --test agent/web/calendar.test.js
+// Tests for the calendar face's pure logic. Run with:
+// node --test agent/web/calendar.test.js
 
 import assert from "node:assert/strict";
 import { test } from "node:test";

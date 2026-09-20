@@ -1,10 +1,5 @@
-// Tests for the panel logic that does not touch the DOM.
-//
-// Run with: node --test agent/web
-//
-// The DOM-building parts are reviewed in dev.html, which renders every face
-// against every state. These are the parts where a silent bug would leave the
-// panel looking fine and being wrong.
+// Tests for the panel logic that does not touch the DOM. Run with:
+// node --test agent/web. The DOM parts are reviewed in dev.html.
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
@@ -57,11 +52,11 @@ test("readToken takes the token out of the URL", () => {
   assert.equal(history.calls.length, 1);
   assert.ok(
     !history.calls[0].includes("abc123"),
-    `rewritten URL still contains the token: ${history.calls[0]}`
+    `url = ${history.calls[0]}, want no token`
   );
   assert.ok(
     history.calls[0].includes("face=clock"),
-    "other query parameters should survive"
+    "face=clock missing from url"
   );
 });
 
@@ -96,18 +91,18 @@ test("backoff doubles and settles at the ceiling", () => {
     seen.push(delay);
   }
 
-  assert.ok(seen[1] > seen[0], "backoff should grow");
-  assert.equal(delay, 15000, "backoff should settle at the ceiling");
+  assert.ok(seen[1] > seen[0], `backoff = ${seen[1]}, want > ${seen[0]}`);
+  assert.equal(delay, 15000, `backoff = ${delay}, want 15000`);
   assert.ok(
     seen.every((value) => value <= 15000),
-    "backoff must never exceed the ceiling"
+    `backoff = ${seen}, want <= 15000`
   );
 });
 
 test("jitter stays within half the delay and never exceeds it", () => {
   for (let i = 0; i < 200; i += 1) {
     const value = jittered(1000);
-    assert.ok(value >= 500 && value <= 1000, `jittered value out of range: ${value}`);
+    assert.ok(value >= 500 && value <= 1000, `jittered = ${value}, want 500..1000`);
   }
 });
 
@@ -134,8 +129,7 @@ test("applyMessage ignores a message with no source", () => {
 });
 
 test("applyHealth keeps the reading a source already had", () => {
-  // Data comes from the socket and status comes from /health. A health poll
-  // must not wipe the reading the panel is currently showing.
+  // A health poll must not wipe the reading from the socket.
   resetState();
   applyMessage({ source: "clock", ts: "2026-09-14T10:00:00Z", data: { time: "10:00" } });
 
@@ -260,8 +254,7 @@ test("applyHealth clears an error once a source recovers", () => {
 });
 
 test("uptime of zero reads as unknown rather than a restart", () => {
-  // Zero means /health has not answered. Showing "0s" would say the agent
-  // just restarted, which is a different and wrong conclusion.
+  // Zero means /health has not answered. "0s" would imply a restart.
   assert.equal(formatDuration(0), "unknown");
   assert.equal(formatDuration(undefined), "unknown");
 });
@@ -295,15 +288,14 @@ test("a connection is stale once the threshold has passed", () => {
 });
 
 test("a connection that has never received anything is not stale", () => {
-  // 0 means "never connected", a real attempt already handles that; the
-  // watchdog is not the thing that chases an initial connection.
+  // 0 means never connected. The watchdog does not chase that.
   assert.equal(isStale(0, 999999999, 60000), false);
 });
 
 test("the rim geometry matches the drawn radius", () => {
   assert.ok(
     Math.abs(RIM_CIRCUMFERENCE - 2 * Math.PI * 232) < 0.001,
-    "rim circumference must match the radius the SVG is drawn with"
+    `circumference = ${RIM_CIRCUMFERENCE}, want 2*pi*232`
   );
 });
 
@@ -338,11 +330,11 @@ test("applyHealth keeps no offset when the agent sends no usable time", () => {
 
 test("relative age ignores a device clock that is an hour ahead", () => {
   const offset = 3600000;
-  // Five seconds old on the agent's clock, which the device sees an hour late.
+  // Five seconds old on the agent's clock.
   const stamp = new Date(Date.now() - offset - 5000).toISOString();
 
   assert.equal(relativeAge(stamp, offset), "5s");
-  assert.equal(relativeAge(stamp), "1h", "without the offset the skew shows up as age");
+  assert.equal(relativeAge(stamp), "1h", "age without offset is not 1h");
 });
 
 test("relative age ignores a device clock that is behind", () => {
@@ -352,8 +344,7 @@ test("relative age ignores a device clock that is behind", () => {
   assert.equal(relativeAge(stamp, offset), "5s");
 });
 
-// A caught face failure is drawn on screen, which nobody sees on a wall panel.
-// It also has to reach the console so it lands in logcat.
+// The console copy is what reaches logcat.
 test("a face failure is written to the console as well as the screen", (t) => {
   const errors = t.mock.method(console, "error", () => {});
 

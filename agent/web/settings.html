@@ -7,9 +7,8 @@
     <title>spotdash settings</title>
     <link rel="stylesheet" href="style.css" />
     <style>
-      /* This page is opened on a desktop browser from the tray, not the
-       * circular panel, so it is laid out as an ordinary page rather than
-       * fitted to #panel's 480px circle. */
+      /* Opened in a desktop browser from the tray, so laid out as an ordinary
+       * page. */
       body {
         display: flex;
         justify-content: center;
@@ -62,10 +61,8 @@
         margin: 32px 0 4px;
       }
 
-      /* A native checkbox styled as a slider switch: the checkbox itself
-       * stays in the document (for focus, keyboard, and screen readers),
-       * just visually hidden, with a track+thumb pair drawn next to it that
-       * reacts to :checked. */
+      /* A native checkbox styled as a slider. The checkbox stays in the
+       * document, visually hidden, for focus, keyboard and screen readers. */
       .toggle {
         position: relative;
         display: inline-block;
