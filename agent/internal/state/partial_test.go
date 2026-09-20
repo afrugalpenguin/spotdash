@@ -7,10 +7,7 @@ import (
 )
 
 func TestUpdatePartialStoresTheValueAndDegrades(t *testing.T) {
-	// A source can produce a complete, useful value and still be running with
-	// reduced capability. Telemetry without a GPU is the case that forced this:
-	// CPU, RAM and disk are all genuinely there and worth publishing, and the
-	// source is genuinely degraded.
+	// Telemetry without a GPU has a useful value and is still degraded.
 	s := New()
 	s.Register("telemetry", StatusDegraded, "awaiting first poll")
 
@@ -19,7 +16,7 @@ func TestUpdatePartialStoresTheValueAndDegrades(t *testing.T) {
 
 	entry, ok := s.Get("telemetry")
 	if !ok {
-		t.Fatal("telemetry should be present")
+		t.Fatal("telemetry missing")
 	}
 	if entry.Data != "cpu and ram only" {
 		t.Errorf("Data = %v, want the partial value stored", entry.Data)
@@ -31,13 +28,12 @@ func TestUpdatePartialStoresTheValueAndDegrades(t *testing.T) {
 		t.Errorf("LastError = %q, want the reason recorded", entry.LastError)
 	}
 	if entry.UpdatedAt.Before(before) {
-		t.Error("UpdatedAt should advance: a partial poll is still a fresh reading")
+		t.Error("UpdatedAt is zero, want a time")
 	}
 }
 
 func TestUpdatePartialBroadcasts(t *testing.T) {
-	// The value changed, so a connected panel has to hear about it. A degraded
-	// telemetry source still updates every poll.
+	// A connected panel has to hear about a degraded source's new value.
 	s := New()
 	s.Register("telemetry", StatusDegraded, "")
 	events, cancel := s.Subscribe()
@@ -63,10 +59,10 @@ func TestUpdatePartialThenFullRecovers(t *testing.T) {
 
 	entry, _ := s.Get("telemetry")
 	if entry.Status != StatusOK {
-		t.Errorf("Status = %q, want ok once the source recovers", entry.Status)
+		t.Errorf("Status = %q, want ok after recovery", entry.Status)
 	}
 	if entry.LastError != "" {
-		t.Errorf("LastError = %q, want it cleared on recovery", entry.LastError)
+		t.Errorf("LastError = %q, want empty after recovery", entry.LastError)
 	}
 }
 
@@ -76,6 +72,6 @@ func TestUpdatePartialIgnoresUnregisteredSource(t *testing.T) {
 	s.UpdatePartial("ghost", "data", errors.New("some reason"))
 
 	if len(s.Snapshot()) != 0 {
-		t.Error("UpdatePartial should not create a source that was never registered")
+		t.Error("UpdatePartial created an unregistered source")
 	}
 }

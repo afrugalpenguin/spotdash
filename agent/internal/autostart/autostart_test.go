@@ -34,8 +34,8 @@ func (f *fakeStore) Delete() error {
 	return nil
 }
 
-// installed is where a real copy of the agent would sit, well away from any
-// temporary directory.
+// installed is where a real copy of the agent would sit, away from any temp
+// directory.
 func installed() (exe, temp string) {
 	root := filepath.Join(string(filepath.Separator), "apps")
 	return filepath.Join(root, "spotdash dir", "spotdash.exe"), filepath.Join(root, "tmp")
@@ -50,8 +50,7 @@ func TestEnablingWritesTheQuotedAbsolutePathOfTheExecutable(t *testing.T) {
 		t.Fatalf("Set(true): %v", err)
 	}
 
-	// Quoted, because a path with a space in it is otherwise cut at the space
-	// and Windows runs the wrong program, or none.
+	// Quoted, or a path with a space is cut at the space.
 	if want := `"` + exe + `"`; store.data != want {
 		t.Errorf("value = %q, want %q", store.data, want)
 	}
@@ -66,10 +65,10 @@ func TestDisablingRemovesTheValueAndIsHarmlessWhenThereIsNone(t *testing.T) {
 		t.Fatalf("Set(false): %v", err)
 	}
 	if store.present {
-		t.Error("the value is still there after disabling")
+		t.Error("value exists after Set(false), want none")
 	}
 	if err := m.Set(false); err != nil {
-		t.Errorf("disabling twice: %v", err)
+		t.Errorf("second Set(false): %v", err)
 	}
 }
 
@@ -89,22 +88,21 @@ func TestEnabledReflectsTheStoreNotAnyRememberedSetting(t *testing.T) {
 	}
 }
 
-// If the binary has moved, autostart is on but launching something that is no
-// longer there. Reading that as ticked would hide it, and ticking the item is
-// what should put it right.
+// After a move, the old value launches nothing. Showing it as ticked would hide
+// that, and ticking the item repoints it.
 func TestAValueForAnotherPathIsNotThisExecutableBeingEnabled(t *testing.T) {
 	exe, temp := installed()
 	store := &fakeStore{data: `"` + filepath.Join(string(filepath.Separator), "old", "spotdash.exe") + `"`, present: true}
 	m := New(store, exe, temp)
 
 	if on, _ := m.Enabled(); on {
-		t.Error("Enabled reported true for a value pointing at a different executable")
+		t.Error("Enabled = true for another path, want false")
 	}
 	if err := m.Set(true); err != nil {
 		t.Fatalf("Set(true): %v", err)
 	}
 	if want := `"` + exe + `"`; store.data != want {
-		t.Errorf("enabling did not repoint the value: %q, want %q", store.data, want)
+		t.Errorf("value = %q, want %q", store.data, want)
 	}
 }
 
@@ -133,13 +131,13 @@ func TestAnExecutableInTheTempDirectoryCannotBeMadeAutostart(t *testing.T) {
 	reason := m.Unavailable()
 
 	if reason == "" {
-		t.Fatal("no reason given for an executable in the temp directory, which will not exist at next login")
+		t.Fatal("Unavailable = \"\" for an executable in the temp directory")
 	}
 	if !strings.Contains(strings.ToLower(reason), "temporary") {
-		t.Errorf("reason = %q, want it to say the executable is in a temporary directory", reason)
+		t.Errorf("reason = %q, want it to mention temporary", reason)
 	}
 	if err := m.Set(true); err == nil || store.writes != 0 {
-		t.Errorf("Set(true) = %v with %d writes, want a refusal and nothing written", err, store.writes)
+		t.Errorf("Set(true) = %v with %d writes, want an error and 0", err, store.writes)
 	}
 }
 
@@ -147,7 +145,7 @@ func TestAnInstalledExecutableIsAvailable(t *testing.T) {
 	exe, temp := installed()
 
 	if reason := New(&fakeStore{}, exe, temp).Unavailable(); reason != "" {
-		t.Errorf("reason = %q, want none for an installed executable", reason)
+		t.Errorf("reason = %q, want empty", reason)
 	}
 }
 
@@ -157,7 +155,7 @@ func TestTheTempCheckDoesNotMatchASiblingDirectoryWithTheSamePrefix(t *testing.T
 	exe := filepath.Join(root, "tmp2", "spotdash.exe")
 
 	if reason := New(&fakeStore{}, exe, temp).Unavailable(); reason != "" {
-		t.Errorf("reason = %q, want none: tmp2 is not inside tmp", reason)
+		t.Errorf("reason = %q, want empty (tmp2 is not inside tmp)", reason)
 	}
 }
 
@@ -169,7 +167,7 @@ func TestTheTempCheckIgnoresCaseOnWindows(t *testing.T) {
 	exe := `c:\users\me\appdata\local\temp\go-build1\spotdash.exe`
 
 	if reason := New(&fakeStore{}, exe, temp).Unavailable(); reason == "" {
-		t.Error("the same directory spelt with different case was not recognised as the temp directory")
+		t.Error("Unavailable = \"\" for a temp path in different case")
 	}
 }
 
@@ -177,6 +175,6 @@ func TestTheRealTempDirectoryIsWhatGoRunBuildsInto(t *testing.T) {
 	exe := filepath.Join(os.TempDir(), "go-build42", "b001", "exe", "spotdash.exe")
 
 	if reason := New(&fakeStore{}, exe, os.TempDir()).Unavailable(); reason == "" {
-		t.Error("a go run binary in os.TempDir() was not refused")
+		t.Error("Unavailable = \"\" for a binary in os.TempDir()")
 	}
 }

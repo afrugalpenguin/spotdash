@@ -13,15 +13,12 @@ import (
 )
 
 const (
-	// protocolName is echoed back to the client so the browser accepts the
-	// connection.
+	// protocolName is echoed back so the browser accepts the connection.
 	protocolName = "spotdash.v1"
 	// tokenProtocolPrefix carries the bearer token. A browser cannot set
-	// headers on a WebSocket, and a query parameter would put the secret
-	// somewhere that gets logged.
+	// headers on a WebSocket, and a query parameter would get logged.
 	tokenProtocolPrefix = "bearer."
-	// writeTimeout bounds a single write so one wedged client cannot hold a
-	// goroutine open indefinitely.
+	// writeTimeout stops a wedged client holding a goroutine open.
 	writeTimeout = 10 * time.Second
 	// keepaliveInterval is how often a silent connection is pinged.
 	keepaliveInterval = 30 * time.Second
@@ -34,19 +31,14 @@ type Message struct {
 	Data   any    `json:"data"`
 }
 
-// HandleWebSocket mounts /ws.
-//
-// It is mounted outside the bearer token middleware and authorises itself,
-// because a browser cannot set headers on a WebSocket and the token therefore
-// arrives as a subprotocol value that the generic check cannot read.
+// HandleWebSocket mounts /ws outside the token middleware. It authorises itself
+// because the token arrives as a subprotocol.
 func (s *Server) HandleWebSocket() {
 	s.socket = http.HandlerFunc(s.handleWebSocket)
 }
 
 func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
-	// The generic middleware cannot see the token here: it travels as a
-	// subprotocol. Authorise before the upgrade completes so an unauthorised
-	// client never reaches a live socket.
+	// Authorise before the upgrade so an unauthorised client never gets a socket.
 	if !s.socketAuthorised(r) {
 		w.Header().Set("WWW-Authenticate", `Bearer realm="spotdash"`)
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
@@ -55,8 +47,7 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 
 	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
 		Subprotocols: []string{protocolName},
-		// Same origin only. The panel is served from this origin, so nothing
-		// legitimate connects from anywhere else.
+		// Same origin only.
 		OriginPatterns: nil,
 	})
 	if err != nil {
@@ -65,16 +56,11 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	}
 	defer conn.CloseNow()
 
-	// The panel only listens, so nothing here reads application messages. A
-	// connection that is never read from also never processes control frames,
-	// which means a client's close is not acknowledged until it times out and
-	// a client that has vanished is never noticed. CloseRead drains and
-	// discards incoming frames, and cancels this context when the peer goes
-	// away.
+	// Nothing reads application messages. CloseRead still drains control frames
+	// and cancels ctx when the peer goes. See docs/architecture.md, "Liveness".
 	ctx := conn.CloseRead(r.Context())
 
-	// Subscribe before snapshotting, so an update that lands between the two
-	// is queued rather than lost.
+	// Subscribe before the snapshot so an update in between is queued.
 	events, cancel := s.opts.Store.Subscribe()
 	defer cancel()
 
@@ -86,10 +72,7 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	s.log.Debug("websocket client connected", "remote", r.RemoteAddr)
 	defer s.log.Debug("websocket client disconnected", "remote", r.RemoteAddr)
 
-	// A kiosk panel on wifi can disappear without closing anything. Without a
-	// ping there is nothing to notice that with, because a clock source that
-	// writes every second would otherwise be the only liveness signal and a
-	// write to a dead socket can sit buffered for a long time.
+	// A wifi kiosk can vanish without closing. Ping to notice.
 	keepalive := time.NewTicker(keepaliveInterval)
 	defer keepalive.Stop()
 
@@ -108,9 +91,8 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 			}
 		case entry, open := <-events:
 			if !open {
-				// The store dropped this subscriber for falling behind. Close
-				// so the client reconnects and gets a fresh snapshot rather
-				// than continuing with gaps it cannot detect.
+				// The store dropped this subscriber for falling behind. Closing
+				// makes the client reconnect for a fresh snapshot.
 				conn.Close(websocket.StatusTryAgainLater, "client fell behind")
 				return
 			}
@@ -122,13 +104,12 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// sendSnapshot writes the current reading for every source that has one, using
-// the same message shape as a live update so the client has one code path.
+// sendSnapshot writes the current reading of every source that has one, in the
+// live message shape.
 func (s *Server) sendSnapshot(ctx context.Context, conn *websocket.Conn) error {
 	for _, entry := range s.opts.Store.Snapshot() {
 		if entry.UpdatedAt.IsZero() {
-			// Nothing has been polled yet. An empty message would have the
-			// panel render a blank value as though it were a reading.
+			// Never polled. An empty message would render as a blank reading.
 			continue
 		}
 		if err := s.send(ctx, conn, entry); err != nil {

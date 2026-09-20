@@ -52,10 +52,8 @@ func New(opts Options) (*slog.Logger, func() error, error) {
 		stderr = os.Stderr
 	}
 
-	// A process built for the windows GUI subsystem has no console, so its
-	// stderr is not a valid handle and every write to it fails. io.MultiWriter
-	// stops at the first failing writer, so an untolerated stderr would starve
-	// the log file, which is then the only place anything is recorded.
+	// A GUI-subsystem build has no console, so stderr writes fail and
+	// io.MultiWriter would stop before reaching the file.
 	writers := []io.Writer{tolerant{stderr}}
 	closeFn := func() error { return nil }
 
@@ -78,10 +76,7 @@ func New(opts Options) (*slog.Logger, func() error, error) {
 }
 
 // LogFailure records why the agent could not start, in the log file at path.
-//
-// Startup errors are otherwise only printed to stderr, which a build with no
-// console does not have, so a bad config or a busy port would leave nothing
-// behind to explain why the agent never appeared.
+// A build with no console has no stderr to say it on.
 func LogFailure(path string, err error) {
 	log, closeLog, newErr := New(Options{Level: slog.LevelInfo, FilePath: path})
 	if newErr != nil {

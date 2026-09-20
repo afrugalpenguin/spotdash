@@ -1,9 +1,6 @@
-// Command spotdash is the desk dashboard agent: it collects data from a set of
-// pluggable sources and serves a web UI and a live feed over the LAN.
-//
-// Everything about the lifecycle lives in the app package, which is drivable
-// without a desktop session. This file is wiring: resolve the config path, set
-// up logging, and hand over to either the tray or a signal wait.
+// Command spotdash is the desk dashboard agent. It collects data from pluggable
+// sources and serves a web UI and a live feed over the LAN. The lifecycle lives
+// in the app package; this file is wiring.
 package main
 
 import (
@@ -59,10 +56,9 @@ func run() error {
 		return nil
 	}
 
-	// No config anywhere and no -config: this is a first run, so make one. Only
-	// ever for a clear "not there": a config that exists but is broken is the
-	// person's to fix, and is never replaced. A failure here is still written to
-	// the log file, since a build with no console has nowhere else to say it.
+	// First run: no config anywhere and no -config. A config that exists but is
+	// broken is never replaced. Failures go to the log file because a build with
+	// no console has nowhere else to say them.
 	created := false
 	if !loc.Exists && *configPath == "" {
 		switch err := config.CreateDefault(loc.Path, agentroot.ExampleConfig); {
@@ -79,8 +75,7 @@ func run() error {
 	resolved := loc.Path
 	logPath := filepath.Join(filepath.Dir(resolved), logFileName)
 
-	// Read once here only to configure logging. The app reads the file itself
-	// and owns it from then on, including on reload.
+	// Read here only to configure logging. The app owns the file from then on.
 	cfg, err := config.Load(resolved)
 	if err != nil {
 		logging.LogFailure(logPath, err)
@@ -107,9 +102,8 @@ func run() error {
 		log.Info("config created", "path", resolved)
 	}
 
-	// Started at login and again by hand, two agents would only find out when the
-	// second failed to bind the port. Say why instead, and leave quietly: exit
-	// code 0, so a scheduled task set to restart on failure does not respawn it.
+	// Exit 0 when a second copy starts, so a scheduled task set to restart on
+	// failure does not respawn it.
 	lockKey := resolved
 	if abs, err := filepath.Abs(resolved); err == nil {
 		lockKey = abs
@@ -140,25 +134,21 @@ func run() error {
 		return finish(agent, log)
 	}
 
-	// A first run has nothing to show until the panel is open, and the address
-	// with its token is only known now, so open it for them.
+	// A first run has nothing to show until the panel is open.
 	if created {
 		if err := tray.OpenInBrowser(agent.OpenURL()); err != nil {
 			log.Warn("could not open the browser", "error", err)
 		}
 	}
 
-	// Ctrl+C and tray Quit converge on the same path. A signal has to take the
-	// tray down too, or systray keeps the process alive with nothing left to
-	// serve.
+	// A signal has to stop the tray too, or systray keeps the process alive.
 	go func() {
 		<-signals
 		log.Info("shutdown requested")
 		tray.Stop()
 	}()
 
-	// systray takes over this goroutine and expects to be on the main one, so
-	// it goes last.
+	// systray takes over this goroutine and expects the main one.
 	tray.Run(tray.Options{
 		Controller: agent,
 		Version:    version,
@@ -204,8 +194,8 @@ func finish(agent *app.App, log *slog.Logger) error {
 	return nil
 }
 
-// locateConfig finds config.json: see config.Resolve for the order. Each
-// directory is best effort, since an unknown one only removes a place to look.
+// locateConfig finds config.json in the order config.Resolve documents. An
+// unknown directory only removes a place to look.
 func locateConfig(flagValue string) (config.Location, error) {
 	exeDir := ""
 	if exe, err := os.Executable(); err == nil {

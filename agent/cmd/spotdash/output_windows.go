@@ -9,13 +9,8 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-// printLine writes one line for a person or a script to read.
-//
-// The release build is a GUI-subsystem program, so it starts with no console and
-// no standard output unless whoever launched it redirected one. A redirect or a
-// pipe (a script capturing the output) gives a working os.Stdout, so that is
-// tried first. Failing that, attach to the parent's console and write there,
-// which is what someone typing the command at a prompt is looking at.
+// printLine writes one line for a person or a script to read. The release build
+// has no console, so stdout works only when redirected. Else use the parent's.
 func printLine(s string) {
 	if _, err := fmt.Fprintln(os.Stdout, s); err == nil {
 		return

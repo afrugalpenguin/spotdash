@@ -1,8 +1,6 @@
 // Package app owns the agent's lifecycle: start, reload and stop.
 //
-// It is separate from the tray so that the lifecycle can be driven, and tested,
-// without a desktop session. The tray is one caller of this; a signal handler
-// is another.
+// It is separate from the tray so tests can drive it without a desktop session.
 package app
 
 import (
@@ -35,9 +33,8 @@ type App struct {
 	current *session
 }
 
-// session is one configuration's worth of running agent: a listener, a server,
-// a store and a set of source goroutines. A reload replaces one wholesale,
-// because listen, token and the source set can all change.
+// session is one configuration's worth of running agent. A reload replaces it
+// wholesale because listen, token and the source set can all change.
 type session struct {
 	cfg      *config.Config
 	store    *state.Store
@@ -78,11 +75,8 @@ func (a *App) Start() error {
 	return nil
 }
 
-// Reload re-reads the configuration and applies it.
-//
-// It is fail closed in the same way startup is, and then some: an invalid
-// config leaves the running agent exactly as it was. Someone mistyping a key
-// while the agent is running should be told, not have the panel go dark.
+// Reload re-reads the configuration and applies it. An invalid config leaves
+// the running agent as it was.
 func (a *App) Reload() error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -97,9 +91,8 @@ func (a *App) Reload() error {
 		a.log.Error("reload refused, keeping the running configuration", "error", err)
 		return err
 	}
-	// Building the sources is part of validation: an unknown source name or an
-	// unparseable clock window has to fail here rather than after the running
-	// agent has been torn down.
+	// Building the sources is part of validation. An unknown source name has to
+	// fail before the running agent is torn down.
 	if _, err := sources.Build(cfg); err != nil {
 		a.log.Error("reload refused, keeping the running configuration", "error", err)
 		return err
@@ -110,9 +103,7 @@ func (a *App) Reload() error {
 
 	started, err := a.startSession(cfg)
 	if err != nil {
-		// The new configuration validated but could not be served, most likely
-		// because something else took the port in between. Put the previous one
-		// back rather than leaving the agent down.
+		// Likely a port taken since validation. Put the previous config back.
 		a.log.Error("reload failed to start, restoring the previous configuration", "error", err)
 		restored, restoreErr := a.startSession(previous.cfg)
 		if restoreErr != nil {
@@ -141,8 +132,8 @@ func (a *App) Stop() error {
 	return nil
 }
 
-// Addr is the address actually being listened on, which is not always the
-// configured one: a configured port of zero, or any port, resolves here.
+// Addr is the address being listened on, which differs from the configured one
+// when the port is zero.
 func (a *App) Addr() string {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -152,23 +143,18 @@ func (a *App) Addr() string {
 	return a.current.listener.Addr().String()
 }
 
-// OpenURL is the address to point a browser at.
-//
-// It rewrites a wildcard host to loopback, because a browser cannot open
-// 0.0.0.0, and carries the token, because the page authenticates with it on
-// first load and would otherwise show nothing but a 401.
+// OpenURL is the address to point a browser at. A wildcard host becomes
+// loopback and the token is attached, or the page would answer 401.
 func (a *App) OpenURL() string {
 	return a.tokenURL("/")
 }
 
-// SettingsURL is the address the tray's "Options" item opens: the same panel
-// origin, a different page, authenticated the same way the panel itself is.
+// SettingsURL is the address the tray "Options" item opens.
 func (a *App) SettingsURL() string {
 	return a.tokenURL("/settings.html")
 }
 
-// tokenURL builds a browser-openable URL for one page on this agent, token
-// attached the same way OpenURL always has.
+// tokenURL builds a browser-openable URL for one page, token attached.
 func (a *App) tokenURL(path string) string {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -219,8 +205,8 @@ func (a *App) startSession(cfg *config.Config) (*session, error) {
 		}
 	}
 
-	// Bind before anything else starts, so a port already in use fails here
-	// rather than after source goroutines are running.
+	// Bind before anything else starts, so a busy port fails before any source
+	// goroutine runs.
 	listener, err := net.Listen("tcp", cfg.Listen)
 	if err != nil {
 		return nil, fmt.Errorf("listening on %s: %w", cfg.Listen, err)
@@ -238,13 +224,11 @@ func (a *App) startSession(cfg *config.Config) (*session, error) {
 		HideNextEvent: cfg.HideNextEvent,
 	})
 	srv.HandleWebSocket()
-	// Agent-level, not tied to any one source, so it is registered directly
-	// here rather than through a source's RouteProvider.
+	// Agent-level route, not from a source RouteProvider.
 	srv.Handle("/settings", http.HandlerFunc(a.handleSettings))
 
-	// A source may ask the agent to serve files for it, which is how album art
-	// reaches the panel from the machine next to it rather than from a CDN.
-	// Registered before the static handler, which takes the root.
+	// A source may ask the agent to serve files for it, such as album art.
+	// These go in before the static handler, which takes the root.
 	for _, src := range built {
 		if provider, ok := src.(sources.AssetProvider); ok {
 			for urlPath, filePath := range provider.Assets() {
@@ -254,8 +238,7 @@ func (a *App) startSession(cfg *config.Config) (*session, error) {
 			}
 		}
 
-		// A source may register its own authenticated routes, such as the page
-		// that starts a Spotify authorization attempt.
+		// Authenticated routes, such as the page that starts a Spotify sign-in.
 		if provider, ok := src.(sources.RouteProvider); ok {
 			for urlPath, handler := range provider.Routes() {
 				srv.Handle(urlPath, handler)
@@ -263,9 +246,7 @@ func (a *App) startSession(cfg *config.Config) (*session, error) {
 			}
 		}
 
-		// And, separately, routes that must be reachable without the bearer
-		// token, because whatever calls them cannot carry it. An OAuth
-		// callback is the case this exists for.
+		// Routes reachable without the bearer token, such as an OAuth callback.
 		if provider, ok := src.(sources.OpenRouteProvider); ok {
 			for urlPath, handler := range provider.OpenRoutes() {
 				srv.HandleOpen(urlPath, handler)
@@ -285,10 +266,8 @@ func (a *App) startSession(cfg *config.Config) (*session, error) {
 	runner := sources.NewRunner(store, a.log)
 	runner.Start(ctx, built)
 
-	// A source may want to trigger its own immediate re-poll, such as after a
-	// playback control action, rather than wait out its normal interval. The
-	// runner has to exist first, which is why this is wired here rather than
-	// in the loop above that builds routes and assets.
+	// Wired after the runner exists. A source uses this to re-poll at once,
+	// such as after a playback control.
 	for _, src := range built {
 		if registrar, ok := src.(sources.RepollRegistrar); ok {
 			name := src.Name()
@@ -320,8 +299,6 @@ func (a *App) startSession(cfg *config.Config) (*session, error) {
 }
 
 // settingsBody is both the GET response and the POST request for /settings.
-// Two fields today; the shape is generic enough that a third setting is an
-// added field here, not a restructure.
 type settingsBody struct {
 	AccentColor   string   `json:"accent_color"`
 	HiddenFaces   []string `json:"hidden_faces"`
@@ -329,10 +306,8 @@ type settingsBody struct {
 	HideNextEvent bool     `json:"hide_next_event"`
 }
 
-// handleSettings backs the settings page: GET reports the currently
-// configured values, POST changes them, together. Requires the bearer
-// token, the same as everything else that is not /health or an OAuth
-// callback.
+// handleSettings backs the settings page. GET reports the configured values
+// and POST saves them, then schedules a reload.
 func (a *App) handleSettings(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
@@ -361,14 +336,8 @@ func (a *App) handleSettings(w http.ResponseWriter, r *http.Request) {
 		}
 		writeJSON(w, body)
 
-		// Reload rebuilds the whole session, including the listener this very
-		// request arrived on. Calling it synchronously, before responding,
-		// would have its Shutdown wait for this handler to return while this
-		// handler is waiting for Reload to return: a real deadlock, resolved
-		// only by the 5 second shutdown grace period force-closing the
-		// connection out from under the response that was about to be sent.
-		// Scheduled instead, a short beat after the response above has gone
-		// out and this handler has returned.
+		// Reload closes the listener this request came in on, so it cannot run
+		// inline. See docs/architecture.md, "Lifecycle".
 		time.AfterFunc(200*time.Millisecond, func() {
 			if err := a.Reload(); err != nil {
 				a.log.Error("reload after saving settings failed", "error", err)
@@ -380,11 +349,8 @@ func (a *App) handleSettings(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// saveSettings validates and writes the new values to config.json. Applying
-// them live is the caller's job (a scheduled Reload), since doing that here
-// would run it inside the same request this save was made from. Based on a
-// fresh read of the file rather than the in-memory config, so a manual edit
-// made since this session started is not clobbered by this one save.
+// saveSettings validates and writes the new values to config.json. It starts
+// from a fresh read of the file so a manual edit made since startup survives.
 func (a *App) saveSettings(body settingsBody) error {
 	cfg, err := config.Load(a.configPath)
 	if err != nil {
@@ -405,9 +371,7 @@ func writeJSON(w http.ResponseWriter, v any) {
 	_ = json.NewEncoder(w).Encode(v)
 }
 
-// stopSession shuts one session down in the order that avoids surprises: stop
-// accepting and close open connections first, then stop the sources that were
-// feeding them, then wait for their goroutines.
+// stopSession shuts down the server, then the sources, then waits for them.
 func (a *App) stopSession(s *session) {
 	ctx, cancel := context.WithTimeout(context.Background(), shutdownGrace)
 	defer cancel()

@@ -1,12 +1,7 @@
 package state
 
 // subscriberBuffer is how far behind a client may fall before it is dropped.
-//
-// Sized for a brief stall, a garbage collection pause or a frame the device
-// spent elsewhere, not for a client that has stopped reading. Once it is full
-// the subscriber is dropped so it reconnects and receives a fresh snapshot,
-// which is better than quietly skipping messages and leaving it stale with no
-// way to know.
+// It covers a brief stall. See docs/architecture.md, "Backpressure".
 const subscriberBuffer = 32
 
 type subscriber struct {
@@ -53,11 +48,8 @@ func (s *Store) removeLocked(sub *subscriber) {
 	}
 }
 
-// broadcastLocked delivers an entry to every subscriber without blocking. The
-// caller holds the lock.
-//
-// A source goroutine calls this, so it must never wait on a client. A
-// subscriber whose buffer is full is dropped instead.
+// broadcastLocked delivers an entry to every subscriber without blocking, and
+// drops any whose buffer is full. The caller holds the lock.
 func (s *Store) broadcastLocked(entry Entry) {
 	for sub := range s.subscribers {
 		if sub.closed {

@@ -42,7 +42,7 @@ func TestHealthNeedsNoToken(t *testing.T) {
 	rec := do(t, srv, http.MethodGet, "/health", "")
 
 	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200. /health must work when auth is the thing that is broken", rec.Code)
+		t.Fatalf("status = %d, want 200", rec.Code)
 	}
 	if ct := rec.Header().Get("Content-Type"); !strings.HasPrefix(ct, "application/json") {
 		t.Errorf("Content-Type = %q, want JSON", ct)
@@ -59,7 +59,7 @@ func TestHealthReportsVersionAndUptime(t *testing.T) {
 		UptimeSeconds float64 `json:"uptime_seconds"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
-		t.Fatalf("decoding /health body: %v\nbody: %s", err, rec.Body.String())
+		t.Fatalf("decode /health: %v\nbody: %s", err, rec.Body.String())
 	}
 	if body.Version != "test-version" {
 		t.Errorf("version = %q, want %q", body.Version, "test-version")
@@ -85,19 +85,19 @@ func TestHealthReportsEverySourceStatus(t *testing.T) {
 		} `json:"sources"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
-		t.Fatalf("decoding /health body: %v\nbody: %s", err, rec.Body.String())
+		t.Fatalf("decode /health: %v\nbody: %s", err, rec.Body.String())
 	}
 	if got := body.Sources["clock"].Status; got != "ok" {
 		t.Errorf("clock status = %q, want ok", got)
 	}
 	if body.Sources["clock"].LastUpdate == "" {
-		t.Error("clock should report a last_update after an update")
+		t.Error("clock last_update is empty, want a time")
 	}
 	if got := body.Sources["telemetry"].Status; got != "disabled" {
 		t.Errorf("telemetry status = %q, want disabled", got)
 	}
 	if body.Sources["telemetry"].LastUpdate != "" {
-		t.Error("a source that never polled should report an empty last_update")
+		t.Error("last_update set for a source that never polled, want empty")
 	}
 }
 
@@ -117,7 +117,7 @@ func TestHealthReportsTheConfiguredAccentColor(t *testing.T) {
 		AccentColor string `json:"accent_color"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
-		t.Fatalf("decoding /health body: %v\nbody: %s", err, rec.Body.String())
+		t.Fatalf("decode /health: %v\nbody: %s", err, rec.Body.String())
 	}
 	if body.AccentColor != "#7c83fd" {
 		t.Errorf("accent_color = %q, want %q", body.AccentColor, "#7c83fd")
@@ -140,7 +140,7 @@ func TestHealthReportsTheConfiguredHiddenFaces(t *testing.T) {
 		HiddenFaces []string `json:"hidden_faces"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
-		t.Fatalf("decoding /health body: %v\nbody: %s", err, rec.Body.String())
+		t.Fatalf("decode /health: %v\nbody: %s", err, rec.Body.String())
 	}
 	if len(body.HiddenFaces) != 2 || body.HiddenFaces[0] != "clock" || body.HiddenFaces[1] != "telemetry" {
 		t.Errorf("hidden_faces = %v, want [clock telemetry]", body.HiddenFaces)
@@ -163,7 +163,7 @@ func TestHealthReportsTheConfiguredClockStyle(t *testing.T) {
 		ClockStyle string `json:"clock_style"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
-		t.Fatalf("decoding /health body: %v\nbody: %s", err, rec.Body.String())
+		t.Fatalf("decode /health: %v\nbody: %s", err, rec.Body.String())
 	}
 	if body.ClockStyle != "analogue" {
 		t.Errorf("clock_style = %q, want %q", body.ClockStyle, "analogue")
@@ -186,7 +186,7 @@ func TestHealthReportsHideNextEvent(t *testing.T) {
 		HideNextEvent bool `json:"hide_next_event"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
-		t.Fatalf("decoding /health body: %v\nbody: %s", err, rec.Body.String())
+		t.Fatalf("decode /health: %v\nbody: %s", err, rec.Body.String())
 	}
 	if !body.HideNextEvent {
 		t.Error("hide_next_event = false, want true")
@@ -199,7 +199,7 @@ func TestHealthOmitsAccentColorWhenUnconfigured(t *testing.T) {
 	rec := do(t, srv, http.MethodGet, "/health", "")
 
 	if strings.Contains(rec.Body.String(), "accent_color") {
-		t.Errorf("expected no accent_color key when unconfigured, got:\n%s", rec.Body.String())
+		t.Errorf("accent_color present when unconfigured:\n%s", rec.Body.String())
 	}
 }
 
@@ -214,7 +214,7 @@ func TestHealthNeverLeaksTokenOrSourceData(t *testing.T) {
 	if strings.Contains(body, testToken) {
 		t.Errorf("/health leaked the token:\n%s", body)
 	}
-	// /health is unauthenticated, so it reports status only, never readings.
+	// /health is unauthenticated, so it must not carry readings.
 	if strings.Contains(body, "sensitive-payload-marker") {
 		t.Errorf("/health leaked source data:\n%s", body)
 	}
@@ -258,7 +258,7 @@ func TestProtectedRouteAcceptsValidToken(t *testing.T) {
 	rec := do(t, srv, http.MethodGet, "/probe", "Bearer "+testToken)
 
 	if rec.Code != http.StatusTeapot {
-		t.Fatalf("status = %d, want the handler to have run", rec.Code)
+		t.Fatalf("status = %d, want 200", rec.Code)
 	}
 }
 
@@ -272,23 +272,22 @@ func TestAuthSchemeIsCaseInsensitive(t *testing.T) {
 	rec := do(t, srv, http.MethodGet, "/probe", "bearer "+testToken)
 
 	if rec.Code != http.StatusTeapot {
-		t.Errorf("status = %d, want the handler to have run for a lowercase scheme", rec.Code)
+		t.Errorf("status = %d, want 200 for a lowercase scheme", rec.Code)
 	}
 }
 
 func TestUnknownPathRequiresAuth(t *testing.T) {
-	// An unauthenticated caller should not be able to map which routes exist.
+	// A 404 would let an unauthenticated caller map which routes exist.
 	srv, _ := newTestServer(t)
 
 	rec := do(t, srv, http.MethodGet, "/does-not-exist", "")
 
 	if rec.Code != http.StatusUnauthorized {
-		t.Errorf("status = %d, want 401 rather than a 404 that confirms the route is absent", rec.Code)
+		t.Errorf("status = %d, want 401", rec.Code)
 	}
 }
 
-// The panel cannot trust its own clock, so /health carries the agent's and the
-// panel works out the difference itself.
+// /health carries the agent clock because the panel cannot trust its own.
 func TestHealthReportsTheAgentsCurrentTime(t *testing.T) {
 	fixed := time.Date(2026, 9, 14, 10, 30, 0, 0, time.FixedZone("BST", 3600))
 	srv := New(Options{
@@ -305,10 +304,10 @@ func TestHealthReportsTheAgentsCurrentTime(t *testing.T) {
 		Now string `json:"now"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
-		t.Fatalf("decoding /health body: %v\nbody: %s", err, rec.Body.String())
+		t.Fatalf("decode /health: %v\nbody: %s", err, rec.Body.String())
 	}
 	if want := "2026-09-14T09:30:00Z"; body.Now != want {
-		t.Errorf("now = %q, want %q (UTC, so the panel needs no timezone handling)", body.Now, want)
+		t.Errorf("now = %q, want %q", body.Now, want)
 	}
 }
 
@@ -322,11 +321,11 @@ func TestHealthTimeDefaultsToTheRealClock(t *testing.T) {
 		Now string `json:"now"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
-		t.Fatalf("decoding /health body: %v", err)
+		t.Fatalf("decode /health: %v", err)
 	}
 	got, err := time.Parse(time.RFC3339, body.Now)
 	if err != nil {
-		t.Fatalf("now = %q is not RFC 3339: %v", body.Now, err)
+		t.Fatalf("now = %q, want RFC 3339: %v", body.Now, err)
 	}
 	if got.Before(before) || got.After(time.Now().Add(time.Second)) {
 		t.Errorf("now = %v, want about the current time", got)

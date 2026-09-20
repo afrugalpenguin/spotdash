@@ -14,14 +14,13 @@ import (
 const (
 	// FileName is the config file's name wherever it lives.
 	FileName = "config.json"
-	// UserDirName is the folder under the user's config directory
-	// (%APPDATA% on Windows) that a first run creates.
+	// UserDirName is the folder under the user config directory (%APPDATA% on
+	// Windows) that a first run creates.
 	UserDirName = "spotdash"
 )
 
-// tokenAlphabet is letters and digits only, because a token gets typed on a
-// device keyboard and pushed through adb, and punctuation does not survive
-// either (docs/device.md).
+// tokenAlphabet is letters and digits only. A token is typed on the device and
+// pushed through adb, and punctuation survives neither (docs/device.md).
 const (
 	tokenAlphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
 	tokenLength   = 32
@@ -33,16 +32,10 @@ type Location struct {
 	Exists bool
 }
 
-// Resolve decides which config file the agent uses.
-//
-// Order: an explicit flag; config.json beside the executable; config.json in
-// the working directory; then the per-user file under userDir. The first two
-// after the flag are what the agent has always searched, so an existing setup
-// keeps working untouched. When none exist, the per-user path is returned with
-// Exists false, which is where a first run creates one.
-//
-// A flag is never replaced by a search, and is never created: naming a file
-// that is not there is a mistake to report, not a request for a new one.
+// Resolve decides which config file the agent uses: the flag, then config.json
+// beside the executable, in the working directory, then under userDir. With
+// none present it returns the userDir path with Exists false. A flag path is
+// never created.
 func Resolve(flagValue, exeDir, workDir, userDir string) (Location, error) {
 	if flagValue != "" {
 		return Location{Path: flagValue, Exists: exists(flagValue)}, nil
@@ -64,9 +57,8 @@ func Resolve(flagValue, exeDir, workDir, userDir string) (Location, error) {
 	return Location{Path: path, Exists: exists(path)}, nil
 }
 
-// exists is deliberately generous: anything other than a clear "does not
-// exist" counts as present. A file that cannot be read is Load's error to
-// report, and must never be mistaken for a missing one and replaced.
+// exists counts anything other than a clear "does not exist" as present. An
+// unreadable file is Load's error and must never be taken for a missing one.
 func exists(path string) bool {
 	_, err := os.Stat(path)
 	return !errors.Is(err, os.ErrNotExist)
@@ -78,7 +70,7 @@ func GenerateToken() (string, error) {
 	out := make([]byte, tokenLength)
 	limit := big.NewInt(int64(len(tokenAlphabet)))
 	for i := range out {
-		// rand.Int rejects rather than reduces, so every character is uniform.
+		// rand.Int rejects out-of-range draws, so every character is uniform.
 		n, err := rand.Int(rand.Reader, limit)
 		if err != nil {
 			return "", fmt.Errorf("generating a token: %w", err)
@@ -88,14 +80,9 @@ func GenerateToken() (string, error) {
 	return string(out), nil
 }
 
-// CreateDefault writes a new config at path from example, with the example's
-// placeholder token replaced by a generated one. It fails with an error
-// wrapping os.ErrExist if the file is already there, and never changes one.
-//
-// The file is written whole under a temporary name and then linked into place.
-// A hard link fails if the target exists, so two first runs racing each other
-// cannot overwrite one another, and a crash halfway leaves no truncated
-// config.json for the next start to trip over.
+// CreateDefault writes a new config at path from example, with a generated
+// token. It fails with an error wrapping os.ErrExist if the file is already
+// there. See docs/architecture.md, "Configuration".
 func CreateDefault(path string, example []byte) error {
 	cfg := &Config{}
 	dec := json.NewDecoder(bytes.NewReader(example))
@@ -120,8 +107,7 @@ func CreateDefault(path string, example []byte) error {
 	}
 
 	dir := filepath.Dir(path)
-	// 0700: the config holds the token, and a per-user folder has no reason to
-	// be readable by anyone else.
+	// 0700: the config holds the token.
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return fmt.Errorf("creating %s: %w", dir, err)
 	}
