@@ -5,8 +5,8 @@
 #   .\autostart.ps1 -Status       show whether it is registered and running
 #   .\autostart.ps1 -Uninstall    remove it
 #
-# This registers a scheduled task rather than a Windows service. A service runs
-# before login with no desktop session, which means no tray icon and no way to
+# This registers a scheduled task. A Windows service would run before login
+# with no desktop session, so there would be no tray icon and no way to
 # open the UI or reload the config. The agent is operated from the tray, so it
 # has to start inside a logged-on session.
 
@@ -82,7 +82,7 @@ function Install-Task {
     # cost of slowing down logon.
     $trigger.Delay = 'PT15S'
 
-    # Limited rather than Highest: elevation would put the tray icon in a
+    # Run level Limited: elevation would put the tray icon in a
     # different integrity level from the desktop and it would not appear.
     $principal = New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\$env:USERNAME" -LogonType Interactive -RunLevel Limited
 
