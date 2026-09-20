@@ -164,3 +164,4 @@ oversight, see `docs/architecture.md` for the reasoning.
 - [`docs/architecture.md`](docs/architecture.md) - how it's put together, and the full source config reference.
 - [`docs/verify.md`](docs/verify.md) - how each piece was tested.
 - [`docs/device.md`](docs/device.md) - bringing up a real Echo Spot.
+- [`docs/voice-design.md`](docs/voice-design.md) - proposal for a voice source, with questions to settle before building it.
