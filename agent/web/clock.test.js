@@ -1,10 +1,5 @@
-// Tests for the clock face's pure geometry.
-//
-// Run with: node --test agent/web/clock.test.js
-//
-// handAngles is the part worth testing hard: get the hour hand's fraction of
-// travel through the current hour wrong and it visibly snaps instead of
-// sweeping, on a face whose entire point is looking like a real clock.
+// Tests for the clock face's pure geometry. Run with:
+// node --test agent/web/clock.test.js
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
@@ -31,8 +26,7 @@ test("the minute hand sweeps six degrees per minute", () => {
 });
 
 test("the hour hand moves smoothly through the hour, not in jumps", () => {
-  // 3:30 is half way from 3 to 4: 90 degrees plus half of one hour's 30
-  // degrees, not still sitting at the 3.
+  // 3:30 is 90 degrees plus half of one hour's 30.
   assert.equal(handAngles("03:30", 0).hour, 105);
 });
 

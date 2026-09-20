@@ -10,7 +10,7 @@ func receive(t *testing.T, ch <-chan Entry, what string) Entry {
 	select {
 	case entry, open := <-ch:
 		if !open {
-			t.Fatalf("channel closed while waiting for %s", what)
+			t.Fatalf("channel closed waiting for %s", what)
 		}
 		return entry
 	case <-time.After(2 * time.Second):
@@ -35,7 +35,7 @@ func TestSubscriberReceivesUpdates(t *testing.T) {
 		t.Errorf("Data = %v, want the polled value", entry.Data)
 	}
 	if entry.UpdatedAt.IsZero() {
-		t.Error("the event should carry the update time")
+		t.Error("event UpdatedAt is zero, want a time")
 	}
 }
 
@@ -50,10 +50,10 @@ func TestEverySubscriberReceivesTheSameUpdate(t *testing.T) {
 	s.Update("clock", "shared")
 
 	if got := receive(t, first, "the first subscriber"); got.Data != "shared" {
-		t.Errorf("first subscriber got %v", got.Data)
+		t.Errorf("first subscriber Data = %v", got.Data)
 	}
 	if got := receive(t, second, "the second subscriber"); got.Data != "shared" {
-		t.Errorf("second subscriber got %v", got.Data)
+		t.Errorf("second subscriber Data = %v", got.Data)
 	}
 }
 
@@ -68,7 +68,7 @@ func TestCancelStopsDelivery(t *testing.T) {
 	select {
 	case _, open := <-events:
 		if open {
-			t.Error("a cancelled subscriber should not receive updates")
+			t.Error("cancelled subscriber received an update")
 		}
 	case <-time.After(100 * time.Millisecond):
 		// Closed or silent are both acceptable. Still delivering is not.
@@ -84,9 +84,7 @@ func TestCancelIsSafeToCallTwice(t *testing.T) {
 }
 
 func TestUpdateDoesNotBlockOnASubscriberThatNeverReads(t *testing.T) {
-	// This is the property that matters most. A panel that stops reading, or a
-	// device that goes to sleep mid-frame, must not be able to stall every
-	// source in the agent.
+	// A panel that stops reading must not stall every source.
 	s := New()
 	s.Register("clock", StatusDegraded, "")
 	_, cancel := s.Subscribe()
@@ -108,8 +106,7 @@ func TestUpdateDoesNotBlockOnASubscriberThatNeverReads(t *testing.T) {
 }
 
 func TestASubscriberThatFallsBehindIsDropped(t *testing.T) {
-	// Dropping is better than silently skipping messages: the client
-	// reconnects and is handed a fresh snapshot, so it is never quietly stale.
+	// A dropped client reconnects for a fresh snapshot.
 	s := New()
 	s.Register("clock", StatusDegraded, "")
 	events, cancel := s.Subscribe()
@@ -128,14 +125,13 @@ func TestASubscriberThatFallsBehindIsDropped(t *testing.T) {
 				return
 			}
 		case <-deadline:
-			t.Fatal("a subscriber that fell behind was never dropped")
+			t.Fatal("slow subscriber not dropped")
 		}
 	}
 }
 
 func TestFailDoesNotBroadcast(t *testing.T) {
-	// The message shape carries readings. A failure changes status, which the
-	// client reads from /health, and leaves the last good reading in place.
+	// A failure changes status, which the client reads from /health.
 	s := New()
 	s.Register("clock", StatusDegraded, "")
 	events, cancel := s.Subscribe()
@@ -145,7 +141,7 @@ func TestFailDoesNotBroadcast(t *testing.T) {
 
 	select {
 	case entry := <-events:
-		t.Errorf("Fail broadcast an event: %+v", entry)
+		t.Errorf("Fail broadcast %+v, want nothing", entry)
 	case <-time.After(100 * time.Millisecond):
 	}
 }
@@ -159,7 +155,7 @@ func TestUpdateToAnUnregisteredSourceDoesNotBroadcast(t *testing.T) {
 
 	select {
 	case entry := <-events:
-		t.Errorf("an unregistered source was broadcast: %+v", entry)
+		t.Errorf("unregistered source broadcast %+v, want nothing", entry)
 	case <-time.After(100 * time.Millisecond):
 	}
 }

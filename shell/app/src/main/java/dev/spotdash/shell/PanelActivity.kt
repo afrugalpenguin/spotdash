@@ -29,13 +29,7 @@ import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import java.io.File
 
-/**
- * The whole shell.
- *
- * One Activity holding a WebView, a native fallback screen, and a settings
- * screen reached by a long press. All logic and all UI live in the agent; this
- * exists to put the agent's page on the glass and keep it there.
- */
+/** The whole shell: a WebView, a native fallback screen and a settings screen behind a long press. */
 class PanelActivity : AppCompatActivity() {
 
     private lateinit var settings: Settings
@@ -50,36 +44,32 @@ class PanelActivity : AppCompatActivity() {
     private var retryScheduled = false
     private val backoff = RetryBackoff()
 
-    // Set when the current load of the panel failed, so onPageFinished, which
-    // WebView also calls after a failed load, does not hide the error just shown.
-    // Whether the agent is down is asked of the watcher instead, for loads that
-    // never fail at all, they just hang.
+    // WebView calls onPageFinished after a failed load too. This keeps it from
+    // hiding the error. See docs/architecture.md, "Failure behaviour".
     private var pageFailed = false
 
-    // Set when the Wi-Fi settings screen was opened, so coming back from it can
-    // try the panel again straight away instead of waiting out a backoff that
-    // was worked up while the network was down.
+    // Set when the Wi-Fi settings were opened, so coming back retries at once
+    // and skips the backoff built up while the network was down.
     private var wifiOpened = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
         settings = Settings(this)
-        // Asking for the directory is what creates it, so it is there for
-        // `adb push` to write a provisioning file into on a freshly installed shell.
+        // Asking creates the directory, so `adb push` has somewhere to write a
+        // provisioning file on a fresh install.
         getExternalFilesDir(null)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
         root = FrameLayout(this).apply { setBackgroundColor(Color.BLACK) }
         setContentView(root)
 
-        // After setContentView, not before. The insets controller lives on the
-        // decor view, which does not exist until the content is set, and asking
-        // for it earlier returns null and takes the process down on launch.
+        // The insets controller lives on the decor view, which exists only after
+        // setContentView. Asking earlier returns null and crashes on launch.
         goFullscreen()
 
-        // Static and process wide, so before the WebView exists. Only for a
-        // debug build: it lets anything on the USB cable inspect the panel.
+        // Static and process wide, so it runs before the WebView exists. Debug
+        // builds only: it lets anything on the USB cable inspect the panel.
         if (isDebuggable(applicationInfo.flags)) {
             WebView.setWebContentsDebuggingEnabled(true)
         }
@@ -114,8 +104,7 @@ class PanelActivity : AppCompatActivity() {
         if (settings.isConfigured) {
             loadPanel()
         } else {
-            // Nothing configured yet, which on first install is the normal
-            // state rather than an error.
+            // A fresh install has nothing configured. That is normal.
             showFallback(getString(R.string.not_configured))
         }
     }
@@ -145,11 +134,7 @@ class PanelActivity : AppCompatActivity() {
         watcher.stop()
     }
 
-    /**
-     * Launching an activity that is already in front does not pause and resume
-     * it, it only delivers the intent here. That is exactly what `adb shell am
-     * start` does after a provisioning file has been pushed, so look again.
-     */
+    /** `am start` on a front activity only delivers an intent here. Look for a provisioning file again. */
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         if (applyProvisioning()) {
@@ -157,14 +142,7 @@ class PanelActivity : AppCompatActivity() {
         }
     }
 
-    /**
-     * Takes a provisioning file left by adb, if there is one, and applies it.
-     * True when the address and token were changed and the panel should reload.
-     *
-     * Nothing is logged that came from the file: logcat is readable by anyone
-     * with adb, and the token is in it. The host alone is safe and is what tells
-     * someone the right payload arrived.
-     */
+    /** Applies a provisioning file left by adb, if any. True when the panel should reload. */
     private fun applyProvisioning(): Boolean {
         val directory = getExternalFilesDir(null) ?: return false
         val consumed = consumeProvisioning(File(directory, PROVISIONING_FILE_NAME)) ?: return false
@@ -199,19 +177,18 @@ class PanelActivity : AppCompatActivity() {
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
-        // The system bars come back after a dialog or a notification, so they
-        // are pushed away again every time focus returns.
+        // The system bars come back after a dialog or a notification.
         if (hasFocus) goFullscreen()
     }
 
-    /** There is nowhere to go back to. Back must not leave the panel. */
+    /** Back must not leave the panel. */
     @Suppress("DEPRECATION")
     override fun onBackPressed() {
         if (fallback.visibility == View.VISIBLE && settings.isConfigured) {
             hideFallbackAndReload()
             return
         }
-        // Deliberately no super call.
+        // No super call.
     }
 
     @SuppressLint("SetJavaScriptEnabled")
@@ -222,29 +199,19 @@ class PanelActivity : AppCompatActivity() {
         view.settings.apply {
             javaScriptEnabled = true
             domStorageEnabled = true
-            // The panel is a fixed 480x480 CSS layout, and CSS pixels are
-            // density independent. This display is 240dpi, so without viewport
-            // fitting those 480 CSS pixels become 720 physical ones and two
-            // thirds of the panel falls off the glass.
-            //
-            // Honouring the page's own viewport tag and scaling it to the window
-            // makes the panel fit whatever density it lands on, which matters
-            // because the Echo Spot's density need not match the emulator's.
             useWideViewPort = true
             loadWithOverviewMode = false
             setSupportZoom(false)
             builtInZoomControls = false
             displayZoomControls = false
-            // The device caches aggressively and the agent is rebuilt often.
-            // Stale UI on a panel with no address bar is painful to diagnose.
+            // The agent is rebuilt often, and a stale panel with no address bar
+            // is hard to diagnose.
             cacheMode = android.webkit.WebSettings.LOAD_NO_CACHE
             mediaPlaybackRequiresUserGesture = false
         }
 
-        // Scale the panel's fixed 480 CSS pixel layout onto however many
-        // physical pixels this display actually has. Left alone, a 240dpi
-        // screen renders those 480 CSS pixels as 720 physical ones and two
-        // thirds of the panel falls off the glass.
+        // Fits the fixed 480 CSS pixel layout to this display. See
+        // docs/architecture.md, "Scaling".
         val widthPx = resources.displayMetrics.widthPixels
         val scalePercent = ((widthPx.toFloat() / PANEL_CSS_WIDTH) * 100f).toInt().coerceIn(25, 400)
         view.setInitialScale(scalePercent)
@@ -257,8 +224,8 @@ class PanelActivity : AppCompatActivity() {
         bridge = ShellBridge(this)
         view.addJavascriptInterface(bridge, "shell")
 
-        // Face script errors and socket failures land here and nowhere else:
-        // the device has no console to look at.
+        // The device has no console, so script errors and socket failures show
+        // up only here.
         view.webChromeClient = object : WebChromeClient() {
             override fun onConsoleMessage(message: ConsoleMessage): Boolean {
                 Log.println(
@@ -276,8 +243,7 @@ class PanelActivity : AppCompatActivity() {
                 request: WebResourceRequest?,
                 error: WebResourceError?,
             ) {
-                // Subresource failures are not worth a fallback screen; only a
-                // failure of the page itself is.
+                // Only a failure of the page itself gets a fallback screen.
                 if (request?.isForMainFrame != true) return
                 val description = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                     error?.description?.toString().orEmpty()
@@ -290,9 +256,8 @@ class PanelActivity : AppCompatActivity() {
                 showFallback(reason)
             }
 
-            // The agent answered, but not with the page. A wrong token is the
-            // usual case: the agent returns 401 and WebView would otherwise show
-            // that as an ordinary loaded page, which on this display is black.
+            // The agent answered but not with the page. A wrong token returns 401,
+            // which WebView would show as a loaded page. Here that is black.
             override fun onReceivedHttpError(
                 view: WebView?,
                 request: WebResourceRequest?,
@@ -335,9 +300,8 @@ class PanelActivity : AppCompatActivity() {
 
     private fun showFallback(reason: String, rejected: Boolean = false) {
         lastError = reason
-        // An unconfigured shell has not failed at anything, so it should not
-        // say it cannot reach something it was never told about. A rejected
-        // token did reach the agent, so it should not say it could not either.
+        // Neither an unconfigured shell nor a rejected token is an unreachable
+        // agent, so each gets its own title.
         val title = when {
             !settings.isConfigured -> getString(R.string.fallback_title_unconfigured)
             rejected -> getString(R.string.fallback_title_rejected)
@@ -359,18 +323,12 @@ class PanelActivity : AppCompatActivity() {
 
     private fun hideFallbackAndReload() {
         hideFallback()
-        // Someone changed something, or the agent came back: try at the fast
-        // pace again rather than the slow one an earlier outage had worked up to.
+        // After a change or a recovery, retry at the fast pace again.
         backoff.reset()
         loadPanel()
     }
 
-    /**
-     * Retries with a growing delay while the fallback is up.
-     *
-     * There is nobody standing at the device to press anything, so recovery has
-     * to be automatic and has to keep trying for as long as it takes.
-     */
+    /** Retries with a growing delay while the fallback is up. Nobody is at the device. */
     private fun scheduleRetry() {
         if (retryScheduled) return
         retryScheduled = true
@@ -385,13 +343,7 @@ class PanelActivity : AppCompatActivity() {
         }, delay)
     }
 
-    /**
-     * A three second press anywhere opens settings.
-     *
-     * The device has no buttons worth using and no keyboard, so this gesture is
-     * the only way in. Three seconds is long enough that nobody reaches it by
-     * dusting the screen.
-     */
+    /** A three second press opens settings. Dusting the screen does not trigger it. */
     private fun installLongPressGesture() {
         val opener = Runnable { openSettings() }
 
@@ -403,8 +355,7 @@ class PanelActivity : AppCompatActivity() {
                 MotionEvent.ACTION_POINTER_UP,
                 -> main.removeCallbacks(opener)
             }
-            // Never consume: the page still has to receive its own taps for
-            // switching faces.
+            // The page still needs its own taps for switching faces.
             false
         }
     }
@@ -419,16 +370,7 @@ class PanelActivity : AppCompatActivity() {
         }.show(supportFragmentManager, SettingsSheet.TAG)
     }
 
-    /**
-     * Hands over to Android's own Wi-Fi settings.
-     *
-     * The system screen already lists nearby networks, takes the password, and
-     * handles WPA2 and WPA3, hidden networks and forgetting one, which a screen
-     * of our own would have to rebuild. On API 30 the alternatives do not fit an
-     * app that is not the system: WifiManager.addNetwork is ignored for apps
-     * targeting API 29 or later, and a network request only connects this
-     * process rather than the device.
-     */
+    /** Hands over to Android's own Wi-Fi settings. See docs/architecture.md, "Shell". */
     private fun openWifiSettings() {
         wifiOpened = true
         try {
@@ -468,12 +410,7 @@ class PanelActivity : AppCompatActivity() {
     }
 }
 
-/**
- * The native fallback.
- *
- * Native rather than a local HTML page on purpose: it is shown precisely when
- * the web layer is what is in question, so it must not depend on it.
- */
+/** The native fallback. It does not use the web layer, which is what may be failing. */
 class FallbackView(
     activity: AppCompatActivity,
     private val onSettings: () -> Unit,

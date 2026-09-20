@@ -11,16 +11,9 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-// NVML is bound directly rather than through a library.
-//
-// The obvious choice, NVIDIA's own go-nvml, cannot build on Windows at all: it
-// loads the library through dlfcn.h, which is POSIX. Binding nvml.dll here
-// instead costs about a hundred lines and removes cgo from the project
-// entirely, which means the agent stays a single static binary with no runtime
-// dependency on a compiler's DLLs.
-//
+// nvml.dll is bound directly. See docs/architecture.md, "GPU telemetry".
 // NewLazySystemDLL resolves only from the system directory, so a stray nvml.dll
-// next to the binary or in the working directory cannot be loaded instead.
+// next to the binary is never loaded.
 var (
 	nvmlDLL = windows.NewLazySystemDLL("nvml.dll")
 
@@ -51,13 +44,9 @@ type memoryInfo struct {
 	Used  uint64
 }
 
-// nvmlReader reads the first NVIDIA GPU.
-//
-// Initialisation is deferred to the first read and retried whenever it is not
-// yet established. That covers the case that actually happens on a desktop: the
-// agent starts while the driver is updating or the card is not ready, and it
-// comes back a minute later. Initialising once at construction would leave the
-// GPU missing until the agent was restarted.
+// nvmlReader reads the first NVIDIA GPU. Init is deferred to the first read and
+// retried until it succeeds, because the agent can start before the driver is
+// ready.
 type nvmlReader struct {
 	mu      sync.Mutex
 	started bool
@@ -83,8 +72,7 @@ func (r *nvmlReader) Read(_ context.Context) (*GPU, error) {
 	defer r.mu.Unlock()
 
 	if err := nvmlDLL.Load(); err != nil {
-		// No driver, or no NVIDIA card at all. This is the expected degraded
-		// path, not an exceptional one.
+		// No driver or no NVIDIA card: the expected degraded path.
 		return nil, fmt.Errorf("nvml unavailable: %w", err)
 	}
 
@@ -101,8 +89,8 @@ func (r *nvmlReader) Read(_ context.Context) (*GPU, error) {
 	var device uintptr
 	ret, _, _ := procHandleByIdx.Call(0, uintptr(unsafe.Pointer(&device)))
 	if ret != nvmlSuccess {
-		// Give up the handle state so the next poll initialises again. A driver
-		// restart invalidates everything obtained before it.
+		// Reset so the next poll re-initialises. A driver restart invalidates
+		// every earlier handle.
 		r.started = false
 		_, _, _ = procShutdown.Call()
 		return nil, fmt.Errorf("nvml device 0: %s", nvmlError(ret))
@@ -110,10 +98,8 @@ func (r *nvmlReader) Read(_ context.Context) (*GPU, error) {
 
 	gpu := &GPU{}
 
-	// Each field is read independently and one failure is not fatal. Not every
-	// card reports power draw, and a driver can refuse a single metric while
-	// serving the rest. Losing the whole GPU over a missing wattage would be
-	// the wrong trade.
+	// Each field is read independently. One failed metric, such as power draw,
+	// must not lose the rest.
 	name := make([]byte, nameBufferLength)
 	if ret, _, _ := procGetName.Call(device, uintptr(unsafe.Pointer(&name[0])), nameBufferLength); ret == nvmlSuccess {
 		gpu.Name = windows.ByteSliceToString(name)
@@ -144,13 +130,9 @@ func (r *nvmlReader) Read(_ context.Context) (*GPU, error) {
 	return gpu, nil
 }
 
-// nvmlReturns maps the return codes worth naming.
-//
-// Reading nvmlErrorString would mean converting a pointer into memory the Go
-// runtime does not own, which go vet rightly objects to. The codes are stable
-// API, so naming them here is both safer and more predictable. The two that
-// matter most for this source are a missing library and an unloaded driver:
-// those are the expected degraded path on a machine with no NVIDIA card.
+// nvmlReturns maps the return codes worth naming. nvmlErrorString is avoided
+// because reading it needs a pointer into memory Go does not own, which go vet
+// rejects. The codes are stable API.
 var nvmlReturns = map[uintptr]string{
 	1:   "not initialised",
 	2:   "invalid argument",

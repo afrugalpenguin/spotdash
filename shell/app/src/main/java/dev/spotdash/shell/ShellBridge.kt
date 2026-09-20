@@ -11,17 +11,7 @@ import android.webkit.JavascriptInterface
 
 internal const val TAG = "spotdash"
 
-/**
- * The `window.shell` bridge.
- *
- * Exactly four methods, and every one of them is optional at runtime. The Echo
- * Spot grants some of this and an emulator grants none of it, and the panel has
- * to behave identically either way, so nothing here throws: a method that
- * cannot do its job logs why and returns.
- *
- * Every method hops to the main thread. WebView calls these on its own JavaScript
- * thread, and touching a window from there is a crash.
- */
+/** The `window.shell` bridge. A method that cannot act logs why and returns. See docs/architecture.md, "JavaScript bridge". */
 class ShellBridge(private val activity: Activity) {
 
     private val powerManager by lazy {
@@ -56,8 +46,7 @@ class ShellBridge(private val activity: Activity) {
                     AndroidSettings.System.SCREEN_BRIGHTNESS,
                     clamped,
                 )
-                // Also set it on this window, so the change is visible at once
-                // rather than at the next system brightness evaluation.
+                // Also set on this window so the change shows at once.
                 val params = activity.window.attributes
                 params.screenBrightness = clamped / 255f
                 activity.window.attributes = params
@@ -73,10 +62,8 @@ class ShellBridge(private val activity: Activity) {
     fun screenOff() {
         activity.runOnUiThread {
             val params = activity.window.attributes
-            // A brightness of zero is the portable way to blank a kiosk panel.
-            // Actually powering the display down needs DEVICE_ADMIN, which is a
-            // heavier grant than this is worth and is not available on an
-            // emulator at all.
+            // Zero brightness blanks the panel. See docs/architecture.md,
+            // "JavaScript bridge".
             params.screenBrightness = 0f
             activity.window.attributes = params
             activity.window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)

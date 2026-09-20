@@ -60,8 +60,7 @@ func newTestAPISource(t *testing.T, tokens accessTokenSource, playback currently
 		playback:     playback,
 		art:          art,
 		artCachePath: filepath.Join(t.TempDir(), "spotify_art.jpg"),
-		// A no-op rather than ctxSleep: the consistency-retry tests exercise
-		// the retry loop itself, not real wall-clock delay.
+		// No real delay in the retry tests.
 		sleep: func(context.Context, time.Duration) {},
 	}
 }
@@ -73,10 +72,10 @@ func TestPollWithNoConnectionIsAPlainFailure(t *testing.T) {
 	_, err := src.poll(context.Background())
 
 	if err == nil {
-		t.Fatal("poll should fail when there is no access token to use")
+		t.Fatal("poll succeeded with no access token")
 	}
 	if partial.Is(err) {
-		t.Error("not connected is a plain failure, not a partial result: there is nothing to show at all")
+		t.Error("not connected marked partial, want a plain failure")
 	}
 }
 
@@ -88,13 +87,13 @@ func TestPollReportsNothingPlayingAsSuccess(t *testing.T) {
 	reading, err := src.poll(context.Background())
 
 	if err != nil {
-		t.Fatalf("nothing playing should not be an error, got: %v", err)
+		t.Fatalf("poll with nothing playing: %v", err)
 	}
 	if reading.Title != "" {
-		t.Errorf("Title = %q, want empty when nothing is playing", reading.Title)
+		t.Errorf("Title = %q, want empty", reading.Title)
 	}
 	if reading.Playing {
-		t.Error("Playing should be false")
+		t.Error("Playing = true, want false")
 	}
 }
 
@@ -110,7 +109,7 @@ func TestPollMapsANowPlayingReading(t *testing.T) {
 
 	reading, err := src.poll(context.Background())
 	if err != nil {
-		t.Fatalf("poll returned an error: %v", err)
+		t.Fatalf("poll: %v", err)
 	}
 
 	if reading.Title != "Peacefield - Live from Mexico City" {
@@ -120,13 +119,12 @@ func TestPollMapsANowPlayingReading(t *testing.T) {
 		t.Errorf("position/duration = %d/%d", reading.PositionMS, reading.DurationMS)
 	}
 	if !reading.Playing {
-		t.Error("Playing should be true")
+		t.Error("Playing = false, want true")
 	}
 }
 
 func TestPollServesArtFromTheAgentNotSpotify(t *testing.T) {
-	// The device is on a LAN with an agent that holds the credentials. It
-	// should never be told to reach a Spotify CDN URL directly.
+	// The device must never be sent a CDN URL.
 	tokens := &fakeTokenSource{token: "access-1"}
 	playback := &fakePlaybackFetcher{result: &nowPlaying{
 		Title: "A Track", TrackID: "track-1", DurationMS: 1000,
@@ -140,10 +138,10 @@ func TestPollServesArtFromTheAgentNotSpotify(t *testing.T) {
 	}
 
 	if reading.ArtURL == "" {
-		t.Fatal("no art URL was published even though art is available")
+		t.Fatal("ArtURL is empty, want a path")
 	}
 	if strings.HasPrefix(reading.ArtURL, "http") {
-		t.Errorf("ArtURL = %q, want a path served by the agent, not the raw Spotify URL", reading.ArtURL)
+		t.Errorf("ArtURL = %q, want a path on the agent", reading.ArtURL)
 	}
 }
 
@@ -164,7 +162,7 @@ func TestPollDownloadsArtOnlyOncePerTrack(t *testing.T) {
 	}
 
 	if art.calls != 1 {
-		t.Errorf("art was downloaded %d times for the same track, want 1", art.calls)
+		t.Errorf("downloads for one track = %d, want 1", art.calls)
 	}
 }
 
@@ -190,19 +188,15 @@ func TestPollRedownloadsArtWhenTheTrackChanges(t *testing.T) {
 	}
 
 	if art.calls != 2 {
-		t.Errorf("art was downloaded %d times across two different tracks, want 2", art.calls)
+		t.Errorf("downloads for two tracks = %d, want 2", art.calls)
 	}
 	if art.urls[1] != "https://i.scdn.co/image/second" {
 		t.Errorf("second download URL = %q", art.urls[1])
 	}
 }
 
-// TestPollArtURLChangesWithTheTrack is what actually makes a new cover show
-// up on the panel: the client only swaps its <img> when the URL differs from
-// what it is already showing, and a browser will not re-fetch an unchanged
-// URL either way. A fixed "/art/spotify" for every track, even though the
-// file underneath is correctly re-downloaded, means the cover freezes on
-// whatever track first set it.
+// TestPollArtURLChangesWithTheTrack checks the URL differs per track. The
+// client swaps its image only when the URL changes.
 func TestPollArtURLChangesWithTheTrack(t *testing.T) {
 	tokens := &fakeTokenSource{token: "access-1"}
 	playback := &fakePlaybackFetcher{result: &nowPlaying{
@@ -227,10 +221,10 @@ func TestPollArtURLChangesWithTheTrack(t *testing.T) {
 	}
 
 	if first.ArtURL == second.ArtURL {
-		t.Errorf("ArtURL was %q for both tracks, want it to change so the client actually reloads the image", first.ArtURL)
+		t.Errorf("ArtURL = %q for both tracks, want it to change", first.ArtURL)
 	}
 	if !strings.HasPrefix(second.ArtURL, artPath) {
-		t.Errorf("ArtURL = %q, want it to still be served from %s", second.ArtURL, artPath)
+		t.Errorf("ArtURL = %q, want prefix %s", second.ArtURL, artPath)
 	}
 }
 
@@ -248,7 +242,7 @@ func TestPollWritesArtToTheCachePath(t *testing.T) {
 
 	got, err := os.ReadFile(src.artCachePath)
 	if err != nil {
-		t.Fatalf("reading the cached art: %v", err)
+		t.Fatalf("ReadFile: %v", err)
 	}
 	if string(got) != "the actual bytes" {
 		t.Errorf("cached art = %q", got)
@@ -267,17 +261,15 @@ func TestPollWithNoArtDoesNotTouchTheCache(t *testing.T) {
 	}
 
 	if reading.ArtURL != "" {
-		t.Errorf("ArtURL = %q, want empty when the track has no art", reading.ArtURL)
+		t.Errorf("ArtURL = %q, want empty", reading.ArtURL)
 	}
 	if art.calls != 0 {
-		t.Error("the downloader should not be called when there is no art to fetch")
+		t.Error("downloader called with no art to fetch")
 	}
 }
 
 func TestPollRetriesOnceOnAnExpiredAccessToken(t *testing.T) {
-	// The cached token looked valid but Spotify rejected it anyway, which can
-	// happen on revocation mid-session or clock skew. One retry after a forced
-	// refresh is worth it before giving up.
+	// Spotify rejects a token the cache thought valid: revocation or clock skew.
 	tokens := &fakeTokenSource{token: "stale-access"}
 	calls := 0
 	playback := &fakePlaybackFetcherFunc{fn: func(context.Context, string) (*nowPlaying, error) {
@@ -292,21 +284,18 @@ func TestPollRetriesOnceOnAnExpiredAccessToken(t *testing.T) {
 	reading, err := src.poll(context.Background())
 
 	if err != nil {
-		t.Fatalf("poll should recover after one retry, got: %v", err)
+		t.Fatalf("poll: %v", err)
 	}
 	if reading.Title != "Recovered" {
-		t.Errorf("Title = %q, want the reading from the retried call", reading.Title)
+		t.Errorf("Title = %q, want the retried reading", reading.Title)
 	}
 	if calls != 2 {
 		t.Errorf("fetchCurrentlyPlaying called %d times, want 2", calls)
 	}
 }
 
-// TestPollRetriesUntilTheTrackActuallyChanges covers the case measured
-// live: a control action succeeds, but Spotify's own currently-playing
-// endpoint still reports the track from before it for a beat. The poll
-// immediately after should not settle for that stale read when it knows a
-// change is expected.
+// TestPollRetriesUntilTheTrackActuallyChanges covers a skip that Spotify's
+// currently-playing endpoint has not reflected yet.
 func TestPollRetriesUntilTheTrackActuallyChanges(t *testing.T) {
 	tokens := &fakeTokenSource{token: "access-1"}
 	calls := 0
@@ -327,19 +316,18 @@ func TestPollRetriesUntilTheTrackActuallyChanges(t *testing.T) {
 		t.Fatalf("poll: %v", err)
 	}
 	if reading.Title != "New Track" {
-		t.Errorf("Title = %q, want the reading was retried until it actually changed", reading.Title)
+		t.Errorf("Title = %q, want the changed track", reading.Title)
 	}
 	if calls != 3 {
 		t.Errorf("fetchCurrentlyPlaying called %d times, want 3 (1 initial + 2 retries)", calls)
 	}
 	if src.expectingChange.Load() {
-		t.Error("expectingChange should be consumed by the poll that acted on it")
+		t.Error("expectingChange still set after the poll")
 	}
 }
 
-// TestPollGivesUpAfterTheRetryBudget checks the retry loop is bounded: a
-// track that never changes across the whole budget still produces a
-// reading, not an error, once the budget runs out.
+// TestPollGivesUpAfterTheRetryBudget checks that a track that never changes
+// still yields a reading once the retries run out.
 func TestPollGivesUpAfterTheRetryBudget(t *testing.T) {
 	tokens := &fakeTokenSource{token: "access-1"}
 	calls := 0
@@ -354,20 +342,18 @@ func TestPollGivesUpAfterTheRetryBudget(t *testing.T) {
 	reading, err := src.poll(context.Background())
 
 	if err != nil {
-		t.Fatalf("a still-stale reading after the retry budget should not be an error: %v", err)
+		t.Fatalf("poll: %v", err)
 	}
 	if reading.Title != "Stuck Track" {
-		t.Errorf("Title = %q, want the last reading even though it never changed", reading.Title)
+		t.Errorf("Title = %q, want the last reading", reading.Title)
 	}
 	if calls != 1+consistencyRetries {
 		t.Errorf("fetchCurrentlyPlaying called %d times, want %d (1 initial + %d retries)", calls, 1+consistencyRetries, consistencyRetries)
 	}
 }
 
-// TestPollDoesNotRetryWithoutAPendingControlAction is the common case: most
-// polls are not immediately after a skip, and must not pay the retry cost
-// just because the track happens to be unchanged, which is the ordinary,
-// expected state most of the time.
+// TestPollDoesNotRetryWithoutAPendingControlAction checks that an unchanged
+// track alone does not trigger retries.
 func TestPollDoesNotRetryWithoutAPendingControlAction(t *testing.T) {
 	tokens := &fakeTokenSource{token: "access-1"}
 	calls := 0
@@ -377,13 +363,13 @@ func TestPollDoesNotRetryWithoutAPendingControlAction(t *testing.T) {
 	}}
 	src := newTestAPISource(t, tokens, playback, &fakeDownloader{})
 	src.previousTrackID = "track-1"
-	// expectingChange left false: no control action is pending.
+	// expectingChange stays false.
 
 	if _, err := src.poll(context.Background()); err != nil {
 		t.Fatalf("poll: %v", err)
 	}
 	if calls != 1 {
-		t.Errorf("fetchCurrentlyPlaying called %d times, want 1 (no retry without a pending control action)", calls)
+		t.Errorf("fetchCurrentlyPlaying called %d times, want 1", calls)
 	}
 }
 
@@ -399,7 +385,7 @@ func TestHandleControlFlagsExpectingChangeOnNextAndPrevious(t *testing.T) {
 				t.Fatalf("status = %d, want 200", rec.Code)
 			}
 			if !src.expectingChange.Load() {
-				t.Errorf("expectingChange should be set after a successful %q", action)
+				t.Errorf("expectingChange not set after %q", action)
 			}
 		})
 	}
@@ -417,7 +403,7 @@ func TestHandleControlDoesNotFlagExpectingChangeOnPauseOrResume(t *testing.T) {
 				t.Fatalf("status = %d, want 200", rec.Code)
 			}
 			if src.expectingChange.Load() {
-				t.Errorf("expectingChange should not be set after %q, there is no track ambiguity to retry", action)
+				t.Errorf("expectingChange set after %q", action)
 			}
 		})
 	}
@@ -480,7 +466,7 @@ func TestControlRouteRejectsAnUnknownAction(t *testing.T) {
 	src.handleControl(rec, newControlRequest(t, "shuffle"))
 
 	if rec.Code != http.StatusBadRequest {
-		t.Errorf("status = %d, want 400 for an action outside pause/resume/next/previous", rec.Code)
+		t.Errorf("status = %d, want 400", rec.Code)
 	}
 }
 
@@ -494,7 +480,7 @@ func TestControlRouteReportsNoActiveDeviceClearly(t *testing.T) {
 	src.handleControl(rec, newControlRequest(t, "pause"))
 
 	if rec.Code == http.StatusOK {
-		t.Fatal("no active device should not report success")
+		t.Fatal("no active device reported success")
 	}
 	if !strings.Contains(rec.Body.String(), "no active device") {
 		t.Errorf("body = %q, want the specific reason", rec.Body.String())
@@ -511,7 +497,7 @@ func TestControlRouteFailsWhenNotConnected(t *testing.T) {
 	src.handleControl(rec, newControlRequest(t, "pause"))
 
 	if rec.Code == http.StatusOK {
-		t.Fatal("a control action with no connection should not succeed")
+		t.Fatal("control action succeeded with no connection")
 	}
 }
 
@@ -523,10 +509,9 @@ func TestControlIsRegisteredAsAnAuthenticatedRoute(t *testing.T) {
 	if _, ok := routes[controlPath]; !ok {
 		t.Errorf("Routes() = %v, want %s registered", routes, controlPath)
 	}
-	// Confirm it is not also an open route: a control action must require the
-	// bearer token, unlike the OAuth callback.
+	// It must require the bearer token, unlike the OAuth callback.
 	if _, ok := src.OpenRoutes()[controlPath]; ok {
-		t.Error("the control route must not be registered as open")
+		t.Error("control route registered as open")
 	}
 }
 
@@ -560,20 +545,18 @@ func TestControlRouteDoesNotRepollOnFailure(t *testing.T) {
 	src.handleControl(httptest.NewRecorder(), newControlRequest(t, "pause"))
 
 	if repolled != 0 {
-		t.Errorf("repoll called %d times on a failed action, want 0", repolled)
+		t.Errorf("repoll called %d times after a failure, want 0", repolled)
 	}
 }
 
 func TestControlRouteToleratesNoRepollRegistered(t *testing.T) {
-	// Before the runner exists, repoll is nil. Must not panic.
+	// repoll is nil before the runner exists.
 	src := &apiSource{tokens: &fakeTokenSource{token: "t"}, control: &fakeControlAPI{}}
 
 	src.handleControl(httptest.NewRecorder(), newControlRequest(t, "pause"))
 }
 
-// A source that is not connected yet fails every poll and backs off, so the
-// callback finishing has to ask for a poll itself or the first reading waits
-// out the backoff.
+// An unconnected source has backed off, so the callback must ask for a poll.
 func TestConnectingRepollsImmediately(t *testing.T) {
 	mgr, _ := newTestAuthManager(t, func(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(tokenResponse{AccessToken: "a", RefreshToken: "r", ExpiresIn: 3600})

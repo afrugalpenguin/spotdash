@@ -32,35 +32,34 @@ func TestParseRRuleDefaultsIntervalToOne(t *testing.T) {
 func TestParseRRuleRejectsSubDailyFrequencies(t *testing.T) {
 	for _, freq := range []string{"SECONDLY", "MINUTELY", "HOURLY", "NONSENSE"} {
 		if _, ok := parseRRule("FREQ=" + freq); ok {
-			t.Errorf("FREQ=%s should be unsupported", freq)
+			t.Errorf("FREQ=%s accepted", freq)
 		}
 	}
 }
 
 func TestParseRRuleRejectsMissingFreq(t *testing.T) {
 	if _, ok := parseRRule("INTERVAL=2"); ok {
-		t.Error("a rule with no FREQ should be unsupported")
+		t.Error("rule with no FREQ accepted")
 	}
 }
 
 func TestParseRRuleRejectsOrdinalByDay(t *testing.T) {
-	// "the third Thursday of the month" - a monthly-position rule this
-	// source does not implement.
+	// "The third Thursday of the month".
 	if _, ok := parseRRule("FREQ=MONTHLY;BYDAY=3TH"); ok {
-		t.Error("an ordinal BYDAY should be unsupported")
+		t.Error("ordinal BYDAY accepted")
 	}
 }
 
 func TestParseRRuleRejectsNegativeByMonthDay(t *testing.T) {
 	if _, ok := parseRRule("FREQ=MONTHLY;BYMONTHDAY=-1"); ok {
-		t.Error("a negative BYMONTHDAY should be unsupported")
+		t.Error("negative BYMONTHDAY accepted")
 	}
 }
 
 func TestParseRRuleRejectsBySetPosAndByWeekNoAndByYearDay(t *testing.T) {
 	for _, rule := range []string{"FREQ=MONTHLY;BYSETPOS=1", "FREQ=WEEKLY;BYWEEKNO=3", "FREQ=YEARLY;BYYEARDAY=100"} {
 		if _, ok := parseRRule(rule); ok {
-			t.Errorf("%q should be unsupported", rule)
+			t.Errorf("%q accepted", rule)
 		}
 	}
 }
@@ -154,8 +153,7 @@ func TestNextOccurrenceMonthlySameDayOfMonth(t *testing.T) {
 }
 
 func TestNextOccurrenceMonthlySkipsMonthsWithoutThatDay(t *testing.T) {
-	// The 31st: no occurrence in April, June, etc. Must not roll into the
-	// next month the way time.AddDate would.
+	// The 31st: months without one are skipped, not rolled over.
 	dtstart := date(2026, 1, 31, 9, 0)
 	after := date(2026, 3, 1, 0, 0)
 
@@ -165,7 +163,7 @@ func TestNextOccurrenceMonthlySkipsMonthsWithoutThatDay(t *testing.T) {
 	}
 	want := date(2026, 3, 31, 9, 0) // February has no 31st, so skipped
 	if !got.Equal(want) {
-		t.Errorf("got %v, want %v (February should be skipped, not rolled into March)", got, want)
+		t.Errorf("got %v, want %v", got, want)
 	}
 }
 
@@ -204,7 +202,7 @@ func TestNextOccurrenceRespectsCount(t *testing.T) {
 	after := date(2026, 1, 3, 10, 0)
 
 	if _, ok := nextOccurrence(dtstart, "FREQ=DAILY;COUNT=3", after); ok {
-		t.Error("want ok=false once COUNT is exhausted")
+		t.Error("ok = true after COUNT exhausted")
 	}
 }
 
@@ -213,7 +211,7 @@ func TestNextOccurrenceRespectsUntil(t *testing.T) {
 	after := date(2026, 1, 10, 0, 0)
 
 	if _, ok := nextOccurrence(dtstart, "FREQ=DAILY;UNTIL=20260105T090000Z", after); ok {
-		t.Error("want ok=false once past UNTIL")
+		t.Error("ok = true past UNTIL")
 	}
 }
 
@@ -223,7 +221,7 @@ func TestNextOccurrenceWithinCountStillReturned(t *testing.T) {
 
 	got, ok := nextOccurrence(dtstart, "FREQ=DAILY;COUNT=3", after)
 	if !ok {
-		t.Fatal("want an occurrence still within COUNT")
+		t.Fatal("no occurrence within COUNT")
 	}
 	want := date(2026, 1, 2, 9, 0)
 	if !got.Equal(want) {
@@ -236,6 +234,6 @@ func TestNextOccurrenceUnsupportedRuleReturnsFalse(t *testing.T) {
 	after := date(2026, 1, 5, 0, 0)
 
 	if _, ok := nextOccurrence(dtstart, "FREQ=SECONDLY", after); ok {
-		t.Error("want ok=false for an unsupported rule")
+		t.Error("ok = true for an unsupported rule")
 	}
 }

@@ -14,8 +14,8 @@ import (
 	"github.com/afrugalpenguin/spotdash/agent/internal/state"
 )
 
-// liveServer starts a real HTTP server with /ws mounted, because a WebSocket
-// upgrade cannot be exercised through httptest.ResponseRecorder.
+// liveServer starts a real HTTP server with /ws mounted. A WebSocket upgrade
+// cannot go through httptest.ResponseRecorder.
 func liveServer(t *testing.T) (*httptest.Server, *state.Store) {
 	t.Helper()
 	store := state.New()
@@ -46,7 +46,7 @@ func dial(t *testing.T, httpSrv *httptest.Server, token string) *websocket.Conn 
 		Subprotocols: []string{"spotdash.v1", "bearer." + token},
 	})
 	if err != nil {
-		t.Fatalf("dialling the socket: %v", err)
+		t.Fatalf("Dial: %v", err)
 	}
 	t.Cleanup(func() { conn.Close(websocket.StatusNormalClosure, "test over") })
 	return conn
@@ -65,11 +65,11 @@ func readMessage(t *testing.T, conn *websocket.Conn) wsMessage {
 
 	_, raw, err := conn.Read(ctx)
 	if err != nil {
-		t.Fatalf("reading from the socket: %v", err)
+		t.Fatalf("Read: %v", err)
 	}
 	var msg wsMessage
 	if err := json.Unmarshal(raw, &msg); err != nil {
-		t.Fatalf("decoding %q: %v", raw, err)
+		t.Fatalf("decode %q: %v", raw, err)
 	}
 	return msg
 }
@@ -82,7 +82,7 @@ func TestSocketRejectsAMissingToken(t *testing.T) {
 	conn, resp, err := websocket.Dial(ctx, wsURL(httpSrv), nil)
 	if err == nil {
 		conn.Close(websocket.StatusNormalClosure, "")
-		t.Fatal("the socket accepted a connection with no token")
+		t.Fatal("Dial with no token succeeded, want error")
 	}
 	if resp != nil && resp.StatusCode != http.StatusUnauthorized {
 		t.Errorf("status = %d, want 401", resp.StatusCode)
@@ -99,13 +99,12 @@ func TestSocketRejectsAWrongToken(t *testing.T) {
 	})
 	if err == nil {
 		conn.Close(websocket.StatusNormalClosure, "")
-		t.Fatal("the socket accepted a connection with the wrong token")
+		t.Fatal("Dial with a wrong token succeeded, want error")
 	}
 }
 
 func TestSocketAcceptsTheSessionCookie(t *testing.T) {
-	// The page that opens the socket already holds a session cookie from
-	// loading itself, so the cookie has to work here too.
+	// The page already holds a session cookie, so it has to work here too.
 	httpSrv, _ := liveServer(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -117,7 +116,7 @@ func TestSocketAcceptsTheSessionCookie(t *testing.T) {
 		Subprotocols: []string{"spotdash.v1"},
 	})
 	if err != nil {
-		t.Fatalf("the socket rejected a valid session cookie: %v", err)
+		t.Fatalf("Dial with a session cookie: %v", err)
 	}
 	conn.Close(websocket.StatusNormalClosure, "")
 }
@@ -136,7 +135,7 @@ func TestSocketSendsTheFullStateOnConnect(t *testing.T) {
 		msg := readMessage(t, conn)
 		seen[msg.Source] = true
 		if msg.TS == "" {
-			t.Errorf("message for %q carries no timestamp", msg.Source)
+			t.Errorf("message for %q has no timestamp", msg.Source)
 		}
 	}
 
@@ -146,8 +145,7 @@ func TestSocketSendsTheFullStateOnConnect(t *testing.T) {
 }
 
 func TestSnapshotSkipsSourcesThatHaveNotPolled(t *testing.T) {
-	// A source with no reading has nothing to send. Sending an empty message
-	// would have the panel render a blank value as though it were real.
+	// A source with no reading sends nothing.
 	httpSrv, store := liveServer(t)
 	store.Register("clock", state.StatusDegraded, "awaiting first poll")
 	store.Register("telemetry", state.StatusDisabled, "")
@@ -164,7 +162,7 @@ func TestSnapshotSkipsSourcesThatHaveNotPolled(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
 	defer cancel()
 	if _, raw, err := conn.Read(ctx); err == nil {
-		t.Errorf("received an unexpected extra message: %s", raw)
+		t.Errorf("unexpected extra message: %s", raw)
 	}
 }
 
@@ -188,10 +186,10 @@ func TestSocketPushesLiveUpdates(t *testing.T) {
 		Time string `json:"time"`
 	}
 	if err := json.Unmarshal(msg.Data, &data); err != nil {
-		t.Fatalf("decoding data: %v", err)
+		t.Fatalf("decode data: %v", err)
 	}
 	if data.Time != "10:01" {
-		t.Errorf("time = %q, want the new reading 10:01", data.Time)
+		t.Errorf("time = %q, want 10:01", data.Time)
 	}
 }
 
@@ -204,7 +202,7 @@ func TestMessageTimestampIsRFC3339(t *testing.T) {
 
 	msg := readMessage(t, conn)
 	if _, err := time.Parse(time.RFC3339, msg.TS); err != nil {
-		t.Errorf("ts %q is not RFC3339: %v", msg.TS, err)
+		t.Errorf("ts = %q, want RFC3339: %v", msg.TS, err)
 	}
 }
 
@@ -229,8 +227,7 @@ func TestTwoClientsBothReceiveUpdates(t *testing.T) {
 }
 
 func TestSocketNegotiatesTheProtocol(t *testing.T) {
-	// The server has to echo back a protocol it accepts or the browser refuses
-	// the connection.
+	// The server must echo a protocol or the browser refuses the connection.
 	httpSrv, _ := liveServer(t)
 
 	conn := dial(t, httpSrv, testToken)

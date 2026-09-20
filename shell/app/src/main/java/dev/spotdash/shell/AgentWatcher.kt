@@ -7,17 +7,7 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.util.concurrent.Executors
 
-/**
- * Watches the agent and reports when it has been unreachable for too long.
- *
- * The shell cannot ask the page whether its socket is up: the bridge is exactly
- * four methods and none of them report connection state. It does not need to.
- * `/health` is unauthenticated precisely so it stays usable when everything else
- * is broken, so the shell polls it directly.
- *
- * Doing it natively also means the fallback still works when the WebView itself
- * is what has failed, which is the case where asking the page would be useless.
- */
+/** Polls the agent's `/health` and reports when it has been unreachable too long. It needs no token. */
 class AgentWatcher(
     private val healthUrl: () -> String,
     private val onDown: (String) -> Unit,
@@ -38,12 +28,9 @@ class AgentWatcher(
     fun start() {
         if (running) return
         running = true
-        // The failure clock starts over, but a down agent stays down across a
-        // stop and start. The watcher is stopped whenever the panel is paused,
-        // such as while the Wi-Fi settings are open, and forgetting that the
-        // agent was down would let a load that never finished hide the fallback
-        // again. Coming back up is still reported: the first good probe sees
-        // reportedDown and calls onUp.
+        // reportedDown survives a stop and start, so a pause cannot make the
+        // watcher forget the agent was down. See docs/architecture.md,
+        // "Failure behaviour".
         firstFailureAt = 0L
         main.post(pollTask)
     }
@@ -95,9 +82,8 @@ class AgentWatcher(
             Log.w(TAG, "agent unreachable: $failure")
         }
 
-        // A brief blip is not worth taking the panel down for. A restarting
-        // agent is back within a second or two, and flashing a fallback screen
-        // at every restart would be worse than showing a stale dashboard.
+        // A restarting agent is back within a second or two. A fallback flashing
+        // at every restart is worse than a briefly stale dashboard.
         val downFor = now - firstFailureAt
         if (!reportedDown && downFor >= DOWN_AFTER_MS) {
             reportedDown = true

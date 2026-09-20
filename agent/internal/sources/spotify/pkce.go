@@ -6,12 +6,8 @@ import (
 	"encoding/base64"
 )
 
-// newCodeVerifier returns a fresh PKCE code verifier per RFC 7636: 43 to 128
-// characters from the unreserved URL character set.
-//
-// 32 random bytes, base64url-encoded without padding, produces exactly 43
-// characters, at the shortest end of the allowed range and comfortably above
-// the entropy RFC 7636 asks for.
+// newCodeVerifier returns a fresh RFC 7636 code verifier. 32 random bytes,
+// base64url without padding, give 43 characters, the shortest allowed length.
 func newCodeVerifier() (string, error) {
 	buf := make([]byte, 32)
 	if _, err := rand.Read(buf); err != nil {
@@ -20,15 +16,14 @@ func newCodeVerifier() (string, error) {
 	return base64.RawURLEncoding.EncodeToString(buf), nil
 }
 
-// challengeFor derives the PKCE code challenge from a verifier: the S256
-// method, base64url(sha256(verifier)) with no padding.
+// challengeFor derives the S256 code challenge from a verifier.
 func challengeFor(verifier string) string {
 	sum := sha256.Sum256([]byte(verifier))
 	return base64.RawURLEncoding.EncodeToString(sum[:])
 }
 
-// newState returns a fresh, unguessable value to bind one authorization
-// attempt to its callback and resist CSRF against the callback endpoint.
+// newState returns an unguessable value that binds an authorization attempt to
+// its callback and resists CSRF.
 func newState() (string, error) {
 	buf := make([]byte, 24)
 	if _, err := rand.Read(buf); err != nil {

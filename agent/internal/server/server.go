@@ -1,8 +1,5 @@
-// Package server exposes the agent over HTTP.
-//
-// Everything except /health requires a bearer token. /health is deliberately
-// open so that it stays usable when auth itself is what is broken, and it
-// therefore reports status only, never source data and never the token.
+// Package server exposes the agent over HTTP. Everything except /health needs a
+// bearer token, and /health carries status only, never data or the token.
 package server
 
 import (
@@ -23,27 +20,14 @@ type Options struct {
 	Started time.Time
 	Store   *state.Store
 	Logger  *slog.Logger
-	// AccentColor is the configured accent_color, "#rrggbb", or empty to
-	// leave the panel's built-in default from the stylesheet in place.
-	// Carried on /health rather than requiring the token, the same
-	// reasoning uptime and version already get: it is cosmetic, not
-	// sensitive, and the panel needs it before it necessarily has anything
-	// else confirming the agent is reachable.
-	AccentColor string
-	// HiddenFaces are the configured hidden_faces. Same reasoning as
-	// AccentColor: which faces show is not sensitive, and the panel needs
-	// to know before it necessarily has anything else confirming the agent
-	// is reachable.
-	HiddenFaces []string
-	// ClockStyle is the configured clock_style, "digital" or "analogue".
-	// Same reasoning as AccentColor and HiddenFaces: cosmetic, not
-	// sensitive, needed before the panel has confirmed anything else.
-	ClockStyle string
-	// HideNextEvent is the configured hide_next_event. Same reasoning as
-	// ClockStyle.
+	// AccentColor, HiddenFaces, ClockStyle and HideNextEvent are the configured
+	// display settings, carried on /health. See docs/architecture.md, "State
+	// and transport". An empty AccentColor leaves the stylesheet default.
+	AccentColor   string
+	HiddenFaces   []string
+	ClockStyle    string
 	HideNextEvent bool
-	// Now is the clock /health reports. Defaults to time.Now; tests override
-	// it.
+	// Now is the clock /health reports. Defaults to time.Now.
 	Now func() time.Time
 }
 
@@ -51,14 +35,12 @@ type Options struct {
 type Server struct {
 	opts      Options
 	protected *http.ServeMux
-	// open holds routes a source has explicitly asked to be reachable without
-	// the bearer token, such as an OAuth callback. Separate from protected
-	// rather than a flag on the same mux, so registering one open route can
-	// never accidentally open another pattern too.
+	// open holds routes reachable without the bearer token, such as an OAuth
+	// callback. It is a separate mux so an open route cannot open another
+	// pattern.
 	open *http.ServeMux
-	// socket is mounted outside the token middleware because it authenticates
-	// differently: its token arrives as a WebSocket subprotocol, which the
-	// generic check cannot see.
+	// socket sits outside the token middleware because its token arrives as a
+	// subprotocol, which the generic check cannot see.
 	socket http.Handler
 	log    *slog.Logger
 }
@@ -85,12 +67,9 @@ func (s *Server) Handle(pattern string, h http.Handler) {
 	s.protected.Handle(pattern, h)
 }
 
-// HandleOpen registers a route reachable without the bearer token.
-//
-// This exists for the rare case where whatever calls the route cannot carry
-// the token at all, such as a browser following an external OAuth redirect
-// into a freshly opened tab. The handler is responsible for protecting itself
-// by whatever means fits, since the bearer token cannot be that means here.
+// HandleOpen registers a route reachable without the bearer token, for callers
+// that cannot carry one, such as an OAuth redirect. The handler has to protect
+// itself.
 func (s *Server) HandleOpen(pattern string, h http.Handler) {
 	s.open.Handle(pattern, h)
 }
@@ -109,17 +88,14 @@ func (s *Server) Handler() http.Handler {
 			return
 		}
 
-		// ServeMux.Handler looks up a route without running it and reports back
-		// which pattern matched, empty when nothing did. That is what lets an
-		// open route be tried without a bare "/" on this mux swallowing every
-		// request meant for the protected one below.
+		// ServeMux.Handler reports which pattern matched, empty when none did, so
+		// an open route can be tried without running the protected mux.
 		if h, pattern := s.open.Handler(r); pattern != "" {
 			h.ServeHTTP(w, r)
 			return
 		}
 
-		// Everything else sits behind auth, including paths that match nothing,
-		// so an unauthenticated caller cannot map which routes exist.
+		// Paths that match nothing also get 401, so callers cannot map routes.
 		protected.ServeHTTP(w, r)
 	})
 }
@@ -133,9 +109,8 @@ type healthSource struct {
 type healthResponse struct {
 	Version       string  `json:"version"`
 	UptimeSeconds float64 `json:"uptime_seconds"`
-	// Now is the agent's clock, RFC 3339 in UTC. The panel's own clock can be
-	// wrong (the device has no battery-backed RTC), so it subtracts the
-	// difference from this before showing how old a reading is.
+	// Now is the agent's clock, RFC 3339 in UTC. The device has no
+	// battery-backed RTC, so the panel corrects its own clock against this.
 	Now           string                  `json:"now"`
 	AccentColor   string                  `json:"accent_color,omitempty"`
 	HiddenFaces   []string                `json:"hidden_faces,omitempty"`
@@ -177,21 +152,18 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 // it once.
 const sessionCookieName = "spotdash_session"
 
-// requireToken has no loopback exemption: a request from this machine needs the
-// token like any other. The tray's Open UI URL works because App.tokenURL
-// attaches the agent's own token, not because local callers are trusted.
+// requireToken has no loopback exemption. The tray's Open UI URL works because
+// App.tokenURL attaches the token.
 func (s *Server) requireToken(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// A programmatic client sends the header. Nothing else is needed.
+		// A programmatic client sends the header.
 		if s.tokenValid(r.Header.Get("Authorization")) {
 			next.ServeHTTP(w, r)
 			return
 		}
 
-		// A browser cannot set a header when it is navigating, so the panel URL
-		// carries the token once. Everything the page then requests, its own
-		// stylesheet and modules included, arrives with neither, which is why
-		// that first request is exchanged for a session cookie.
+		// A browser cannot set a header on navigation, so the panel URL carries
+		// the token once and is answered with a session cookie.
 		if s.secretEquals(r.URL.Query().Get("token")) {
 			http.SetCookie(w, &http.Cookie{
 				Name:     sessionCookieName,
@@ -199,8 +171,7 @@ func (s *Server) requireToken(next http.Handler) http.Handler {
 				Path:     "/",
 				HttpOnly: true,
 				SameSite: http.SameSiteStrictMode,
-				// No Expires and no MaxAge: the cookie dies with the browser
-				// session rather than being written to disk.
+				// No Expires or MaxAge, so it is never written to disk.
 			})
 			next.ServeHTTP(w, r)
 			return
@@ -217,8 +188,7 @@ func (s *Server) requireToken(next http.Handler) http.Handler {
 }
 
 // tokenValid reports whether an Authorization header carries the shared token.
-// The scheme is case-insensitive per RFC 7235; the token is compared in
-// constant time.
+// The scheme is case-insensitive per RFC 7235.
 func (s *Server) tokenValid(header string) bool {
 	scheme, value, found := strings.Cut(header, " ")
 	if !found || !strings.EqualFold(scheme, "bearer") {

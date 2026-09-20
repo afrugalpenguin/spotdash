@@ -52,23 +52,21 @@ func TestResolveOrder(t *testing.T) {
 		t.Errorf("working directory: got %+v, want {%s true}", loc, inWork)
 	}
 
-	// Beside the executable beats the working directory, so an existing setup
-	// keeps working.
+	// Beside the executable beats the working directory.
 	beside := place(t, exeDir)
 	loc, _ = Resolve("", exeDir, workDir, userDir)
 	if loc.Path != beside || !loc.Exists {
 		t.Errorf("beside the exe: got %+v, want {%s true}", loc, beside)
 	}
 
-	// The flag beats everything, whether or not its file exists, and is never
-	// replaced by a search.
+	// The flag beats everything, whether or not its file exists.
 	loc, _ = Resolve(flagFile, exeDir, workDir, userDir)
 	if loc.Path != flagFile || loc.Exists {
 		t.Errorf("flag to a missing file: got %+v, want {%s false}", loc, flagFile)
 	}
 	placed := place(t, filepath.Dir(flagFile))
 	if placed != flagFile {
-		t.Fatalf("test setup: placed %s, want %s", placed, flagFile)
+		t.Fatalf("setup: placed %s, want %s", placed, flagFile)
 	}
 	loc, _ = Resolve(flagFile, exeDir, workDir, userDir)
 	if loc.Path != flagFile || !loc.Exists {
@@ -80,17 +78,16 @@ func TestResolveWithNowhereToCreateIsAnError(t *testing.T) {
 	root := t.TempDir()
 	_, err := Resolve("", filepath.Join(root, "exe"), filepath.Join(root, "work"), "")
 	if err == nil {
-		t.Fatal("Resolve returned no error with no config found and no per-user directory")
+		t.Fatal("Resolve with no config and no user dir succeeded, want error")
 	}
 	if !strings.Contains(err.Error(), "-config") {
-		t.Errorf("error %q should tell the user to pass -config", err)
+		t.Errorf("error = %q, want it to mention -config", err)
 	}
 }
 
 func TestResolveTreatsAnUnreadableFileAsPresent(t *testing.T) {
-	// Anything that is not a clear "does not exist" must never lead to a
-	// replacement. A directory named config.json is the simple stand-in: it is
-	// there, Load will refuse it, and a first run must not paper over it.
+	// Anything but a clear "does not exist" must never lead to a replacement.
+	// A directory named config.json stands in for an unreadable file.
 	root := t.TempDir()
 	exeDir := filepath.Join(root, "exe")
 	if err := os.MkdirAll(filepath.Join(exeDir, FileName), 0o700); err != nil {
@@ -101,7 +98,7 @@ func TestResolveTreatsAnUnreadableFileAsPresent(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !loc.Exists {
-		t.Errorf("an existing entry named %s was reported as absent, so it could be replaced", FileName)
+		t.Errorf("existing %s reported as absent, want present", FileName)
 	}
 }
 
@@ -114,7 +111,7 @@ func TestGenerateTokenIsStrongAndTypeable(t *testing.T) {
 			t.Fatal(err)
 		}
 		if !alnum.MatchString(tok) {
-			t.Fatalf("token %q is not 32 characters of [A-Za-z0-9]", tok)
+			t.Fatalf("token = %q, want 32 characters of [A-Za-z0-9]", tok)
 		}
 		if seen[tok] {
 			t.Fatalf("token %q repeated", tok)
@@ -142,19 +139,19 @@ func TestCreateDefaultWritesALoadableConfigWithAFreshToken(t *testing.T) {
 
 	cfg, err := Load(path)
 	if err != nil {
-		t.Fatalf("the generated config does not load: %v", err)
+		t.Fatalf("Load: %v", err)
 	}
 	if cfg.Token == PlaceholderToken || len(cfg.Token) != 32 {
 		t.Errorf("token = %q, want a generated 32 character token", cfg.Token)
 	}
 	if cfg.Sources["spotify"].Enabled {
-		t.Error("spotify must stay disabled in a generated config")
+		t.Error("spotify enabled, want disabled")
 	}
 	if !strings.Contains(string(cfg.Sources["spotify"].Settings), "spotify_state.json") {
-		t.Error("the spotify block lost its state_file")
+		t.Error("spotify block has no state_file")
 	}
 
-	// Two configs must not share a token.
+	// Two configs get different tokens.
 	other := filepath.Join(t.TempDir(), FileName)
 	if err := CreateDefault(other, []byte(exampleForTest)); err != nil {
 		t.Fatal(err)
@@ -164,13 +161,13 @@ func TestCreateDefaultWritesALoadableConfigWithAFreshToken(t *testing.T) {
 		t.Fatal(err)
 	}
 	if cfg.Token == cfg2.Token {
-		t.Error("two generated configs got the same token")
+		t.Error("two generated configs share a token")
 	}
 }
 
 func TestCreateDefaultNeverOverwrites(t *testing.T) {
 	path := filepath.Join(t.TempDir(), FileName)
-	original := []byte(`{"token": "mine, hand written"`) // malformed on purpose
+	original := []byte(`{"token": "mine, hand written"`) // malformed
 	if err := os.WriteFile(path, original, 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -181,7 +178,7 @@ func TestCreateDefaultNeverOverwrites(t *testing.T) {
 	}
 	got, _ := os.ReadFile(path)
 	if string(got) != string(original) {
-		t.Errorf("the existing file was changed: %q", got)
+		t.Errorf("existing file = %q, want unchanged", got)
 	}
 }
 
@@ -191,10 +188,10 @@ func TestCreateDefaultLeavesNothingBehindOnFailure(t *testing.T) {
 
 	// An example that is not a valid config makes the create fail.
 	if err := CreateDefault(path, []byte(`{"not_a_key": 1}`)); err == nil {
-		t.Fatal("CreateDefault accepted an example that is not a config")
+		t.Fatal("CreateDefault with an invalid example succeeded, want error")
 	}
 	entries, _ := os.ReadDir(dir)
 	if len(entries) != 0 {
-		t.Errorf("a failed create left files behind: %v", entries)
+		t.Errorf("files after failed create = %v, want none", entries)
 	}
 }

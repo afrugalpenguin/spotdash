@@ -68,6 +68,8 @@ Validation is strict and total: missing file, invalid JSON, unknown top-level ke
 
 Log file lives next to the resolved config file.
 
+The agent looks for `config.json` in this order: the `-config` flag, beside the executable, in the working directory, then a `spotdash` folder under the user config directory (`%APPDATA%` on Windows). With no `-config` and no file anywhere, a first run creates the per-user one from `config.example.json` with a generated 32 character token, mode 0700 on the folder. The file is written under a temporary name and hard linked into place. The link fails if the target exists, so two first runs cannot overwrite each other and a crash leaves no truncated file. A config that exists but fails to load is never replaced. A `-config` path is never created.
+
 Relative file paths in a source (spotify `state_file`, mock `art_file`) resolve against the directory `config.json` is in, never the working directory, which the agent does not control when it starts at login. `config.Load` hands each source that directory as `Source.Dir`; it is not written back by `Save`. Absolute paths are used as written.
 
 ### Source settings reference
@@ -137,7 +139,9 @@ Adding a source = one new package implementing the interface + one line in the f
 
 A source package can't import the registry (cycle), so each constructor returns its own concrete type and a small generic adapter widens it in the registry.
 
-A source named in config with no implementation is a startup error, even disabled - a typo is the likeliest way a working source gets silently switched off. Sources are constructed before the listener opens, so a bad one stops the agent rather than degrading forever.
+A source can implement optional extras beyond the interface. `AssetProvider` serves files such as album art, and `RouteProvider` adds authenticated HTTP routes. `OpenRouteProvider` adds routes that skip the bearer token because the caller cannot carry one (an OAuth callback), so the source must protect the route itself. `RepollRegistrar` receives a function that requests an immediate re-poll, since a source has no reference to the runner. A re-poll restarts the interval from that moment, and the request channel holds one pending request, so a burst of taps neither queues polls nor bunches them closer than the configured interval.
+
+A source named in config with no implementation is a startup error, even disabled - a typo is the likeliest way a working source gets silently switched off. Sources are constructed before the listener opens. A bad one stops the agent at startup, so it cannot sit degraded forever.
 
 ### Source status
 
@@ -149,13 +153,13 @@ A source named in config with no implementation is a startup error, even disable
 
 ### A third outcome: partial results
 
-Telemetry can be genuinely fine on CPU/RAM/disk but missing GPU. Forcing that into pure success/failure loses something, so a source may return a value plus a partial-marked error: stored and broadcast, source marked `degraded`, not counted toward backoff (nothing's actually failing, and polling less won't fix a missing GPU). Marker lives in its own package to avoid the registry import cycle.
+Telemetry can be genuinely fine on CPU/RAM/disk but missing GPU. Forcing that into pure success/failure loses something, so a source may return a value plus a partial-marked error: stored and broadcast, source marked `degraded`, not counted toward backoff (nothing's actually failing, and polling less won't fix a missing GPU). Marker lives in its own package to avoid the registry import cycle. A partial error with no value is treated as an ordinary failure, since there is nothing to publish.
 
 ### GPU telemetry
 
 NVML (`nvml.dll`, same lib `nvidia-smi` uses) is the only way to read utilisation/VRAM/temp/power. NVIDIA's own `go-nvml` won't build on Windows (uses `dlfcn.h`, POSIX-only, no build tags), so `nvml.dll` is bound directly via `windows.NewLazySystemDLL`, which only resolves from the system directory. Pure Go, no cgo needed for the shipped binary (a C toolchain is still needed for `go test -race`).
 
-Loaded lazily, init retried on every read that finds it unestablished - the agent often starts before the driver settles. Each field read independently so one missing metric (e.g. power draw isn't reported by every card) doesn't kill the whole GPU reading.
+Loaded lazily, init retried on every read that finds it unestablished - the agent often starts before the driver settles. Each field read independently so one missing metric (e.g. power draw isn't reported by every card) doesn't kill the whole GPU reading. If the device handle lookup fails, init state is dropped so the next poll starts again, because a driver restart invalidates earlier handles. Return codes are named from a fixed table, since reading `nvmlErrorString` needs a pointer into memory Go doesn't own and `go vet` rejects it.
 
 ### Spotify
 
@@ -164,24 +168,24 @@ Two providers, one `Reading` shape, selected by required `mode` (no default - ac
 - `mode: "mock"` - configured track, no network.
 - `mode: "api"` - real Spotify Web API.
 
-**Auth**: Authorization Code + PKCE, no client secret. Settings: `client_id`, `redirect_uri` (must match the Spotify app), `state_file`.
+Auth: Authorization Code + PKCE, no client secret. Settings: `client_id`, `redirect_uri` (must match the Spotify app), `state_file`.
 
 - `GET /spotify/connect` - starts auth, requires bearer token.
 - `GET /spotify/callback` - OAuth redirect target, can't require the token (fresh tab has none). Protected by single-use `state` value, 10 min expiry (RFC 8252 loopback-redirect model).
 
 Both routes are optional interfaces (`RouteProvider`, `OpenRouteProvider`), same pattern as `AssetProvider` for album art.
 
-**Storage**: refresh token in `state_file`, not `config.json` (config is hand-edited, this is agent-written). Atomic write, mode 0600 (NTFS doesn't enforce POSIX perms, so no stronger than config's exposure on Windows).
+Storage: refresh token in `state_file`, never `config.json` (config is hand-edited, this is agent-written). Atomic write, mode 0600 (NTFS doesn't enforce POSIX perms, so no stronger than config's exposure on Windows).
 
-**Scope**: `user-read-currently-playing`, `user-read-playback-state`, `user-modify-playback-state`. Existing connections need to reconnect for the write scope.
+Scope: `user-read-currently-playing`, `user-read-playback-state`, `user-modify-playback-state`. Existing connections need to reconnect for the write scope. The write scope also allows volume, seek, shuffle, repeat, device transfer and queueing. The agent exposes only pause, resume, next and previous, because those are the only methods on the `playbackController` interface.
 
-**Polling**: `GET /me/player/currently-playing`, default 5s. Token refreshed before expiry or on 401. No content/non-track = empty reading (success). Not connected/revoked = failure with a `/spotify/connect` hint.
+Polling: `GET /me/player/currently-playing`, default 5s. Token refreshed before expiry or on 401. No content/non-track = empty reading (success). Not connected/revoked = failure with a `/spotify/connect` hint.
 
-**Art**: fetched once per track, cached next to `state_file`, served from the agent's own origin. Re-fetched only on track ID change. `ArtURL` carries track ID as a query param so the cache/URL guard don't freeze the cover on the first track's art.
+Art: fetched once per track, cached next to `state_file`, served from the agent's own origin. Re-fetched only on track ID change. `ArtURL` carries track ID as a query param so the cache/URL guard don't freeze the cover on the first track's art.
 
-**Consistency after a skip**: `currently-playing` doesn't reliably reflect a `next`/`previous` right away (measured: <200ms to >1s). `handleControl` flags `expectingChange`; the next poll retries briefly (`consistencyRetries`, `consistencyDelay`) rather than trusting a stale read. Pause/resume skip this - `Playing` reflects immediately.
+Consistency after a skip: `currently-playing` doesn't reliably reflect a `next`/`previous` right away (measured: <200ms to >1s). `handleControl` flags `expectingChange`; the next poll does not trust a stale read and retries briefly (`consistencyRetries`, `consistencyDelay`). Pause/resume skip this - `Playing` reflects immediately.
 
-**Layout**: `"fill"` or `"disc"`, default `"fill"`, config-only (shell loads one fixed URL, no room for a query param).
+Layout: `"fill"` or `"disc"`, default `"fill"`, config-only (shell loads one fixed URL, no room for a query param).
 
 ### Calendar
 
@@ -189,13 +193,13 @@ Same two-provider shape as Spotify: `mode: "mock"` or `mode: "ics"` (real feed, 
 
 Next-up event is primary: title, location (feed's raw `LOCATION`), start time, countdown ticking locally between polls (same as Spotify's position). Below it, a short agenda (`AgendaSize`, 3 total) of what follows - title and start time only. No multi-calendar merge, no editing.
 
-**Parsing** (`ics.go`): minimal hand-rolled RFC 5545 reader, not a library. Reads `SUMMARY`, `LOCATION`, `DTSTART` (UTC, named `TZID`, or floating local), `RRULE`. `time/tzdata` embedded so `TZID` resolves without a host timezone DB. All-day events excluded from next-up (a countdown means nothing for one).
+Parsing (`ics.go`): minimal hand-rolled RFC 5545 reader with no library. Reads `SUMMARY`, `LOCATION`, `DTSTART` (UTC, named `TZID`, or floating local), `RRULE`. `time/tzdata` embedded so `TZID` resolves without a host timezone DB. All-day events excluded from next-up (a countdown means nothing for one).
 
-**Recurrence** (`rrule.go`): the RFC 5545 shapes an actual calendar uses, not the full spec - `FREQ` daily/weekly/monthly/yearly, `INTERVAL`, `COUNT`, `UNTIL`, `BYDAY` (plain weekday, weekly only), `BYMONTHDAY` (positive, monthly only). `nextOccurrence` walks forward from `DTSTART` (capped at 500 occurrences) to the first hit after now.
+Recurrence (`rrule.go`): the RFC 5545 shapes an actual calendar uses, a subset of the full spec - `FREQ` daily/weekly/monthly/yearly, `INTERVAL`, `COUNT`, `UNTIL`, `BYDAY` (plain weekday, weekly only), `BYMONTHDAY` (positive, monthly only). `nextOccurrence` walks forward from `DTSTART` (capped at 500 occurrences) to the first hit after now.
 
-Unsupported: ordinal `BYDAY` ("3rd Thursday"), negative `BYMONTHDAY`, `BYSETPOS`, `BYWEEKNO`, `BYYEARDAY`, `WKST`, sub-daily frequencies. `parseRRule` reports these; `nextUpEvent` excludes events it can't expand.
+Unsupported: ordinal `BYDAY` ("3rd Thursday"), negative `BYMONTHDAY`, `BYSETPOS`, `BYWEEKNO`, `BYYEARDAY`, `WKST`, sub-daily frequencies. `parseRRule` reports these; `nextUpEvent` excludes events it can't expand. Each event adds one agenda entry, its next occurrence, so a daily standup can't crowd out the rest.
 
-**Auto-switch**: source decides urgency, not the client. Reading carries `urgent` (within `notify_minutes`, default 15) and `show_seconds` (default 45). Client switches to the calendar face on a new urgent event, overrides sleep window for the duration, holds `show_seconds`, then returns - unless the viewer already tapped away.
+Auto-switch: source decides urgency, not the client. Reading carries `urgent` (within `notify_minutes`, default 15) and `show_seconds` (default 45). Client switches to the calendar face on a new urgent event, overrides sleep window for the duration, holds `show_seconds`, then returns - unless the viewer already tapped away.
 
 ### State and transport
 
@@ -206,6 +210,10 @@ State store holds latest value per source (timestamp + status) - single source o
 | `/health`      | none  | JSON: agent time (`now`, UTC), uptime, version, per-source status, last update, last error. |
 | `/ws`          | token | Full snapshot on connect, then one message per source update.     |
 | `/` and static | token | Embedded web UI (`embed.FS`).                                     |
+
+`/health` also carries `accent_color`, `hidden_faces`, `clock_style` and `hide_next_event`. They are cosmetic, and the panel needs them before it has anything else confirming the agent is reachable. `now` is the agent's clock in UTC. The device has no battery-backed RTC, so the panel corrects its own clock against it when showing how old a reading is.
+
+Content types for the embedded UI and served files come from a fixed table. `mime.TypeByExtension` reads the Windows registry, where `.js` is often `text/plain`, and browsers refuse a module served that way. Responses are `no-store` because the binary is rebuilt often and the device caches hard. Album art is read from disk on each request, since the file changes with the track.
 
 ### How a browser authenticates
 
@@ -219,6 +227,12 @@ Cookie is `HttpOnly`, `SameSite=Strict`, no `Expires`/`Max-Age` (session only, n
 
 Token appears once in a URL (proxy/access-log exposure risk, accepted for phase 1); page strips it from the address bar immediately.
 
+There is no loopback exemption. A request from the same machine needs the token like any other, and the tray's Open UI URL works because the agent attaches its own token. Unknown paths answer 401 instead of 404, so an unauthenticated caller cannot map the routes.
+
+The WebSocket authorises itself before the upgrade, outside the token middleware, because its token arrives as a `bearer.<token>` subprotocol value. It also accepts the session cookie and the bearer header, in that order.
+
+A source can register an open route for a caller that cannot carry the token, such as an OAuth redirect into a fresh tab. Open routes live on a separate mux, so registering one cannot expose another pattern, and the handler has to protect itself.
+
 WebSocket message shape:
 
 ```json
@@ -229,13 +243,15 @@ Connect snapshot is a sequence of the same message shape. A source that's never 
 
 ### Backpressure
 
-Store fans out without blocking. Each subscriber gets a small buffer; one that fills it is dropped (channel closed) rather than silently skipped - reconnect gets a fresh snapshot instead of quietly stale data. Keeps one wedged panel from stalling every source.
+Store fans out without blocking. Each subscriber gets a small buffer. One that fills it is dropped (channel closed) and reconnects to a fresh snapshot. Silently skipping messages would leave it quietly stale. Keeps one wedged panel from stalling every source.
+
+The buffer holds 32 messages, enough for a garbage collection pause or a frame the device spent elsewhere. A client that has stopped reading is dropped.
 
 ### Liveness
 
-Panel only listens, so the server never reads from the connection - meaning close isn't acknowledged and a vanished client isn't noticed, without help. Handler drains/discards incoming frames (fast close ack + peer-gone detection) and pings every 30s to catch silent drops (wifi kiosk disappearing without closing).
+Panel only listens, so the server never reads from the connection - meaning close isn't acknowledged and a vanished client isn't noticed, without help. Handler drains/discards incoming frames (fast close ack + peer-gone detection) and pings every 30s to catch silent drops (wifi kiosk disappearing without closing). Without the ping, a clock source writing every second would be the only liveness signal, and a write to a dead socket can sit buffered for a long time.
 
-`/health` unauthenticated on purpose - status/errors only, never data or the token.
+`/health` is unauthenticated. It carries status and errors only, never data or the token.
 
 ## Web UI
 
@@ -248,23 +264,27 @@ export function render(container, state) {}
 export function onState(source, data) {}
 ```
 
-`render` builds DOM once, `onState` mutates it. One face shown at a time, tap left/right half to switch, `?face=` on load. A throwing face is contained, not fatal.
+`render` builds DOM once, `onState` mutates it. One face shown at a time, tap left/right half to switch, `?face=` on load. A throwing face is contained and never fatal.
 
 Tap order: `clock`, `calendar`, `spotify`, `telemetry`, `status`. `clock` first (shown most), `status` last (debug face: every source's status/last update/last error, agent uptime, socket state - fallback when the socket is down).
 
 `clock_style` (`"digital"`/`"analogue"`) picks how `clock` draws (text + seconds arc vs hands). `hide_next_event` (bool, default false) independently hides the next calendar line. Digital: next-up sits below the date. Analogue: no room on the rim for a second line, so it moves inward between hub and numeral ring, drawn over the hands (they sweep behind it). Hand math (`handAngles` in `clock.js`) is pure and unit tested apart from the DOM.
 
-**CSS gotcha**: `.face` centres via `transform: translate(-50%, -50%)`, which creates a stacking context - any descendant `z-index` is trapped inside it and can never outrank a sibling like `.zone` (the tap zones). `.spotify` and `.calendar` override with `transform: none` for this reason; without it, scroll gestures on `.calendar-agenda` get swallowed by `.zone`.
+CSS gotcha: `.face` centres via `transform: translate(-50%, -50%)`, which creates a stacking context - any descendant `z-index` is trapped inside it and can never outrank a sibling like `.zone` (the tap zones). `.spotify` and `.calendar` override with `transform: none` for this reason; without it, scroll gestures on `.calendar-agenda` get swallowed by `.zone`.
+
+`spotify` has two layouts. The default lets the cover fill the panel, which has the most presence but depends on the sleeve being dark where the type sits. `?layout=disc` keeps the type on flat black, for a bright or busy sleeve. The agent's config also sets the layout, because the real device loads one fixed URL and cannot carry a query parameter; a config value wins on every reading and an absent one leaves the query default alone. The transport buttons need a stacking order above `.zone` for the same reason as the CSS gotcha above, and a tap applies its known outcome to the icon at once without waiting for the next reading.
 
 ### The rim
 
-Every face draws quantity on a circular track, detail in the centre - clock sweeps seconds, status splits into per-source segments, telemetry hangs four gauges on the quarters. Load-bearing, not decorative: health/progress/load readable across the room. New faces get the language for free.
+Every face draws quantity on a circular track, detail in the centre - clock sweeps seconds, status splits into per-source segments, telemetry hangs four gauges on the quarters. It carries meaning: health/progress/load readable across the room. New faces get the language for free.
+
+On `calendar` the rim carries urgency. It fills over a 60 minute lookahead window, so an event further out shows an empty rim, and it steps from live to warn at 15 minutes and to alert at 5, matching the telemetry vocabulary. Those thresholds are only a visual cue and are separate from the source's auto-switch.
 
 ### Colour
 
 Resting = cool (`--live`, blue), alerts = warm (amber >80%, red >95%, or >83C GPU temp). `--live` is the one accent token everything derives from - configurable via `accent_color`, applies live within one `/health` poll.
 
-Missing reading is a third state (not zero) - absent GPU renders as absent with a reason, not a calm empty gauge or a false alarm.
+Missing reading is a third state, distinct from zero. An absent GPU renders as absent with a reason, never as a calm empty gauge or a false alarm.
 
 ### Settings
 
@@ -272,13 +292,15 @@ Missing reading is a third state (not zero) - absent GPU renders as absent with 
 
 Settings page groups `clock_style`/`hide_next_event` under "Clock" ahead of the generic "Faces" list; `clock` has no row there since it can't be hidden.
 
-Reload is scheduled via `time.AfterFunc` shortly after the response is sent, not called inline - calling it inside the POST handler would deadlock (`Shutdown` waits on the handler, handler waits on `Reload`).
+Reload is scheduled via `time.AfterFunc` shortly after the response is sent. Calling it inside the POST handler would deadlock (`Shutdown` waits on the handler, handler waits on `Reload`).
 
 All four settings ride `/health` and apply live client-side, guarded to a no-op when nothing changed (this runs every health poll; rebuilding the current face's DOM needlessly would reset scroll position etc).
 
 ### Layout
 
 480x480 square, circular clip-path, dark background. Large high-contrast type sized for ~60cm viewing. Corners are invisible on the real device - content stays inside the inscribed circle.
+
+The target WebView (LineageOS 18.1) is around Chromium 83. It has no `inset` shorthand, no flex `gap` (added in 84, silently ignored before it, so items touch), and no `:focus-visible`. The stylesheet uses explicit `top/right/bottom/left` offsets and sibling margins instead. `.zone:focus` has its outline removed because a tap leaves the zone focused and the circular clip turns the WebView's ring into a stray vertical line; `:focus-visible` restores a ring for keyboard use on desktop, and Chromium 83 ignores that rule.
 
 ### Token handling in the UI
 
@@ -288,15 +310,23 @@ Token arrives once as `?token=`, stripped from the URL via `replaceState`, held 
 
 Socket carries readings. Status/uptime/last-error come from `/health`, polled every 5s - unauthenticated, keeps answering when the socket is down, which is exactly when the status face needs to be truthful.
 
+`/health` also carries the agent's clock. The panel keeps the difference from the device clock as `clockOffsetMs` and subtracts it before showing an age, so a skewed device clock does not make healthy sources look stale. The offset includes the response's travel time, which is milliseconds on a LAN and far below the whole seconds ages are shown in. It stays zero until the agent has reported a time.
+
 ### Reconnection
 
 WebSocket client reconnects with exponential backoff + jitter on close/error. A connection can go silently stale without either firing (WebView backgrounding is the leading suspect) - a watchdog closes the connection if 60s pass with nothing heard while it still thinks it's live, feeding into the same close handler as a real disconnect.
+
+The watchdog checks every 10 seconds, well under its 60 second threshold, so it gets several chances before the threshold passes. It acts only while the panel believes it is live, since a connection already in backoff has no meaningful last-heard time, and it never fires for a panel that has not yet connected.
 
 ## Shell
 
 Single Activity, minSdk/targetSdk 30. Fullscreen immersive, screen on, no bars. Declares `HOME`/`DEFAULT` intents so LineageOS can set it as default launcher.
 
-Agent URL and token live in `EncryptedSharedPreferences`, entered via a 3s long-press settings screen (the only UI besides the WebView - no other input on the device). That screen also has a "Wi-Fi networks" button that opens Android's own Wi-Fi settings, since the shell is the launcher and there is otherwise no way to them without adb. A deep link rather than a screen of our own: on API 30 `WifiManager.addNetwork` is ignored for apps targeting API 29+, and a network request only connects this process. Coming back from it retries the panel at once. Token injected as a query param on initial load only; the page holds it afterward.
+Agent URL and token live in `EncryptedSharedPreferences`, entered via a 3s long-press settings screen (the only UI besides the WebView - no other input on the device). That screen also has a "Wi-Fi networks" button that opens Android's own Wi-Fi settings, since the shell is the launcher and there is otherwise no way to reach them without adb. It is a deep link because a screen of our own cannot join a network: on API 30 `WifiManager.addNetwork` is ignored for apps targeting API 29+, and a network request only connects this process. Coming back from it retries the panel at once. Token injected as a query param on initial load only; the page holds it afterward.
+
+The wifi screen is the system one because it already handles WPA2 and WPA3, hidden networks and forgetting a network, which a screen of our own would have to rebuild. The button sits on the settings screen because it works with nothing configured, and a device that cannot reach the agent is when it is needed.
+
+The URL and token are encrypted because the token is a shared secret on a device anyone can pick up. If the keystore is corrupted the shell falls back to plain storage. Otherwise the launcher would crash at boot, and with no other launcher that bricks the device until it is reflashed. The token field on the settings screen is visible, since a masked field is hard to type accurately on the 480px circle. The long press takes three seconds so dusting the screen does not open settings. The touch listener never consumes the event, so the page still gets its own taps. The back button does nothing. The WebView cache is off because the agent is rebuilt often and a stale panel with no address bar is hard to diagnose.
 
 ### Provisioning from adb
 
@@ -314,11 +344,13 @@ Threat model, for a single-purpose device with SELinux permissive and adb alread
 
 Rules, all fail closed:
 
-- One flat JSON object, `{"version":1,"agent_url":"...","token":"..."}`. A repeated or unknown key, a wrong type, a wrong version, a missing field, trailing text or a truncated file rejects the whole payload. Read by a small strict parser rather than `org.json`, which is stubbed out in JVM unit tests.
+- One flat JSON object, `{"version":1,"agent_url":"...","token":"..."}`. A repeated or unknown key, a wrong type, a wrong version, a missing field, trailing text or a truncated file rejects the whole payload. Read by a small strict parser, since `org.json` is stubbed out in JVM unit tests.
 - The address must be `http` or `https` with a host, no credentials, a port of 1 to 65535 if any, and no path, query or fragment. The token must be non-empty printable ASCII, at most 256 characters, no whitespace. There is no minimum length: the agent decides what a token has to be.
 - The address and token are stored in one commit, or not at all. A rejected payload changes nothing and logs `provisioning ignored: <reason>`. The reason never contains a value from the payload, so the token is never in logcat. A good one logs `provisioning applied for <host>`.
 - The file is deleted in every case, valid or not, and at most 4 KiB is read. A leading byte order mark is tolerated, since Windows PowerShell 5.1 writes one.
 - The file is looked at when the panel comes to the front and again from `onNewIntent`, because `am start` on an activity that is already in front only delivers an intent and does not pause and resume it.
+
+The address and token are written with a single `commit()` because the alternatives are both bad. A new address with the old token gives a panel that loads and is rejected. A new token with the old address sends a secret to the wrong host. The settings screen still writes the two fields separately, since a person edits one box at a time.
 
 Verified on an API 30 emulator (userdebug, SELinux enforcing), not yet on the Spot. There, the shell user cannot write to `Android/data/<package>` at all, since the directory belongs to the app and the group `ext_data_rw`, which `shell` is not in. A root push through the normal `/sdcard` path lands with the wrong security label (`storage_file`) and the app gets `EACCES`. What works is `adb root` and pushing straight to the underlying path `/data/media/0/Android/data/dev.spotdash.shell/files/`, where the file gets the right label and the app can read and delete it. The directory is created when the shell first starts, so start it once before pushing. `docs/device.md` already relies on `adb root` for this ROM (Wi-Fi join, timezone). Not tried: whether `/data/media/0` is the right path on the Spot's ROM.
 
@@ -335,11 +367,17 @@ Verified on an API 30 emulator (userdebug, SELinux enforcing), not yet on the Sp
 
 Each no-ops (and logs why) when the permission is missing - keeps the UI working unchanged in an emulator.
 
+Nothing in the bridge throws, so the panel behaves the same on the Echo Spot, which grants some of these permissions, and on an emulator, which grants none. Each method hops to the main thread, because WebView calls from its own JavaScript thread and touching a window from there crashes. `screenOff()` sets the brightness to zero. Powering the display down would need `DEVICE_ADMIN`, a heavier grant that an emulator does not offer.
+
 ### Failure behaviour
 
-WebView load failure, an HTTP error on the panel page (a 401 or 403 says the token was rejected), or agent unreachable 30s+, shows a native fallback (agent URL without the token, the error, how to open settings) and retries with a growing delay, 5s doubling to 60s. Native because the web layer is what's in question. Shell polls `/health` itself rather than asking the page, so the fallback still works if the WebView itself is broken.
+WebView load failure, an HTTP error on the panel page (a 401 or 403 says the token was rejected), or agent unreachable 30s+, shows a native fallback (agent URL without the token, the error, how to open settings) and retries with a growing delay, 5s doubling to 60s. Native because the web layer is what's in question. Shell polls `/health` itself, so the fallback still works if the WebView itself is broken.
 
-30s delay is deliberate - a restarting agent is usually back in a second or two, and flashing a fallback on every restart would be worse than a briefly stale dashboard.
+The 30s delay is there because a restarting agent is usually back in a second or two, and flashing a fallback on every restart would be worse than a briefly stale dashboard.
+
+WebView also calls `onPageFinished` after a failed load, and again when a retry abandons a load that was hanging on an unreachable agent. Neither means the panel is showing. A finished page hides the fallback only when the load had no error and the watcher does not consider the agent down. The watcher keeps that down state across a stop and start. It is stopped whenever the panel pauses, for example while the Wi-Fi settings are open, and forgetting the outage would let a hung load clear the fallback. Recovery is still reported, because the first good probe calls the up callback.
+
+An unconfigured shell and a rejected token get their own fallback titles, since neither is an unreachable agent. The retry delay starts at 5s because the usual cause is an agent about to come back. It stops at 60s because the other cause is a token nobody has fixed, and retrying faster does not help. It resets after a successful load, a settings change or a recovery. `/health` needs no token, which is why it still works when everything else is broken.
 
 ### Debugging the panel
 
@@ -350,6 +388,8 @@ A debuggable build also turns on WebView remote debugging, so the panel shows up
 ### Scaling
 
 480 CSS px fixed layout; shell computes initial scale from real display width so it fits whatever density it lands on (Spot's density need not match the emulator's).
+
+The display is 240dpi, so without scaling the 480 CSS px layout would render at 720 physical pixels and overflow the glass. The shell turns on wide viewport handling and sets the initial scale to the display width over 480, clamped to 25 to 400 percent, and logs the result.
 
 ## Security posture for phase 1
 
@@ -366,6 +406,8 @@ Start/reload/stop live in `internal/app` (tray excluded - needs a desktop sessio
 Reload replaces the whole running config (listen/token/sources can all change) - fail closed like startup, and then some: new config loads and builds sources before touching anything running, so a bad config leaves the agent untouched. If the new config validates but can't be served (e.g. port taken), the previous config is restored.
 
 Shutdown: stop accepting requests, close connections, stop sources, wait for their goroutines. Ctrl+C and tray Quit converge here; a signal also kills the tray.
+
+Saving from the settings page writes `config.json` and answers first, then reloads 200 ms later from a timer. Reload replaces the listener the request arrived on. Called inline, its shutdown would wait for the handler to return while the handler waited for the reload, and only the 5 second grace period would break the deadlock, by closing the connection under the response. The save starts from a fresh read of the file, so a manual edit made since startup is kept.
 
 One agent per config: `internal/instance` takes a named mutex keyed on the config path (Local namespace, so per user session). A second copy logs "another spotdash is already running for this config" and exits 0 - zero so a scheduled task set to restart on failure does not respawn it. A development copy with its own config still runs.
 

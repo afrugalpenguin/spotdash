@@ -3,7 +3,7 @@
 Every spotdash setup needs its own Spotify app. There is no shared one to
 point at: an app can only serve a handful of people (see "New apps and
 Development Mode" below), so one app can't cover everyone who uses this.
-Auth is Authorization Code with PKCE and no client secret, so anyone can
+Auth is Authorization Code with PKCE and no client secret, and anyone can
 create their own Spotify app and point their own `config.json` at it. Takes
 about five minutes.
 
@@ -64,8 +64,8 @@ button red.
 
 There is no way to lift the five user cap for a project like this.
 Extended Quota Mode is only open to registered organisations with at least
-250,000 monthly active users, and individuals aren't accepted. That is why
-each person creates their own app rather than sharing one.
+250,000 monthly active users, and individuals aren't accepted. Each person
+therefore creates their own app.
 
 The current rules are on Spotify's side, so check them if this looks out of
 date: [quota modes](https://developer.spotify.com/documentation/web-api/concepts/quota-modes)

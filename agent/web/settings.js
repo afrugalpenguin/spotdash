@@ -1,15 +1,6 @@
 // Settings page: accent colour, clock style, and which faces show.
-// /settings and this page's structure are generic enough that a new
-// setting is an addition here, not a rewrite.
-//
-// FACES here has to name the same faces, by the same titles, as ALL_FACES
-// in app.js and KnownFaces in the agent's config package - three places
-// that have to agree, the same kind of one-line-per-thing table this
-// codebase already accepts elsewhere (the source factory table, for one).
-//
-// clock has no row here (same as before) - there's nothing to toggle, it
-// can't be hidden. Its two settings ("Analogue" and "Show next event")
-// live under the Clock heading instead, built separately below.
+// FACES must match ALL_FACES in app.js and KnownFaces in the agent's config.
+// clock has no row because it cannot be hidden.
 
 import { readToken } from "./app.js";
 
@@ -27,7 +18,7 @@ let saveButton = null;
 let statusEl = null;
 let clockEl = null;
 let facesEl = null;
-// One checkbox per face, keyed by title, built once in start().
+// One checkbox per face, keyed by title.
 const toggles = new Map();
 
 function setStatus(text, state) {
@@ -99,9 +90,8 @@ async function loadCurrent() {
   } catch (err) {
     setStatus("Could not load the current settings.", "error");
   }
-  // No accent_color configured: show the stylesheet's own built-in default
-  // rather than an arbitrary fallback hardcoded here too, so this page and
-  // the panel can never disagree about what "default" means.
+  // No accent_color configured: show the stylesheet's default, so this page
+  // and the panel agree.
   const fallback = getComputedStyle(document.documentElement)
     .getPropertyValue("--live")
     .trim();
@@ -117,14 +107,13 @@ function hiddenFaceTitles() {
 async function save() {
   const hidden = hiddenFaceTitles();
   if (hidden.length === FACES.length) {
-    // Same rule the agent enforces; caught here first so it never has to
-    // make a round trip to find out.
+    // The agent enforces this too. Catch it here to skip the round trip.
     setStatus("At least one face has to stay on.", "error");
     return;
   }
 
   saveButton.disabled = true;
-  setStatus("Saving…", "");
+  setStatus("Saving...", "");
   try {
     const response = await fetch("/settings", {
       method: "POST",
@@ -152,9 +141,8 @@ async function save() {
 }
 
 export function start() {
-  // Same handling as the panel itself: the token travels once in the URL,
-  // is exchanged for a session cookie by this very page load, and is then
-  // stripped from the visible address bar.
+  // As on the panel, the token is stripped from the address bar. This page
+  // load exchanges it for a session cookie.
   readToken(window.location, window.history);
 
   accentInput = document.getElementById("accent");

@@ -4,10 +4,7 @@ import android.content.pm.ApplicationInfo
 import android.util.Log
 import android.webkit.ConsoleMessage.MessageLevel
 
-/**
- * Forwarding the panel's console to logcat, kept apart from PanelActivity so the
- * parts that need no Android device can be unit tested.
- */
+/** Forwarding the panel's console to logcat, kept out of PanelActivity for unit tests. */
 
 /** The logcat priority for a console level. */
 internal fun consolePriority(level: MessageLevel): Int = when (level) {
@@ -24,10 +21,8 @@ internal fun consoleLine(message: String, sourceId: String, lineNumber: Int): St
     return if (source.isEmpty()) "console: $text" else "console: $text ($source:$lineNumber)"
 }
 
-// The panel URL carries the token once as ?token=, and the WebSocket sends it as
-// a "bearer." subprotocol. Either can turn up in a console message or as the
-// source of one (a failed load of the panel URL is reported against that URL),
-// and logcat is readable by anyone with adb.
+// The token appears once as ?token= and again as a "bearer." subprotocol. Either
+// can reach a console message or its source, and anyone with adb can read logcat.
 private val tokenParam = Regex("([?&]token=)[^&#\\s\"')]+")
 private val bearerProtocol = Regex("(bearer\\.)[^\\s,\"')]+")
 

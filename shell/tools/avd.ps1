@@ -2,8 +2,8 @@
 #
 # The target hardware is a 1st generation Amazon Echo Spot on LineageOS 18.1:
 # Android 11 (API 30), a 480x480 circular display, and about 1 GB of RAM. The
-# AVD below matches all three, so layout problems show up here rather than on
-# the device.
+# AVD below matches all three, so layout problems show up here before the
+# device.
 #
 # Usage:
 #   .\avd.ps1              create if needed, then launch

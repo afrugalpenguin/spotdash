@@ -6,9 +6,8 @@ plugins {
 android {
     namespace = "dev.spotdash.shell"
 
-    // The device is a 1st generation Echo Spot on LineageOS 18.1, which is
-    // Android 11. compileSdk is newer than targetSdk because the build tools
-    // and AndroidX need it; the app still targets and behaves as API 30.
+    // The device runs LineageOS 18.1 (Android 11). compileSdk is newer than
+    // targetSdk because the build tools and AndroidX need it.
     compileSdk = 35
 
     defaultConfig {

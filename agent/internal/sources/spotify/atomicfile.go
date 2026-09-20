@@ -6,11 +6,9 @@ import (
 	"path/filepath"
 )
 
-// atomicWriteFile writes data to path via a temp file in the same directory,
-// renamed into place. Used for anything a poll writes that a reader (the auth
-// state, the cached art) must never see half-written: a process that dies
-// mid-write must leave either the old contents or the new ones, never a
-// corrupt mix.
+// atomicWriteFile writes data through a temp file in the same directory and
+// renames it into place, so a crash leaves the old contents or the new, never a
+// mix.
 func atomicWriteFile(path string, data []byte, perm os.FileMode) error {
 	dir := filepath.Dir(path)
 	tmp, err := os.CreateTemp(dir, ".spotify_*.tmp")

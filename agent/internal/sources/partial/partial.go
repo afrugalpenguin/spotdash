@@ -1,14 +1,6 @@
-// Package partial marks a poll that produced a usable value while running with
-// reduced capability.
-//
-// The runner has two natural outcomes, a value or a failure, and some sources
-// have a third. Telemetry with no usable NVML has a complete, useful reading
-// for CPU, RAM and disk and is also genuinely degraded. Forcing that into
-// either outcome loses something: a failure throws away a good reading, a
-// success hides a real problem.
-//
-// This lives in its own package so a source can mark a result without importing
-// the registry that runs it, which would be an import cycle.
+// Package partial marks a poll that produced a usable value despite reduced
+// capability. It is separate so sources need not import the registry. See
+// docs/architecture.md, "A third outcome: partial results".
 package partial
 
 import (

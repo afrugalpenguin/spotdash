@@ -14,7 +14,7 @@ func sourceFor(t *testing.T, settings string) *Source {
 	cfg := config.Source{Enabled: true, IntervalMS: 1000, Settings: []byte(settings)}
 	src, err := New(cfg)
 	if err != nil {
-		t.Fatalf("New returned an error: %v", err)
+		t.Fatalf("New: %v", err)
 	}
 	return src
 }
@@ -23,7 +23,7 @@ func at(t *testing.T, value string) time.Time {
 	t.Helper()
 	parsed, err := time.Parse("2006-01-02 15:04:05", value)
 	if err != nil {
-		t.Fatalf("parsing test time %q: %v", value, err)
+		t.Fatalf("Parse(%q): %v", value, err)
 	}
 	return parsed
 }
@@ -33,7 +33,7 @@ func pollAt(t *testing.T, src *Source, when string) Reading {
 	src.now = func() time.Time { return at(t, when) }
 	value, err := src.Poll(context.Background())
 	if err != nil {
-		t.Fatalf("Poll returned an error: %v", err)
+		t.Fatalf("Poll: %v", err)
 	}
 	reading, ok := value.(Reading)
 	if !ok {
@@ -70,28 +70,24 @@ func TestPollReportsTimeAndDate(t *testing.T) {
 		t.Errorf("Seconds = %d, want 9", reading.Seconds)
 	}
 	if !strings.Contains(reading.Date, "14") || !strings.Contains(reading.Date, "Sep") {
-		t.Errorf("Date = %q, want it to contain the day and month", reading.Date)
+		t.Errorf("Date = %q, want day 14 and month Sep", reading.Date)
 	}
 	if reading.ISO == "" {
-		t.Error("ISO should carry a full timestamp for any client that wants to format it differently")
+		t.Error("ISO is empty")
 	}
 }
 
 func TestSleepIsFalseWhenNoWindowConfigured(t *testing.T) {
-	// No window means the panel never blanks itself, which is the safe default:
-	// a dashboard that goes dark unasked looks broken.
 	src := sourceFor(t, `{"enabled":true,"interval_ms":1000}`)
 
 	for _, when := range []string{"2026-09-14 03:00:00", "2026-09-14 14:00:00", "2026-09-14 23:59:00"} {
 		if pollAt(t, src, when).Sleep {
-			t.Errorf("Sleep should be false at %s when no window is configured", when)
+			t.Errorf("Sleep at %s = true, want false", when)
 		}
 	}
 }
 
 func TestSleepWindowCrossingMidnight(t *testing.T) {
-	// The normal case for a sleep window, and the one that naive comparisons
-	// get wrong.
 	src := sourceFor(t, `{"enabled":true,"interval_ms":1000,"sleep_start":"23:30","sleep_end":"07:00"}`)
 
 	tests := []struct {
@@ -137,13 +133,12 @@ func TestSleepWindowWithinOneDay(t *testing.T) {
 }
 
 func TestSleepWindowWithEqualStartAndEndNeverSleeps(t *testing.T) {
-	// An empty window. Treating it as always asleep would blank the panel
-	// permanently, which is the worse of the two readings.
+	// An empty window must not blank the panel permanently.
 	src := sourceFor(t, `{"enabled":true,"interval_ms":1000,"sleep_start":"07:00","sleep_end":"07:00"}`)
 
 	for _, when := range []string{"2026-09-14 07:00:00", "2026-09-14 12:00:00", "2026-09-14 23:00:00"} {
 		if pollAt(t, src, when).Sleep {
-			t.Errorf("Sleep should be false at %s for an empty window", when)
+			t.Errorf("Sleep at %s = true, want false", when)
 		}
 	}
 }
@@ -167,18 +162,18 @@ func TestNewRejectsBadWindows(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			_, err := New(config.Source{Enabled: true, IntervalMS: 1000, Settings: []byte(tt.settings)})
 			if err == nil {
-				t.Fatal("New should reject this window rather than fail on every poll")
+				t.Fatal("New accepted the window")
 			}
 			if !strings.Contains(err.Error(), tt.wantIn) {
-				t.Errorf("error should mention %q, got: %v", tt.wantIn, err)
+				t.Errorf("error lacks %q: %v", tt.wantIn, err)
 			}
 		})
 	}
 }
 
 func TestNewAcceptsSingleDigitHours(t *testing.T) {
-	// 7:00 is what a person writes. Rejecting it would be pedantic.
+	// 7:00 is what a person writes.
 	if _, err := New(config.Source{Enabled: true, IntervalMS: 1000, Settings: []byte(`{"sleep_start":"23:30","sleep_end":"7:00"}`)}); err != nil {
-		t.Errorf("New should accept a single digit hour, got: %v", err)
+		t.Errorf("New: %v", err)
 	}
 }

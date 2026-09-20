@@ -7,7 +7,7 @@ import (
 
 func TestTheTitleIsPlainWhenAutostartIsAvailable(t *testing.T) {
 	if got := autostartTitle(""); got != "Start with Windows" {
-		t.Errorf("title = %q", got)
+		t.Errorf("title = %q, want Start with Windows", got)
 	}
 }
 

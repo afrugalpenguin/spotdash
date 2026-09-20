@@ -20,9 +20,8 @@ func discardLogger() *slog.Logger {
 	return slog.New(slog.NewTextHandler(io.Discard, nil))
 }
 
-// freePort returns a port nothing is listening on. There is a small race
-// between closing and rebinding, which is acceptable in a test and avoids
-// teaching the config loader about port zero purely for testing.
+// freePort returns a port nothing is listening on. It can race with a rebind,
+// which is acceptable in a test.
 func freePort(t *testing.T) int {
 	t.Helper()
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
@@ -57,7 +56,7 @@ func startApp(t *testing.T, contents string) (*App, string) {
 
 	agent := New(path, "test-version", discardLogger())
 	if err := agent.Start(); err != nil {
-		t.Fatalf("Start returned an error: %v", err)
+		t.Fatalf("Start: %v", err)
 	}
 	t.Cleanup(func() { _ = agent.Stop() })
 	return agent, path
@@ -98,10 +97,10 @@ func TestStartRefusesAnInvalidConfig(t *testing.T) {
 
 	if err == nil {
 		_ = agent.Stop()
-		t.Fatal("Start should refuse an empty token")
+		t.Fatal("Start with an empty token succeeded, want error")
 	}
 	if !strings.Contains(err.Error(), "token") {
-		t.Errorf("error should name the offending key, got: %v", err)
+		t.Errorf("error = %v, want it to name token", err)
 	}
 }
 
@@ -111,11 +110,11 @@ func TestStopClosesTheListener(t *testing.T) {
 	url := agent.baseURL() + "/health"
 
 	if err := agent.Stop(); err != nil {
-		t.Fatalf("Stop returned an error: %v", err)
+		t.Fatalf("Stop: %v", err)
 	}
 
 	if got := get(t, url, ""); got != 0 {
-		t.Errorf("the agent is still serving after Stop, got status %d", got)
+		t.Errorf("status after Stop = %d, want no response", got)
 	}
 }
 
@@ -124,10 +123,10 @@ func TestStopIsSafeToCallTwice(t *testing.T) {
 	agent, _ := startApp(t, configFor(port, "first-token"))
 
 	if err := agent.Stop(); err != nil {
-		t.Fatalf("first Stop returned an error: %v", err)
+		t.Fatalf("first Stop: %v", err)
 	}
 	if err := agent.Stop(); err != nil {
-		t.Errorf("second Stop returned an error: %v", err)
+		t.Errorf("second Stop: %v", err)
 	}
 }
 
@@ -137,21 +136,20 @@ func TestReloadAppliesANewToken(t *testing.T) {
 
 	writeConfig(t, path, configFor(port, "second-token"))
 	if err := agent.Reload(); err != nil {
-		t.Fatalf("Reload returned an error: %v", err)
+		t.Fatalf("Reload: %v", err)
 	}
 
 	if got := get(t, agent.baseURL()+"/", "first-token"); got != http.StatusUnauthorized {
-		t.Errorf("old token returned %d, want 401 after reload", got)
+		t.Errorf("old token status = %d, want 401", got)
 	}
 	if got := get(t, agent.baseURL()+"/", "second-token"); got != http.StatusOK {
-		t.Errorf("new token returned %d, want 200 after reload", got)
+		t.Errorf("new token status = %d, want 200", got)
 	}
 }
 
 func TestReloadWithAnInvalidConfigKeepsServing(t *testing.T) {
-	// The behaviour that matters. Someone mistypes a key in a running agent's
-	// config: the agent must say so and carry on with what it already had,
-	// rather than exiting and taking the panel dark.
+	// A mistyped key in a running agent's config must be reported without
+	// taking the panel down.
 	port := freePort(t)
 	agent, path := startApp(t, configFor(port, "first-token"))
 
@@ -159,16 +157,16 @@ func TestReloadWithAnInvalidConfigKeepsServing(t *testing.T) {
 	err := agent.Reload()
 
 	if err == nil {
-		t.Fatal("Reload should refuse an invalid config")
+		t.Fatal("Reload with an invalid config succeeded, want error")
 	}
 	if !strings.Contains(err.Error(), "token") {
-		t.Errorf("error should name the offending key, got: %v", err)
+		t.Errorf("error = %v, want it to name token", err)
 	}
 	if got := get(t, agent.baseURL()+"/health", ""); got != http.StatusOK {
-		t.Errorf("GET /health = %d, want the previous config still serving", got)
+		t.Errorf("GET /health = %d, want 200", got)
 	}
 	if got := get(t, agent.baseURL()+"/", "first-token"); got != http.StatusOK {
-		t.Errorf("the previous token stopped working after a failed reload, got %d", got)
+		t.Errorf("previous token status = %d, want 200", got)
 	}
 }
 
@@ -184,10 +182,10 @@ func TestReloadRejectsAnUnknownSourceAndKeepsServing(t *testing.T) {
 	err := agent.Reload()
 
 	if err == nil {
-		t.Fatal("Reload should refuse a source with no implementation")
+		t.Fatal("Reload with an unknown source succeeded, want error")
 	}
 	if got := get(t, agent.baseURL()+"/health", ""); got != http.StatusOK {
-		t.Errorf("GET /health = %d, want the previous config still serving", got)
+		t.Errorf("GET /health = %d, want 200", got)
 	}
 }
 
@@ -197,13 +195,12 @@ func TestReloadBeforeStartIsAnError(t *testing.T) {
 	agent := New(path, "test-version", discardLogger())
 
 	if err := agent.Reload(); err == nil {
-		t.Error("Reload should report that there is nothing running to reload")
+		t.Error("Reload before Start succeeded, want error")
 	}
 }
 
 func TestOpenURLTargetsLoopbackAndCarriesTheToken(t *testing.T) {
-	// The listen address is a wildcard in the shipped config, and a browser
-	// cannot open 0.0.0.0. The token has to be there too or the page 401s.
+	// The shipped listen address is a wildcard, which a browser cannot open.
 	port := freePort(t)
 	path := filepath.Join(t.TempDir(), "config.json")
 	writeConfig(t, path, fmt.Sprintf(`{
@@ -214,19 +211,19 @@ func TestOpenURLTargetsLoopbackAndCarriesTheToken(t *testing.T) {
 
 	agent := New(path, "test-version", discardLogger())
 	if err := agent.Start(); err != nil {
-		t.Fatalf("Start returned an error: %v", err)
+		t.Fatalf("Start: %v", err)
 	}
 	defer agent.Stop()
 
 	url := agent.OpenURL()
 	if strings.Contains(url, "0.0.0.0") {
-		t.Errorf("OpenURL = %q, a browser cannot open a wildcard address", url)
+		t.Errorf("OpenURL = %q, want no wildcard host", url)
 	}
 	if !strings.Contains(url, "127.0.0.1") {
 		t.Errorf("OpenURL = %q, want loopback", url)
 	}
 	if !strings.Contains(url, "token=a-token") {
-		t.Errorf("OpenURL = %q, want the token so the page authenticates", url)
+		t.Errorf("OpenURL = %q, want the token", url)
 	}
 }
 
@@ -234,15 +231,14 @@ func TestSourcesRunAfterStart(t *testing.T) {
 	port := freePort(t)
 	agent, _ := startApp(t, configFor(port, "first-token"))
 
-	// The clock source cannot fail, so a status of ok proves the runner is
-	// wired up and polling rather than merely constructed.
+	// The clock source cannot fail, so ok means the runner is polling.
 	deadline := 200
 	for i := 0; i < deadline; i++ {
 		if strings.Contains(healthBody(t, agent.baseURL()), `"status":"ok"`) {
 			return
 		}
 	}
-	t.Error("no source reported ok, so the runner is not polling")
+	t.Error("no source reported ok")
 }
 
 func healthBody(t *testing.T, base string) string {
@@ -322,15 +318,13 @@ func TestSettingsPostSavesAndReloads(t *testing.T) {
 	// Written to config.json...
 	saved, err := config.Load(path)
 	if err != nil {
-		t.Fatalf("reloading config.json from disk: %v", err)
+		t.Fatalf("Load: %v", err)
 	}
 	if saved.AccentColor != "#7c83fd" {
-		t.Errorf("config.json accent_color = %q, want %q", saved.AccentColor, "#7c83fd")
+		t.Errorf("accent_color = %q, want %q", saved.AccentColor, "#7c83fd")
 	}
 
-	// ...and applied live, without restarting the process. The reload that
-	// picks it up is scheduled slightly after the response above, so this
-	// polls briefly rather than assuming it has already happened.
+	// ...and applied live. The reload is scheduled after the response, so poll.
 	deadline := time.Now().Add(2 * time.Second)
 	for {
 		if strings.Contains(healthBody(t, agent.baseURL()), `"accent_color":"#7c83fd"`) {
@@ -354,10 +348,10 @@ func TestSettingsPostRejectsAnInvalidColour(t *testing.T) {
 
 	saved, err := config.Load(path)
 	if err != nil {
-		t.Fatalf("reloading config.json: %v", err)
+		t.Fatalf("Load: %v", err)
 	}
 	if saved.AccentColor != "" {
-		t.Errorf("config.json accent_color = %q, want unchanged (empty) after a rejected save", saved.AccentColor)
+		t.Errorf("accent_color = %q, want empty", saved.AccentColor)
 	}
 }
 
@@ -372,10 +366,10 @@ func TestSettingsPostRejectsHidingClock(t *testing.T) {
 
 	saved, err := config.Load(path)
 	if err != nil {
-		t.Fatalf("reloading config.json: %v", err)
+		t.Fatalf("Load: %v", err)
 	}
 	if len(saved.HiddenFaces) != 0 {
-		t.Errorf("config.json hidden_faces = %v, want unchanged (empty) after a rejected save", saved.HiddenFaces)
+		t.Errorf("hidden_faces = %v, want empty", saved.HiddenFaces)
 	}
 }
 
@@ -390,10 +384,10 @@ func TestSettingsPostSavesHiddenFaces(t *testing.T) {
 
 	saved, err := config.Load(path)
 	if err != nil {
-		t.Fatalf("reloading config.json: %v", err)
+		t.Fatalf("Load: %v", err)
 	}
 	if len(saved.HiddenFaces) != 2 || saved.HiddenFaces[0] != "calendar" || saved.HiddenFaces[1] != "telemetry" {
-		t.Errorf("config.json hidden_faces = %v, want [calendar telemetry]", saved.HiddenFaces)
+		t.Errorf("hidden_faces = %v, want [calendar telemetry]", saved.HiddenFaces)
 	}
 
 	deadline := time.Now().Add(2 * time.Second)
@@ -419,10 +413,10 @@ func TestSettingsPostSavesClockStyle(t *testing.T) {
 
 	saved, err := config.Load(path)
 	if err != nil {
-		t.Fatalf("reloading config.json: %v", err)
+		t.Fatalf("Load: %v", err)
 	}
 	if saved.ClockStyle != "analogue" {
-		t.Errorf("config.json clock_style = %q, want %q", saved.ClockStyle, "analogue")
+		t.Errorf("clock_style = %q, want %q", saved.ClockStyle, "analogue")
 	}
 
 	deadline := time.Now().Add(2 * time.Second)
@@ -448,10 +442,10 @@ func TestSettingsPostSavesHideNextEvent(t *testing.T) {
 
 	saved, err := config.Load(path)
 	if err != nil {
-		t.Fatalf("reloading config.json: %v", err)
+		t.Fatalf("Load: %v", err)
 	}
 	if !saved.HideNextEvent {
-		t.Error("config.json hide_next_event = false, want true")
+		t.Error("hide_next_event = false, want true")
 	}
 
 	deadline := time.Now().Add(2 * time.Second)
@@ -488,9 +482,9 @@ func TestSettingsPostRejectsHidingEveryFace(t *testing.T) {
 
 	saved, err := config.Load(path)
 	if err != nil {
-		t.Fatalf("reloading config.json: %v", err)
+		t.Fatalf("Load: %v", err)
 	}
 	if len(saved.HiddenFaces) != 0 {
-		t.Errorf("config.json hidden_faces = %v, want unchanged (empty) after a rejected save", saved.HiddenFaces)
+		t.Errorf("hidden_faces = %v, want empty", saved.HiddenFaces)
 	}
 }

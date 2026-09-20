@@ -1,7 +1,6 @@
 // Package state holds the latest value and status for every source.
 //
-// It is the single source of truth behind both /health and the WebSocket, so
-// the debug view and the live view can never disagree.
+// It is the single source of truth behind both /health and the WebSocket.
 package state
 
 import (
@@ -50,8 +49,7 @@ func New() *Store {
 }
 
 // Register declares a source and its starting status. Only registered sources
-// can be updated, so a stray write cannot invent a source that /health would
-// then report on.
+// can be updated.
 func (s *Store) Register(name string, status Status, lastError string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -76,13 +74,12 @@ func (s *Store) Update(name string, data any) {
 	entry.Data = data
 	entry.UpdatedAt = s.now()
 
-	// Broadcast under the same lock that wrote the entry, so a subscriber can
-	// never observe an update out of order with the stored value.
+	// Broadcast under the lock so subscribers see updates in stored order.
 	s.broadcastLocked(*entry)
 }
 
 // Fail records a failed poll. The source becomes degraded and keeps its last
-// good data, because a reading labelled stale beats a blank panel.
+// good data, which beats a blank panel.
 func (s *Store) Fail(name string, err error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -107,8 +104,7 @@ func (s *Store) Get(name string) (Entry, bool) {
 	return *entry, true
 }
 
-// Snapshot returns a copy of every entry, sorted by source name so that output
-// order is stable between runs.
+// Snapshot returns a copy of every entry, sorted by source name.
 func (s *Store) Snapshot() []Entry {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -120,14 +116,9 @@ func (s *Store) Snapshot() []Entry {
 	return out
 }
 
-// UpdatePartial records a poll that produced a usable value while running with
-// reduced capability. The value is stored and broadcast as a fresh reading, and
-// the source is marked degraded with the reason attached.
-//
-// Telemetry on a machine where NVML is unavailable is the case this exists for:
-// CPU, RAM and disk are genuinely there and worth showing, and the source is
-// genuinely degraded. Treating that as a failure would throw away a good
-// reading; treating it as a success would hide a real problem.
+// UpdatePartial records a usable value from a source running with reduced
+// capability. The value is broadcast as a fresh reading and the source is marked
+// degraded with the reason. Telemetry without NVML is the case for it.
 func (s *Store) UpdatePartial(name string, data any, reason error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

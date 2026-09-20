@@ -1,9 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <!--
-        Black, no action bar, no window background of its own. The panel is a
-        480x480 circle of the agent's own making, and anything the system draws
-        around it shows up as a visible edge on the real device.
+        Black, no action bar, no window background. Anything the system draws
+        around the 480x480 circle shows as an edge on the device.
     -->
     <style name="Theme.Spotdash" parent="Theme.AppCompat.NoActionBar">
         <item name="android:windowBackground">@android:color/black</item>

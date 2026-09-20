@@ -6,9 +6,8 @@ import (
 )
 
 func TestUnfoldLinesJoinsContinuations(t *testing.T) {
-	// The fold point inserts a mandatory space on the continuation line,
-	// which unfolding must strip; the real space between "meeting" and
-	// "title" is the trailing space already on the first line.
+	// Unfolding strips the fold's leading space. The real space is the trailing
+	// one on the first line.
 	data := []byte("SUMMARY:Long meeting \r\n title that wraps\r\nLOCATION:Room 1\r\n")
 	lines, err := unfoldLines(data)
 	if err != nil {
@@ -59,7 +58,7 @@ func TestSplitProperty(t *testing.T) {
 func TestSplitPropertyWithNoColonIsNotOK(t *testing.T) {
 	_, _, _, ok := splitProperty("not a property line")
 	if ok {
-		t.Fatal("want ok=false for a line with no colon")
+		t.Fatal("ok = true for a line with no colon")
 	}
 }
 
@@ -69,7 +68,7 @@ func TestParseICSTimeUTC(t *testing.T) {
 		t.Fatalf("parseICSTime: %v", err)
 	}
 	if allDay {
-		t.Error("want allDay=false for a UTC DATE-TIME")
+		t.Error("allDay = true for a UTC DATE-TIME")
 	}
 	want := time.Date(2026, 3, 15, 14, 0, 0, 0, time.UTC)
 	if !got.Equal(want) {
@@ -83,7 +82,7 @@ func TestParseICSTimeNamedZone(t *testing.T) {
 		t.Fatalf("parseICSTime: %v", err)
 	}
 	if allDay {
-		t.Error("want allDay=false")
+		t.Error("allDay = true, want false")
 	}
 	// London is on BST (UTC+1) in June.
 	if got.UTC().Hour() != 8 {
@@ -97,7 +96,7 @@ func TestParseICSTimeAllDay(t *testing.T) {
 		t.Fatalf("parseICSTime: %v", err)
 	}
 	if !allDay {
-		t.Error("want allDay=true")
+		t.Error("allDay = false, want true")
 	}
 	if got.Year() != 2026 || got.Month() != 3 || got.Day() != 1 {
 		t.Errorf("got %v, want 2026-03-01", got)
@@ -137,8 +136,7 @@ func TestNextUpEventPicksTheSoonestFutureTimedEvent(t *testing.T) {
 	now := time.Date(2026, 1, 1, 8, 0, 0, 0, time.UTC)
 	events := []icsEvent{
 		{Summary: "past", Start: now.Add(-time.Hour)},
-		// An RRULE shape this source does not support: excluded, same as a
-		// plain past event, rather than guessed at.
+		// Unsupported RRULE: excluded like a past event.
 		{Summary: "unsupported recurrence", Start: now.Add(time.Hour), RRule: "FREQ=SECONDLY"},
 		{Summary: "all day", Start: now.Add(30 * time.Minute), AllDay: true},
 		{Summary: "later", Start: now.Add(2 * time.Hour)},
@@ -147,7 +145,7 @@ func TestNextUpEventPicksTheSoonestFutureTimedEvent(t *testing.T) {
 
 	got, ok := nextUpEvent(events, now)
 	if !ok {
-		t.Fatal("nextUpEvent found nothing, want \"soonest\"")
+		t.Fatal("nextUpEvent found nothing")
 	}
 	if got.Summary != "soonest" {
 		t.Errorf("got %q, want %q", got.Summary, "soonest")
@@ -157,23 +155,22 @@ func TestNextUpEventPicksTheSoonestFutureTimedEvent(t *testing.T) {
 func TestNextUpEventExpandsASupportedRecurringEvent(t *testing.T) {
 	now := time.Date(2026, 3, 10, 10, 0, 0, 0, time.UTC) // after today's 9am occurrence
 	events := []icsEvent{
-		// First-ever occurrence is long in the past; the daily standup is
-		// still today's occurrence, which is what should come back as
-		// next-up ahead of a one-off meeting later in the week.
+		// The first occurrence is long past. The next one should still win over
+		// a later one-off.
 		{Summary: "daily standup", Start: time.Date(2026, 1, 1, 9, 0, 0, 0, time.UTC), RRule: "FREQ=DAILY"},
 		{Summary: "later one-off", Start: now.Add(72 * time.Hour)},
 	}
 
 	got, ok := nextUpEvent(events, now)
 	if !ok {
-		t.Fatal("nextUpEvent found nothing, want the standup's next occurrence")
+		t.Fatal("nextUpEvent found nothing")
 	}
 	if got.Summary != "daily standup" {
 		t.Errorf("got %q, want %q", got.Summary, "daily standup")
 	}
 	want := time.Date(2026, 3, 11, 9, 0, 0, 0, time.UTC)
 	if !got.Start.Equal(want) {
-		t.Errorf("Start = %v, want %v (tomorrow's occurrence, today's already passed)", got.Start, want)
+		t.Errorf("Start = %v, want %v", got.Start, want)
 	}
 }
 
@@ -224,7 +221,7 @@ func TestUpcomingEventsGivesEachRecurringSeriesOnlyOneEntry(t *testing.T) {
 	got := upcomingEvents(events, now, 5)
 
 	if len(got) != 2 {
-		t.Fatalf("got %d events, want 2 (one occurrence per series, not several)", len(got))
+		t.Fatalf("got %d events, want 2", len(got))
 	}
 	if got[0].Summary != "daily standup" || got[1].Summary != "one-off" {
 		t.Errorf("got %q then %q", got[0].Summary, got[1].Summary)
@@ -249,6 +246,6 @@ func TestNextUpEventWithNoCandidatesReturnsFalse(t *testing.T) {
 		{Summary: "unsupported recurrence", Start: now.Add(time.Hour), RRule: "FREQ=SECONDLY"},
 	}
 	if _, ok := nextUpEvent(events, now); ok {
-		t.Fatal("want ok=false when nothing qualifies")
+		t.Fatal("ok = true, want false")
 	}
 }

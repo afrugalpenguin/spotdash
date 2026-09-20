@@ -16,11 +16,11 @@ func source(t *testing.T, settings string) *Source {
 	t.Helper()
 	built, err := New(config.Source{Enabled: true, IntervalMS: 1000, Settings: []byte(settings)})
 	if err != nil {
-		t.Fatalf("New returned an error: %v", err)
+		t.Fatalf("New: %v", err)
 	}
 	src, ok := built.(*Source)
 	if !ok {
-		t.Fatalf("New returned %T, want *Source (a mock)", built)
+		t.Fatalf("New returned %T, want *Source", built)
 	}
 	return src
 }
@@ -29,7 +29,7 @@ func poll(t *testing.T, src *Source) Reading {
 	t.Helper()
 	value, err := src.Poll(context.Background())
 	if err != nil {
-		t.Fatalf("Poll returned an error: %v", err)
+		t.Fatalf("Poll: %v", err)
 	}
 	reading, ok := value.(Reading)
 	if !ok {
@@ -77,13 +77,12 @@ func TestMockReportsTheConfiguredTrack(t *testing.T) {
 		t.Errorf("DurationMS = %d", reading.DurationMS)
 	}
 	if !reading.Playing {
-		t.Error("the mock should report something playing")
+		t.Error("Playing = false, want true")
 	}
 }
 
 func TestMockPositionAdvancesWithTime(t *testing.T) {
-	// A still position would make the face look frozen, which is exactly the
-	// symptom of a broken feed. The mock has to move.
+	// A still position looks like a broken feed.
 	src := source(t, mockSettings)
 	base := time.Date(2026, 9, 14, 12, 0, 0, 0, time.UTC)
 
@@ -94,10 +93,10 @@ func TestMockPositionAdvancesWithTime(t *testing.T) {
 	second := poll(t, src)
 
 	if second.PositionMS <= first.PositionMS {
-		t.Errorf("position did not advance: %d then %d", first.PositionMS, second.PositionMS)
+		t.Errorf("position %d then %d, want an advance", first.PositionMS, second.PositionMS)
 	}
 	if got := second.PositionMS - first.PositionMS; got != 7000 {
-		t.Errorf("position advanced by %dms over 7s, want 7000", got)
+		t.Errorf("advance over 7s = %dms, want 7000", got)
 	}
 }
 
@@ -109,26 +108,23 @@ func TestMockPositionWrapsAtTheEndOfTheTrack(t *testing.T) {
 	reading := poll(t, src)
 
 	if reading.PositionMS >= reading.DurationMS {
-		t.Errorf("position %d is past the duration %d", reading.PositionMS, reading.DurationMS)
+		t.Errorf("position %d past duration %d", reading.PositionMS, reading.DurationMS)
 	}
 	if reading.PositionMS < 0 {
-		t.Errorf("position %d is negative", reading.PositionMS)
+		t.Errorf("position = %d, want non-negative", reading.PositionMS)
 	}
 }
 
 func TestArtURLIsServedByTheAgentWhenAFileIsConfigured(t *testing.T) {
-	// The device is on a LAN with an agent that will hold the credentials. It
-	// should load one small image from the machine next to it rather than
-	// reaching a CDN on every track change.
 	src := source(t, `{"mode":"mock","art_file":"cover.png","track":"a","artist":"b","duration_ms":1000}`)
 
 	reading := poll(t, src)
 
 	if reading.ArtURL == "" {
-		t.Fatal("an art file was configured but no art URL was published")
+		t.Fatal("ArtURL is empty, want a path")
 	}
 	if strings.HasPrefix(reading.ArtURL, "http") {
-		t.Errorf("ArtURL = %q, want a path served by the agent itself", reading.ArtURL)
+		t.Errorf("ArtURL = %q, want a path on the agent", reading.ArtURL)
 	}
 }
 
@@ -138,7 +134,7 @@ func TestNoArtURLWithoutAFile(t *testing.T) {
 	reading := poll(t, src)
 
 	if reading.ArtURL != "" {
-		t.Errorf("ArtURL = %q, want empty when no art is configured", reading.ArtURL)
+		t.Errorf("ArtURL = %q, want empty", reading.ArtURL)
 	}
 }
 
@@ -152,7 +148,7 @@ func TestAssetsExposesTheArtFile(t *testing.T) {
 	}
 	for url, path := range assets {
 		if !strings.HasPrefix(url, "/") {
-			t.Errorf("asset URL %q should be a path", url)
+			t.Errorf("asset URL = %q, want a path", url)
 		}
 		if path != "C:/covers/cover.png" {
 			t.Errorf("asset path = %q", path)
@@ -161,15 +157,13 @@ func TestAssetsExposesTheArtFile(t *testing.T) {
 }
 
 func TestModeIsRequired(t *testing.T) {
-	// Running the mock by accident and believing it is real would be worse than
-	// refusing to start, so the mode has to be stated.
 	_, err := New(config.Source{Enabled: true, IntervalMS: 1000, Settings: []byte(`{"enabled":true}`)})
 
 	if err == nil {
-		t.Fatal("New should require an explicit mode")
+		t.Fatal("New accepted a missing mode")
 	}
 	if !strings.Contains(err.Error(), "mode") {
-		t.Errorf("error should name the missing setting, got: %v", err)
+		t.Errorf("error = %v, want it to name mode", err)
 	}
 }
 
@@ -177,10 +171,10 @@ func TestApiModeRequiresAClientID(t *testing.T) {
 	_, err := New(config.Source{Enabled: true, IntervalMS: 1000, Settings: []byte(`{"mode":"api"}`)})
 
 	if err == nil {
-		t.Fatal("New should refuse api mode with no client_id")
+		t.Fatal("New accepted api mode with no client_id")
 	}
 	if !strings.Contains(err.Error(), "client_id") {
-		t.Errorf("error should name the missing setting, got: %v", err)
+		t.Errorf("error = %v, want it to name client_id", err)
 	}
 }
 
@@ -188,10 +182,10 @@ func TestUnknownModeIsRefused(t *testing.T) {
 	_, err := New(config.Source{Enabled: true, IntervalMS: 1000, Settings: []byte(`{"mode":"spotifyish"}`)})
 
 	if err == nil {
-		t.Fatal("New should refuse an unknown mode")
+		t.Fatal("New accepted an unknown mode")
 	}
 	if !strings.Contains(err.Error(), "spotifyish") {
-		t.Errorf("error should name the offending value, got: %v", err)
+		t.Errorf("error = %v, want it to name spotifyish", err)
 	}
 }
 
@@ -199,10 +193,10 @@ func TestMockRequiresATrack(t *testing.T) {
 	_, err := New(config.Source{Enabled: true, IntervalMS: 1000, Settings: []byte(`{"mode":"mock"}`)})
 
 	if err == nil {
-		t.Fatal("the mock should refuse to run with nothing to play")
+		t.Fatal("New accepted a mock with no track")
 	}
 	if !strings.Contains(err.Error(), "track") {
-		t.Errorf("error should name the missing setting, got: %v", err)
+		t.Errorf("error = %v, want it to name track", err)
 	}
 }
 
@@ -218,7 +212,7 @@ func TestReadingEncodesTheFieldsTheFaceNeeds(t *testing.T) {
 		`"position_ms"`, `"duration_ms"`, `"playing"`,
 	} {
 		if !strings.Contains(string(encoded), key) {
-			t.Errorf("encoded reading is missing %s\n%s", key, encoded)
+			t.Errorf("encoded reading lacks %s:\n%s", key, encoded)
 		}
 	}
 }
@@ -229,7 +223,7 @@ func TestLayoutDefaultsToFill(t *testing.T) {
 	reading := poll(t, src)
 
 	if reading.Layout != "fill" {
-		t.Errorf("Layout = %q, want fill when nothing is configured", reading.Layout)
+		t.Errorf("Layout = %q, want fill", reading.Layout)
 	}
 }
 
@@ -239,7 +233,7 @@ func TestLayoutIsConfigurable(t *testing.T) {
 	reading := poll(t, src)
 
 	if reading.Layout != "disc" {
-		t.Errorf("Layout = %q, want disc as configured", reading.Layout)
+		t.Errorf("Layout = %q, want disc", reading.Layout)
 	}
 }
 
@@ -249,10 +243,10 @@ func TestInvalidLayoutIsRejected(t *testing.T) {
 	)})
 
 	if err == nil {
-		t.Fatal("New should reject an unrecognised layout")
+		t.Fatal("New accepted an unknown layout")
 	}
 	if !strings.Contains(err.Error(), "layout") {
-		t.Errorf("error should name the offending setting, got: %v", err)
+		t.Errorf("error = %v, want it to name layout", err)
 	}
 }
 
@@ -267,9 +261,7 @@ func sourceIn(t *testing.T, dir, settings string) any {
 
 const apiSettings = `{"mode":"api","client_id":"id","redirect_uri":"http://127.0.0.1:8765/spotify/callback","state_file":"%s"}`
 
-// The agent is started at login from a directory nobody chose, so a relative
-// state_file has to mean "next to config.json", or the connection is silently
-// lost and a new state file appears somewhere else.
+// A relative state_file is relative to config.json, not the working directory.
 func TestARelativeStateFileResolvesAgainstTheConfigDirectory(t *testing.T) {
 	dir := t.TempDir()
 
@@ -280,7 +272,7 @@ func TestARelativeStateFileResolvesAgainstTheConfigDirectory(t *testing.T) {
 		t.Errorf("state path = %q, want %q", api.auth.statePath, want)
 	}
 	if want := filepath.Join(dir, "spotify_art.jpg"); api.artCachePath != want {
-		t.Errorf("art cache path = %q, want %q (it sits next to the state file)", api.artCachePath, want)
+		t.Errorf("art cache path = %q, want %q", api.artCachePath, want)
 	}
 }
 
@@ -291,7 +283,7 @@ func TestAnAbsoluteStateFileIsLeftAlone(t *testing.T) {
 	built := sourceIn(t, dir, fmt.Sprintf(apiSettings, filepath.ToSlash(abs)))
 
 	if got := built.(*apiSource).auth.statePath; filepath.Clean(got) != filepath.Clean(abs) {
-		t.Errorf("state path = %q, want the absolute path %q untouched", got, abs)
+		t.Errorf("state path = %q, want %q", got, abs)
 	}
 }
 
@@ -299,7 +291,7 @@ func TestWithNoConfigDirectoryAPathIsLeftAsWritten(t *testing.T) {
 	built := sourceIn(t, "", fmt.Sprintf(apiSettings, "spotify_state.json"))
 
 	if got := built.(*apiSource).auth.statePath; got != "spotify_state.json" {
-		t.Errorf("state path = %q, want it unchanged when the source was told no directory", got)
+		t.Errorf("state path = %q, want spotify_state.json", got)
 	}
 }
 

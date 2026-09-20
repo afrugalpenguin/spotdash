@@ -36,14 +36,14 @@ func TestNewAuthManagerStartsUnauthorized(t *testing.T) {
 	mgr, _ := newTestAuthManager(t, nil)
 
 	if mgr.isAuthorized() {
-		t.Error("a fresh manager with no saved state should not be authorized")
+		t.Error("isAuthorized = true with no saved state")
 	}
 }
 
 func TestNewAuthManagerLoadsAPreviouslySavedToken(t *testing.T) {
 	statePath := filepath.Join(t.TempDir(), "spotify_state.json")
 	if err := saveState(statePath, authState{RefreshToken: "already-authorised"}); err != nil {
-		t.Fatalf("seeding saved state: %v", err)
+		t.Fatalf("saveState: %v", err)
 	}
 
 	mgr, err := newAuthManager(authManagerOptions{
@@ -56,7 +56,7 @@ func TestNewAuthManagerLoadsAPreviouslySavedToken(t *testing.T) {
 	}
 
 	if !mgr.isAuthorized() {
-		t.Error("a manager reading a saved refresh token should be authorized")
+		t.Error("isAuthorized = false with a saved token")
 	}
 }
 
@@ -67,14 +67,14 @@ func TestNewAuthManagerRejectsCorruptState(t *testing.T) {
 	_, err := newAuthManager(authManagerOptions{ClientID: "id", RedirectURI: "r", StatePath: statePath})
 
 	if err == nil {
-		t.Fatal("newAuthManager should fail closed on a corrupt state file rather than silently starting unauthorised")
+		t.Fatal("newAuthManager accepted a corrupt state file")
 	}
 }
 
 func writeCorruptFile(t *testing.T, path string) {
 	t.Helper()
 	if err := os.WriteFile(path, []byte("{not json"), 0o600); err != nil {
-		t.Fatalf("writing corrupt file: %v", err)
+		t.Fatalf("WriteFile: %v", err)
 	}
 }
 
@@ -88,10 +88,10 @@ func TestBeginAuthBuildsTheAuthorizeURL(t *testing.T) {
 
 	u, err := url.Parse(raw)
 	if err != nil {
-		t.Fatalf("beginAuth produced an unparseable URL: %v", err)
+		t.Fatalf("Parse: %v", err)
 	}
 	if u.Host != "accounts.spotify.com" || u.Path != "/authorize" {
-		t.Errorf("URL = %q, want the Spotify authorize endpoint", raw)
+		t.Errorf("URL = %q, want the authorize endpoint", raw)
 	}
 
 	q := u.Query()
@@ -113,8 +113,8 @@ func TestBeginAuthBuildsTheAuthorizeURL(t *testing.T) {
 	if q.Get("state") == "" {
 		t.Error("state is empty")
 	}
-	// Read scope, plus the one write scope the transport controls need.
-	// Nothing broader: no playlist, library or account scopes.
+	// Read scope plus the transport write scope. No playlist, library or
+	// account scopes.
 	scope := q.Get("scope")
 	for _, want := range []string{"user-read-currently-playing", "user-modify-playback-state"} {
 		if !strings.Contains(scope, want) {
@@ -123,7 +123,7 @@ func TestBeginAuthBuildsTheAuthorizeURL(t *testing.T) {
 	}
 	for _, forbidden := range []string{"playlist", "library", "user-read-email", "streaming"} {
 		if strings.Contains(scope, forbidden) {
-			t.Errorf("scope = %q contains an unrequested scope %q", scope, forbidden)
+			t.Errorf("scope = %q, has forbidden %q", scope, forbidden)
 		}
 	}
 }
@@ -149,12 +149,12 @@ func TestCallbackCompletesAndPersistsTheRefreshToken(t *testing.T) {
 		t.Fatalf("status = %d, want 200, body: %s", rec.Code, rec.Body.String())
 	}
 	if !mgr.isAuthorized() {
-		t.Error("the manager should be authorized after a successful callback")
+		t.Error("isAuthorized = false after a callback")
 	}
 
 	saved, err := loadState(mgr.statePath)
 	if err != nil {
-		t.Fatalf("loadState after callback: %v", err)
+		t.Fatalf("loadState: %v", err)
 	}
 	if saved.RefreshToken != "refresh-1" {
 		t.Errorf("persisted RefreshToken = %q, want refresh-1", saved.RefreshToken)
@@ -162,8 +162,7 @@ func TestCallbackCompletesAndPersistsTheRefreshToken(t *testing.T) {
 }
 
 func TestCallbackRejectsAWrongState(t *testing.T) {
-	// This is the CSRF protection for an endpoint that has to be unauthenticated
-	// because a freshly opened browser tab carries no bearer token.
+	// CSRF protection for the unauthenticated callback.
 	mgr, _ := newTestAuthManager(t, nil)
 
 	if _, err := mgr.beginAuth(); err != nil {
@@ -175,10 +174,10 @@ func TestCallbackRejectsAWrongState(t *testing.T) {
 	mgr.handleCallback(rec, req)
 
 	if rec.Code == http.StatusOK {
-		t.Error("a mismatched state should not be accepted")
+		t.Error("mismatched state accepted")
 	}
 	if mgr.isAuthorized() {
-		t.Error("the manager should not become authorized from a forged callback")
+		t.Error("isAuthorized = true after a forged callback")
 	}
 }
 
@@ -190,12 +189,12 @@ func TestCallbackWithNoPendingAttemptIsRejected(t *testing.T) {
 	mgr.handleCallback(rec, req)
 
 	if rec.Code == http.StatusOK {
-		t.Error("a callback with no beginAuth in progress should not succeed")
+		t.Error("callback with no beginAuth succeeded")
 	}
 }
 
 func TestCallbackSurfacesSpotifyDenial(t *testing.T) {
-	// The user clicked "Cancel" on Spotify's consent screen.
+	// The user cancelled on Spotify's consent screen.
 	mgr, _ := newTestAuthManager(t, nil)
 
 	raw, err := mgr.beginAuth()
@@ -209,16 +208,15 @@ func TestCallbackSurfacesSpotifyDenial(t *testing.T) {
 	mgr.handleCallback(rec, req)
 
 	if rec.Code == http.StatusOK {
-		t.Error("a denied consent should not report success")
+		t.Error("denied consent reported success")
 	}
 	if mgr.isAuthorized() {
-		t.Error("a denied consent should not authorize the manager")
+		t.Error("isAuthorized = true after denied consent")
 	}
 }
 
 func TestCallbackIsSingleUse(t *testing.T) {
-	// The pending attempt must be consumed so the same authorization code
-	// cannot be replayed against the callback.
+	// The pending attempt is consumed, so the code cannot be replayed.
 	mgr, _ := newTestAuthManager(t, func(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(tokenResponse{AccessToken: "a", RefreshToken: "r", ExpiresIn: 3600})
 	})
@@ -233,13 +231,13 @@ func TestCallbackIsSingleUse(t *testing.T) {
 	first := httptest.NewRecorder()
 	mgr.handleCallback(first, httptest.NewRequest(http.MethodGet, url, nil))
 	if first.Code != http.StatusOK {
-		t.Fatalf("first callback should succeed, got %d", first.Code)
+		t.Fatalf("first callback status = %d, want 200", first.Code)
 	}
 
 	second := httptest.NewRecorder()
 	mgr.handleCallback(second, httptest.NewRequest(http.MethodGet, url, nil))
 	if second.Code == http.StatusOK {
-		t.Error("replaying the same callback should not succeed a second time")
+		t.Error("replayed callback succeeded")
 	}
 }
 
@@ -252,10 +250,10 @@ func TestAccessTokenRefreshesWhenNearExpiry(t *testing.T) {
 		})
 	})
 	if err := saveState(mgr.statePath, authState{RefreshToken: "already-authorised"}); err != nil {
-		t.Fatalf("seeding state: %v", err)
+		t.Fatalf("saveState: %v", err)
 	}
 	mgr.refreshToken = "already-authorised"
-	// Simulate an access token that is already stale.
+	// A stale access token.
 	mgr.accessTokenExpiry = time.Now().Add(-1 * time.Minute)
 
 	token, err := mgr.accessToken(context.Background())
@@ -285,7 +283,7 @@ func TestAccessTokenReusesAnUnexpiredToken(t *testing.T) {
 		t.Fatalf("accessToken: %v", err)
 	}
 	if token != "still-fresh" {
-		t.Errorf("token = %q, want the cached one reused", token)
+		t.Errorf("token = %q, want the cached token", token)
 	}
 	if calls != 0 {
 		t.Errorf("token endpoint called %d times, want 0", calls)
@@ -293,8 +291,7 @@ func TestAccessTokenReusesAnUnexpiredToken(t *testing.T) {
 }
 
 func TestAccessTokenClearsAuthorizationOnAReauthRequiredError(t *testing.T) {
-	// A revoked grant should make the manager visibly unauthorized again,
-	// rather than continuing to claim it holds a working connection.
+	// A revoked grant makes the manager unauthorized again.
 	mgr, _ := newTestAuthManager(t, func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
 		json.NewEncoder(w).Encode(map[string]string{"error": "invalid_grant", "error_description": "revoked"})
@@ -308,7 +305,7 @@ func TestAccessTokenClearsAuthorizationOnAReauthRequiredError(t *testing.T) {
 		t.Fatalf("err = %v, want a reauth-required error", err)
 	}
 	if mgr.isAuthorized() {
-		t.Error("the manager should no longer report itself authorized")
+		t.Error("isAuthorized = true after a revoked grant")
 	}
 }
 
@@ -316,13 +313,12 @@ func mustQueryFromAuthorizeURL(t *testing.T, raw, key string) string {
 	t.Helper()
 	u, err := url.Parse(raw)
 	if err != nil {
-		t.Fatalf("parsing authorize URL: %v", err)
+		t.Fatalf("Parse: %v", err)
 	}
 	return u.Query().Get(key)
 }
 
-// completeCallback runs beginAuth and a callback carrying the given code, and
-// returns the recorder.
+// completeCallback runs beginAuth, then a callback with the given code.
 func completeCallback(t *testing.T, mgr *authManager) *httptest.ResponseRecorder {
 	t.Helper()
 	raw, err := mgr.beginAuth()
@@ -354,7 +350,7 @@ func TestCallbackNotifiesOnceConnected(t *testing.T) {
 		t.Errorf("onConnected called %d times, want 1", notified)
 	}
 	if !authorizedAtNotify {
-		t.Error("onConnected ran before the tokens were stored, so a poll started from it would still fail")
+		t.Error("onConnected ran before the tokens were stored")
 	}
 }
 
@@ -366,7 +362,7 @@ func TestCallbackDoesNotNotifyWhenTheExchangeFails(t *testing.T) {
 	mgr.setOnConnected(func() { notified++ })
 
 	if rec := completeCallback(t, mgr); rec.Code == http.StatusOK {
-		t.Fatal("a failed token exchange should not report success")
+		t.Fatal("failed token exchange reported success")
 	}
 
 	if notified != 0 {

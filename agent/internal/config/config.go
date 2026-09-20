@@ -1,7 +1,5 @@
-// Package config loads and validates the agent configuration.
-//
-// Validation is fail-closed. Anything the agent cannot make sense of is a
-// startup failure naming the offending key, never a silently applied guess.
+// Package config loads and validates the agent configuration. Validation fails
+// closed, and an error names the offending key.
 package config
 
 import (
@@ -30,32 +28,25 @@ const PlaceholderToken = "replace-this-with-a-long-random-string"
 
 var validLogLevels = []string{"debug", "info", "warn", "error"}
 
-// KnownFaces are the faces the panel can show, by the title each face
-// module in agent/web/faces exports. Kept here, not just in app.js, so a
-// typo or a stale name in hidden_faces is a startup error rather than a
-// setting that silently does nothing.
+// KnownFaces are the faces the panel can show, by the title each face module in
+// agent/web/faces exports. A stale name in hidden_faces is a startup error.
 var KnownFaces = []string{"clock", "calendar", "spotify", "telemetry", "status"}
 
 // ClockStyles are the shapes the clock face is allowed to draw in.
 var ClockStyles = []string{"digital", "analogue"}
 
-// accentColorPattern is the only shape accent_color is allowed to take: a
-// 6-digit hex colour with its leading #, exactly what an
-// <input type="color"> produces. Anything else is rejected rather than
-// guessed at.
+// accentColorPattern matches what an <input type="color"> produces: a 6-digit
+// hex colour with its leading #.
 var accentColorPattern = regexp.MustCompile(`^#[0-9a-fA-F]{6}$`)
 
-// Source is the per-source configuration block. Enabled and IntervalMS are
-// common to every source; anything else a source needs stays in Settings for
-// that source to decode itself.
+// Source is the per-source configuration block. Anything beyond Enabled and
+// IntervalMS stays in Settings for the source to decode.
 type Source struct {
 	Enabled    bool
 	IntervalMS int
 	Settings   json.RawMessage
-	// Dir is the directory config.json was loaded from, set by Load. A source
-	// resolves relative file settings against it rather than the working
-	// directory, which the agent does not control when it starts at login. Not
-	// part of the file: MarshalJSON writes Settings only.
+	// Dir is the directory config.json was loaded from, set by Load. Relative
+	// file settings resolve against it. It is not written back by Save.
 	Dir string
 }
 
@@ -64,9 +55,8 @@ func (s Source) Interval() time.Duration {
 	return time.Duration(s.IntervalMS) * time.Millisecond
 }
 
-// UnmarshalJSON decodes the common fields and keeps the whole object so that
-// source-specific keys survive. This is what lets a new source add settings
-// without touching this package.
+// UnmarshalJSON decodes the common fields and keeps the whole object, so a new
+// source can add settings without touching this package.
 func (s *Source) UnmarshalJSON(data []byte) error {
 	var common struct {
 		Enabled    bool `json:"enabled"`
@@ -81,12 +71,8 @@ func (s *Source) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// MarshalJSON writes back exactly what was read: Settings already holds the
-// complete original object for this source, enabled/interval_ms and every
-// source-specific key alike, captured verbatim by UnmarshalJSON. Marshalling
-// the struct fields individually here instead would both duplicate them
-// under the wrong (capitalised, untagged) names and lose anything
-// source-specific, which is exactly what Save must not do.
+// MarshalJSON writes back the object UnmarshalJSON captured. Marshalling the
+// fields individually would lose the source-specific keys.
 func (s Source) MarshalJSON() ([]byte, error) {
 	if s.Settings == nil {
 		return []byte("{}"), nil
@@ -99,24 +85,16 @@ type Config struct {
 	Listen   string `json:"listen"`
 	Token    string `json:"token"`
 	LogLevel string `json:"log_level"`
-	// AccentColor is the panel's one accent colour, "#rrggbb". Optional: an
-	// absent value keeps the built-in default the stylesheet ships with.
-	// Changed from the tray's settings page rather than usually hand-edited,
-	// which is why it round-trips through Save rather than only Load.
+	// AccentColor is the panel's accent colour, "#rrggbb". Absent keeps the
+	// stylesheet default.
 	AccentColor string `json:"accent_color,omitempty"`
 	// HiddenFaces are face titles (see KnownFaces) left out of the tap
-	// rotation. Optional: an absent or empty list shows every face, the
-	// same as before this setting existed. Changed from the settings page.
+	// rotation. Absent or empty shows every face.
 	HiddenFaces []string `json:"hidden_faces,omitempty"`
-	// ClockStyle is "digital" or "analogue", how the clock face draws.
-	// Defaults to "digital" when absent. Changed from the settings page.
+	// ClockStyle is "digital" or "analogue". Absent means "digital".
 	ClockStyle string `json:"clock_style,omitempty"`
-	// HideNextEvent hides the clock face's next-up calendar line. Inverted
-	// (a plain bool defaulting to true cannot be told apart from "absent"
-	// on decode, the same reason HiddenFaces is a negative list rather
-	// than a positive one), so its Go zero value of false is already the
-	// correct default: the next event shows unless this says otherwise.
-	// Changed from the settings page.
+	// HideNextEvent hides the clock face's next-up calendar line. It is
+	// negative so the Go zero value is the default, as with HiddenFaces.
 	HideNextEvent bool              `json:"hide_next_event,omitempty"`
 	Sources       map[string]Source `json:"sources"`
 }
@@ -161,11 +139,8 @@ func Load(path string) (*Config, error) {
 	return cfg, nil
 }
 
-// Save writes cfg back to path, atomically: a temp file in the same
-// directory, renamed into place, so a process that dies mid-write leaves
-// either the old contents or the new ones, never a corrupt mix. This is what
-// lets the settings page change config.json without a person hand-editing
-// it, the same file Load reads on every startup and every "Reload config".
+// Save writes cfg back to path through a temp file in the same directory and
+// a rename, so a crash mid-write leaves the old contents.
 func Save(path string, cfg *Config) error {
 	data, err := json.MarshalIndent(cfg, "", "  ")
 	if err != nil {
@@ -199,8 +174,8 @@ func Save(path string, cfg *Config) error {
 	return nil
 }
 
-// tellSourcesWhereTheConfigLives sets Source.Dir on every source. The path is
-// made absolute first, so a later change of working directory cannot move it.
+// tellSourcesWhereTheConfigLives sets Source.Dir on every source, using the
+// absolute path so a later chdir cannot move it.
 func (c *Config) tellSourcesWhereTheConfigLives(path string) {
 	if abs, err := filepath.Abs(path); err == nil {
 		path = abs
@@ -228,9 +203,8 @@ func (c *Config) applyDefaults() error {
 	return nil
 }
 
-// Validate checks a Config that was built in memory (e.g. by the settings
-// route, after Load and a field change), the same checks Load runs after
-// parsing.
+// Validate runs the checks Load runs after parsing, for a Config changed in
+// memory such as by the settings route.
 func (c *Config) Validate() error {
 	if strings.TrimSpace(c.Token) == "" {
 		return errors.New(`"token" is required and must not be empty: the agent will not serve data without a shared secret`)

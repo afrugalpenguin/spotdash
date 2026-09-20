@@ -6,14 +6,7 @@ import android.util.Log
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 
-/**
- * The agent URL and token, stored encrypted.
- *
- * The token is a shared secret, and this device sits on a desk where anyone can
- * pick it up, so it is never written in the clear. Encrypted storage on Android
- * is keyed by the hardware backed keystore, which means the file is useless if
- * lifted off the device.
- */
+/** The agent URL and token, stored encrypted. The token is a shared secret on a device anyone can pick up. */
 class Settings(context: Context) {
 
     private val prefs: SharedPreferences = open(context)
@@ -26,16 +19,7 @@ class Settings(context: Context) {
         get() = prefs.getString(KEY_TOKEN, "").orEmpty()
         set(value) = prefs.edit().putString(KEY_TOKEN, value.trim()).apply()
 
-    /**
-     * Stores an address and token together, in one commit, and says whether it
-     * worked.
-     *
-     * The two setters above are for the settings screen, where a person edits
-     * one box at a time. A provisioning payload has to land whole or not at all,
-     * because an address with the old token is a panel that loads and is
-     * rejected, and a new token sent to the old address is a secret going
-     * somewhere it was not meant to.
-     */
+    /** Stores an address and token in one commit, so a payload lands whole or not at all. */
     fun provision(agentUrl: String, token: String): Boolean =
         prefs.edit()
             .putString(KEY_URL, agentUrl.trim())
@@ -46,13 +30,7 @@ class Settings(context: Context) {
     val isConfigured: Boolean
         get() = agentUrl.isNotBlank()
 
-    /**
-     * The URL to load, with the token attached.
-     *
-     * The token travels as a query parameter on this one request only. The page
-     * reads it, strips it from its own address bar, and holds it in memory from
-     * then on, so the shell hands it over once and forgets about it.
-     */
+    /** The URL to load, with the token as a query parameter on this one request. The page then keeps it in memory. */
     fun panelUrl(): String {
         val base = agentUrl.trim().trimEnd('/')
         if (base.isEmpty()) return ""
@@ -86,10 +64,9 @@ class Settings(context: Context) {
                     EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM,
                 )
             } catch (error: Exception) {
-                // A corrupted keystore would otherwise crash the launcher on
-                // boot, which on a device with no other launcher means a brick
-                // until it is reflashed. Falling back keeps the panel reachable
-                // and the settings screen usable so the token can be re-entered.
+                // A corrupted keystore would crash the launcher at boot, and with
+                // no other launcher that bricks the device. Plain storage keeps
+                // the settings screen usable so the token can be re-entered.
                 Log.e(TAG, "encrypted settings unavailable, falling back to plain storage", error)
                 context.getSharedPreferences(FILE + "-plain", Context.MODE_PRIVATE)
             }

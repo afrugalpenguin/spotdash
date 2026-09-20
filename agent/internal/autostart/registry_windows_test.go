@@ -10,8 +10,8 @@ import (
 	"golang.org/x/sys/windows/registry"
 )
 
-// scratchStore is a store on a throwaway key, so the real registry code runs
-// without ever touching the Run key that decides what starts at login.
+// scratchStore is a store on a throwaway key, so tests never touch the real
+// Run key.
 func scratchStore(t *testing.T) Store {
 	t.Helper()
 	path := fmt.Sprintf(`Software\spotdash-autostart-test-%d`, time.Now().UnixNano())
@@ -29,7 +29,7 @@ func TestRegistryValueRoundTrip(t *testing.T) {
 	store := scratchStore(t)
 
 	if data, exists, err := store.Get(); err != nil || exists {
-		t.Fatalf("Get on a key that does not exist = %q, %v, %v, want no value and no error", data, exists, err)
+		t.Fatalf("Get on a missing key = %q, %v, %v, want \"\", false, nil", data, exists, err)
 	}
 
 	want := `"C:\Program Files\spotdash\spotdash.exe"`
@@ -42,7 +42,7 @@ func TestRegistryValueRoundTrip(t *testing.T) {
 	}
 
 	if err := store.Set(`"C:\other.exe"`); err != nil {
-		t.Fatalf("overwriting: %v", err)
+		t.Fatalf("Set overwrite: %v", err)
 	}
 	if data, _, _ := store.Get(); data != `"C:\other.exe"` {
 		t.Errorf("value after overwrite = %q", data)
@@ -52,7 +52,7 @@ func TestRegistryValueRoundTrip(t *testing.T) {
 		t.Fatalf("Delete: %v", err)
 	}
 	if _, exists, _ := store.Get(); exists {
-		t.Error("the value is still there after Delete")
+		t.Error("value exists after Delete, want none")
 	}
 }
 
@@ -69,6 +69,6 @@ func TestDeletingWhatIsNotThereIsNotAnError(t *testing.T) {
 		t.Fatalf("Delete: %v", err)
 	}
 	if err := store.Delete(); err != nil {
-		t.Errorf("Delete of an already deleted value: %v", err)
+		t.Errorf("second Delete: %v", err)
 	}
 }

@@ -113,7 +113,7 @@ adb shell am start -n dev.spotdash.shell/.PanelActivity
 Long-press the display for 3 seconds to enter the agent URL and token
 (from the emulator that's `http://10.0.2.2:8765`). The same screen has a
 Wi-Fi button that opens Android's own Wi-Fi settings, for a device that
-moves network. That's the only UI the shell has, there's no other input on
+moves network. That's the only UI the shell has: there is no other input on
 the real device.
 
 Want to work on faces without running the agent at all? Open
@@ -124,16 +124,26 @@ faking state.
 
 Both sources have a `mock` mode for testing and a real mode:
 
-- **Spotify**: `mode: "api"`, needs a Spotify app (Client ID only, PKCE, no
+- Spotify: `mode: "api"`, needs a Spotify app (Client ID only, PKCE, no
   secret) and a redirect URI of `http://127.0.0.1:8765/spotify/callback`.
   Then visit `/spotify/connect` to authorise. There is no shared app to use:
   Spotify limits an app like this to five users, so everyone creates their
   own. See [`docs/spotify-setup.md`](docs/spotify-setup.md) for the steps.
-- **Calendar**: `mode: "ics"`, just a published ICS feed URL (Outlook: Share
+- Calendar: `mode: "ics"`, just a published ICS feed URL (Outlook: Share
   calendar > Publish). Keep the link private, anyone with it can read your
   calendar.
 
 Full config keys and setup steps are in `docs/architecture.md`.
+
+## Setting up the Echo Spot
+
+With the agent running, the Spot flashed (see `docs/device.md`) and connected by USB with USB debugging on, one command does the rest:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File tools\provision.ps1
+```
+
+It installs the shell APK, hands the shell the agent address and token, makes the shell the home app, sets the timezone from this PC, sets brightness, adds a Windows Firewall rule for the agent port that only the Spot can use, and checks that the panel loads. Each step prints `[PASS]`, `[SKIP]` or `[FAIL]` and the run stops at the first failure with what to do next. Running it again is safe. It needs adb (Android platform-tools) on `PATH`, a Spot that allows `adb root`, and an elevated PowerShell for the firewall step (add `-SkipFirewall` to leave that step out). The token is never printed. A transcript goes to `provision-<time>.log` next to the script. `Get-Help .\tools\provision.ps1 -Full` lists the options.
 
 ## Running it automatically
 
@@ -163,9 +173,9 @@ to `config.json`, wherever it was started from.
 
 Prefer a scheduled task (restart on failure, a 15 second delay after logon)?
 `.\tools\autostart.ps1 -Install` registers one instead (`-Status` and
-`-Uninstall` do what you'd expect). It is not a service, a service has no
+`-Uninstall` do what you'd expect). It is not a service: a service has no
 desktop session to put a tray on. Use one or the other. Running both is
-safe, the second copy just exits.
+safe, and the second copy just exits.
 
 ## Releases
 
@@ -178,18 +188,20 @@ config with a generated token (see "Getting it running") and opens the panel.
 `config.example.json` is there as a reference for the settings. A tag with a
 hyphen, such as `v0.2.0-rc1`, is marked as a pre-release.
 
-The exe is not code signed, this is a one-person desk toy and a signing
+The exe is not code signed: this is a one-person desk toy and a signing
 certificate is not worth the cost. SmartScreen will flag it as an unrecognised
 publisher on first run ("More info", then "Run anyway"); that's expected.
 
 ## Security
 
 Shared bearer token over plain HTTP on a trusted LAN, no TLS. That's a
-known, accepted tradeoff for a desk toy on a home network, not an
-oversight, see `docs/architecture.md` for the reasoning.
+known, accepted tradeoff for a desk toy on a home network. See
+`docs/architecture.md` for the reasoning.
 
 ## More docs
 
 - [`docs/architecture.md`](docs/architecture.md) - how it's put together, and the full source config reference.
 - [`docs/verify.md`](docs/verify.md) - how each piece was tested.
+- [`docs/rooting.md`](docs/rooting.md) - getting a stock Echo Spot onto LineageOS.
 - [`docs/device.md`](docs/device.md) - bringing up a real Echo Spot.
+- [`CONTRIBUTING.md`](CONTRIBUTING.md) - house style for commits, pull requests, issues, comments and docs.

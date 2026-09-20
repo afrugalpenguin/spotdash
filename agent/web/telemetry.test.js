@@ -1,9 +1,5 @@
-// Tests for the telemetry face's pure logic.
-//
-// Run with: node --test agent/web/telemetry.test.js
-//
-// The thresholds are the part worth testing hard: a gauge that stays green
-// while a card sits at 97 percent is worse than no gauge at all.
+// Tests for the telemetry face's pure logic. Run with:
+// node --test agent/web/telemetry.test.js
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
@@ -36,8 +32,7 @@ test("a gauge is red above 95 percent", () => {
 });
 
 test("a gauge with no reading is neither ok nor alarming", () => {
-  // An unavailable GPU must not render as a calm zero, and must not render as
-  // a red alarm either. It is absent, and it should look absent.
+  // An unavailable GPU is absent, neither calm nor alarming.
   assert.equal(gaugeSeverity(null), "absent");
   assert.equal(gaugeSeverity(undefined), "absent");
   assert.equal(gaugeSeverity(Number.NaN), "absent");
@@ -96,8 +91,7 @@ test("gaugeValues maps a full reading onto the four gauges", () => {
 });
 
 test("gaugeValues leaves the gpu gauges empty when there is no gpu", () => {
-  // The degraded payload from the agent. The two GPU gauges have to read as
-  // absent rather than as a real zero.
+  // The agent's degraded payload. The GPU gauges must read as absent.
   const reading = {
     cpu: { percent: 12.5, per_core: [] },
     ram: { percent: 51.4 },
@@ -114,8 +108,7 @@ test("gaugeValues leaves the gpu gauges empty when there is no gpu", () => {
 });
 
 test("gaugeValues survives a reading with missing sections", () => {
-  // Never throw on the panel. A malformed message should degrade to unknown
-  // values, not take the face down.
+  // A malformed message degrades to unknown values and never throws.
   const gauges = gaugeValues({});
 
   assert.equal(gauges.length, 4);

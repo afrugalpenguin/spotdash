@@ -9,15 +9,9 @@ import (
 	"strings"
 )
 
-// HandleFile serves a single file from disk at pattern, behind the token.
-//
-// The path is resolved per request rather than captured once, because the file
-// it points at is expected to change: the real Spotify provider will replace
-// the cover on every track change.
-//
-// A missing file is a 404 rather than an error. The face is designed to render
-// without art, so a cover that has not arrived yet costs a blank space and
-// nothing more.
+// HandleFile serves a single file from disk at pattern, behind the token. The
+// path is resolved on every request because the file changes, as album art does
+// on each track. A missing file is a 404, which the face renders as no art.
 func (s *Server) HandleFile(pattern string, resolve func() string) {
 	s.Handle(pattern, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		target := resolve()
@@ -38,8 +32,8 @@ func (s *Server) HandleFile(pattern string, resolve func() string) {
 		if ct, known := contentTypes[strings.ToLower(path.Ext(target))]; known {
 			w.Header().Set("Content-Type", ct)
 		}
-		// The cover changes with the track, and a panel with no address bar is
-		// a miserable place to diagnose a stale image.
+		// The cover changes with the track, and a stale image is hard to diagnose
+		// on a panel with no address bar.
 		w.Header().Set("Cache-Control", "no-store")
 		if _, err := w.Write(data); err != nil {
 			s.log.Debug("writing file response", "path", pattern, "error", err)

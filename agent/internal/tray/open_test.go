@@ -5,9 +5,7 @@ import (
 	"testing"
 )
 
-// A log file has no reliable default handler: .log is often unassociated on
-// Windows, and start then raises the "Open With" dialog instead of the log. So
-// Windows names Notepad, which is always there.
+// .log is often unassociated on Windows, so it names Notepad.
 func TestLogCommandPicksAViewerPerOS(t *testing.T) {
 	const path = `C:\Users\Some Name\spotdash.log`
 	tests := []struct {
@@ -28,7 +26,7 @@ func TestLogCommandPicksAViewerPerOS(t *testing.T) {
 				t.Errorf("command = %q, want %q", name, tt.wantName)
 			}
 			if !reflect.DeepEqual(args, tt.wantArgs) {
-				t.Errorf("args = %q, want %q (the path must stay one argument)", args, tt.wantArgs)
+				t.Errorf("args = %q, want %q", args, tt.wantArgs)
 			}
 		})
 	}

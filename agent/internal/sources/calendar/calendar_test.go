@@ -15,7 +15,7 @@ func mustSettings(t *testing.T, s settings) json.RawMessage {
 	t.Helper()
 	raw, err := json.Marshal(s)
 	if err != nil {
-		t.Fatalf("marshalling settings: %v", err)
+		t.Fatalf("Marshal: %v", err)
 	}
 	return raw
 }
@@ -23,21 +23,21 @@ func mustSettings(t *testing.T, s settings) json.RawMessage {
 func TestNewRejectsAMissingMode(t *testing.T) {
 	cfg := config.Source{Settings: mustSettings(t, settings{})}
 	if _, err := New(cfg); err == nil {
-		t.Fatal("want an error when mode is missing, got none")
+		t.Fatal("New accepted a missing mode")
 	}
 }
 
 func TestNewRejectsAnUnknownMode(t *testing.T) {
 	cfg := config.Source{Settings: mustSettings(t, settings{Mode: "outlook"})}
 	if _, err := New(cfg); err == nil {
-		t.Fatal("want an error for an unknown mode, got none")
+		t.Fatal("New accepted an unknown mode")
 	}
 }
 
 func TestMockModeRequiresATitle(t *testing.T) {
 	cfg := config.Source{Settings: mustSettings(t, settings{Mode: "mock", StartInMinutes: 12})}
 	if _, err := New(cfg); err == nil {
-		t.Fatal("want an error when title is missing, got none")
+		t.Fatal("New accepted a missing title")
 	}
 }
 
@@ -70,7 +70,7 @@ func TestMockSourcePublishesTheConfiguredEvent(t *testing.T) {
 		t.Errorf("MinutesUntil = %v, want 12", reading.MinutesUntil)
 	}
 	if reading.StartLabel == "" {
-		t.Error("StartLabel is empty, want a formatted time")
+		t.Error("StartLabel is empty")
 	}
 }
 
@@ -86,13 +86,12 @@ func TestMockSourceWithNoEventIsIdle(t *testing.T) {
 	}
 	reading := value.(Reading)
 	if reading.Title != "" {
-		t.Errorf("Title = %q, want empty for an idle mock", reading.Title)
+		t.Errorf("Title = %q, want empty", reading.Title)
 	}
 }
 
 // TestMockSourceCountsDown checks that minutes_until decreases as the clock
-// advances, since the mock exists to let the countdown behaviour be judged on
-// the real panel, not just a frozen number.
+// advances.
 func TestMockSourceCountsDown(t *testing.T) {
 	cfg := config.Source{Settings: mustSettings(t, settings{
 		Mode:           "mock",
@@ -113,14 +112,12 @@ func TestMockSourceCountsDown(t *testing.T) {
 
 	got := first.(Reading).MinutesUntil - second.(Reading).MinutesUntil
 	if got != 4 {
-		t.Errorf("MinutesUntil dropped by %v over 4 minutes, want 4", got)
+		t.Errorf("MinutesUntil dropped %v over 4 minutes, want 4", got)
 	}
 }
 
 // TestMockSourceWithStartAtUsesTheGivenClockTime checks that "start_at" pins
-// the mock event to a specific time of day, e.g. for a screenshot or a demo,
-// rather than the countdown drifting with whenever the agent happens to
-// start.
+// the event to a time of day.
 func TestMockSourceWithStartAtUsesTheGivenClockTime(t *testing.T) {
 	cfg := config.Source{Settings: mustSettings(t, settings{
 		Mode:    "mock",
@@ -149,9 +146,8 @@ func TestMockSourceWithStartAtUsesTheGivenClockTime(t *testing.T) {
 	}
 }
 
-// TestMockSourceWithStartAtInThePastRollsToTomorrow checks that a start_at
-// earlier than the current time is still a sensible future demo event rather
-// than an already-passed, negative countdown.
+// TestMockSourceWithStartAtInThePastRollsToTomorrow checks that a past
+// start_at gives a future event, not a negative countdown.
 func TestMockSourceWithStartAtInThePastRollsToTomorrow(t *testing.T) {
 	cfg := config.Source{Settings: mustSettings(t, settings{
 		Mode:    "mock",
@@ -184,7 +180,7 @@ func TestMockModeRejectsAnUnparseableStartAt(t *testing.T) {
 		StartAt: "not a time",
 	})}
 	if _, err := New(cfg); err == nil {
-		t.Fatal("want an error for an unparseable start_at, got none")
+		t.Fatal("New accepted an unparseable start_at")
 	}
 }
 
@@ -196,7 +192,7 @@ func TestMockModeRejectsBothStartInMinutesAndStartAt(t *testing.T) {
 		StartAt:        "16:30",
 	})}
 	if _, err := New(cfg); err == nil {
-		t.Fatal("want an error when both start_in_minutes and start_at are set, got none")
+		t.Fatal("New accepted both start_in_minutes and start_at")
 	}
 }
 
@@ -213,7 +209,7 @@ func TestReadingIsUrgentWithinNotifyMinutes(t *testing.T) {
 	}
 	value, _ := src.Poll(context.Background())
 	if !value.(Reading).Urgent {
-		t.Error("want Urgent=true for an event 10 minutes out with a 15 minute threshold")
+		t.Error("Urgent = false, want true (10 min out, 15 min threshold)")
 	}
 }
 
@@ -230,7 +226,7 @@ func TestReadingIsNotUrgentBeyondNotifyMinutes(t *testing.T) {
 	}
 	value, _ := src.Poll(context.Background())
 	if value.(Reading).Urgent {
-		t.Error("want Urgent=false for an event 30 minutes out with a 15 minute threshold")
+		t.Error("Urgent = true, want false (30 min out, 15 min threshold)")
 	}
 }
 
@@ -238,7 +234,7 @@ func TestDefaultsApplyWhenNotifyMinutesAndShowSecondsAreUnset(t *testing.T) {
 	cfg := config.Source{Settings: mustSettings(t, settings{
 		Mode:           "mock",
 		Title:          "Standup",
-		StartInMinutes: DefaultNotifyMinutes, // exactly at the default threshold
+		StartInMinutes: DefaultNotifyMinutes,
 	})}
 	src, err := New(cfg)
 	if err != nil {
@@ -247,17 +243,17 @@ func TestDefaultsApplyWhenNotifyMinutesAndShowSecondsAreUnset(t *testing.T) {
 	value, _ := src.Poll(context.Background())
 	reading := value.(Reading)
 	if !reading.Urgent {
-		t.Error("want Urgent=true when start_in_minutes equals the default notify threshold")
+		t.Error("Urgent = false, want true at the default threshold")
 	}
 	if reading.ShowSeconds != DefaultShowSeconds {
-		t.Errorf("ShowSeconds = %d, want the default %d", reading.ShowSeconds, DefaultShowSeconds)
+		t.Errorf("ShowSeconds = %d, want %d", reading.ShowSeconds, DefaultShowSeconds)
 	}
 }
 
 func TestICSModeRequiresAFeedURL(t *testing.T) {
 	cfg := config.Source{Settings: mustSettings(t, settings{Mode: "ics"})}
 	if _, err := New(cfg); err == nil {
-		t.Fatal("want an error when feed_url is missing, got none")
+		t.Fatal("New accepted a missing feed_url")
 	}
 }
 
@@ -325,7 +321,7 @@ func TestICSSourcePopulatesTheAgendaAfterThePrimaryEvent(t *testing.T) {
 		t.Fatalf("Title = %q, want %q", reading.Title, "First")
 	}
 	if len(reading.Upcoming) != 2 {
-		t.Fatalf("Upcoming has %d entries, want 2", len(reading.Upcoming))
+		t.Fatalf("len(Upcoming) = %d, want 2", len(reading.Upcoming))
 	}
 	if reading.Upcoming[0].Title != "Second" || reading.Upcoming[1].Title != "Third" {
 		t.Errorf("Upcoming = %+v, want Second then Third", reading.Upcoming)
@@ -357,7 +353,7 @@ func TestICSSourceOmitsUpcomingWhenNoFurtherEventsExist(t *testing.T) {
 	}
 	reading := value.(Reading)
 	if len(reading.Upcoming) != 0 {
-		t.Errorf("Upcoming = %+v, want empty with only one qualifying event", reading.Upcoming)
+		t.Errorf("Upcoming = %+v, want empty", reading.Upcoming)
 	}
 }
 
@@ -381,7 +377,7 @@ func TestMockSourcePassesThroughConfiguredUpcoming(t *testing.T) {
 	}
 	reading := value.(Reading)
 	if len(reading.Upcoming) != 2 {
-		t.Fatalf("Upcoming has %d entries, want 2", len(reading.Upcoming))
+		t.Fatalf("len(Upcoming) = %d, want 2", len(reading.Upcoming))
 	}
 	if reading.Upcoming[0].Title != "Design review" || reading.Upcoming[1].Title != "1:1" {
 		t.Errorf("Upcoming = %+v", reading.Upcoming)
@@ -404,7 +400,7 @@ func TestICSSourceWithNoQualifyingEventIsIdle(t *testing.T) {
 		t.Fatalf("Poll: %v", err)
 	}
 	if value.(Reading).Title != "" {
-		t.Errorf("Title = %q, want empty for a feed with no qualifying event", value.(Reading).Title)
+		t.Errorf("Title = %q, want empty", value.(Reading).Title)
 	}
 }
 
@@ -420,6 +416,6 @@ func TestICSSourceFailsOnAnUnreachableFeed(t *testing.T) {
 		t.Fatalf("New: %v", err)
 	}
 	if _, err := src.Poll(context.Background()); err == nil {
-		t.Fatal("want an error when the feed returns 404, got none")
+		t.Fatal("Poll succeeded on a 404 feed")
 	}
 }

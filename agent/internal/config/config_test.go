@@ -9,13 +9,13 @@ import (
 	"time"
 )
 
-// writeConfig puts contents into a config.json inside a fresh temp directory and
+// writeConfig puts contents into a config.json in a fresh temp directory and
 // returns its path.
 func writeConfig(t *testing.T, contents string) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "config.json")
 	if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
-		t.Fatalf("writing test config: %v", err)
+		t.Fatalf("WriteFile: %v", err)
 	}
 	return path
 }
@@ -41,7 +41,7 @@ const validConfig = `{
 func TestLoadReadsEveryField(t *testing.T) {
 	cfg, err := Load(writeConfig(t, validConfig))
 	if err != nil {
-		t.Fatalf("Load returned an error for a valid config: %v", err)
+		t.Fatalf("Load: %v", err)
 	}
 
 	if cfg.Listen != "127.0.0.1:9000" {
@@ -59,31 +59,29 @@ func TestLoadReadsEveryField(t *testing.T) {
 
 	clock := cfg.Sources["clock"]
 	if !clock.Enabled {
-		t.Error("clock source should be enabled")
+		t.Error("clock Enabled = false, want true")
 	}
 	if got, want := clock.Interval(), time.Second; got != want {
 		t.Errorf("clock Interval() = %v, want %v", got, want)
 	}
 	if cfg.Sources["telemetry"].Enabled {
-		t.Error("telemetry source should be disabled")
+		t.Error("telemetry Enabled = true, want false")
 	}
 }
 
 func TestLoadPreservesUnknownPerSourceSettings(t *testing.T) {
 	cfg, err := Load(writeConfig(t, validConfig))
 	if err != nil {
-		t.Fatalf("Load returned an error for a valid config: %v", err)
+		t.Fatalf("Load: %v", err)
 	}
 
-	// A source owns its own settings keys. The config package must hand them
-	// back untouched so a source can decode what it needs without every new
-	// source key requiring a change here.
+	// A source owns its settings keys, so they must come back untouched.
 	var settings struct {
 		SleepStart string `json:"sleep_start"`
 		SleepEnd   string `json:"sleep_end"`
 	}
 	if err := json.Unmarshal(cfg.Sources["clock"].Settings, &settings); err != nil {
-		t.Fatalf("decoding preserved clock settings: %v", err)
+		t.Fatalf("Unmarshal clock settings: %v", err)
 	}
 	if settings.SleepStart != "23:30" || settings.SleepEnd != "07:00" {
 		t.Errorf("settings = %+v, want sleep_start 23:30 and sleep_end 07:00", settings)
@@ -93,7 +91,7 @@ func TestLoadPreservesUnknownPerSourceSettings(t *testing.T) {
 func TestLoadAppliesDefaults(t *testing.T) {
 	cfg, err := Load(writeConfig(t, `{"token":"s3cret","sources":{}}`))
 	if err != nil {
-		t.Fatalf("Load returned an error: %v", err)
+		t.Fatalf("Load: %v", err)
 	}
 
 	if cfg.Listen != DefaultListen {
@@ -105,11 +103,10 @@ func TestLoadAppliesDefaults(t *testing.T) {
 }
 
 func TestLoadAllowsDisabledSourceWithNoInterval(t *testing.T) {
-	// A disabled source is never polled, so its interval is irrelevant and must
-	// not block startup.
+	// A disabled source is never polled, so its interval does not matter.
 	_, err := Load(writeConfig(t, `{"token":"s3cret","sources":{"clock":{"enabled":false}}}`))
 	if err != nil {
-		t.Fatalf("a disabled source with no interval should load, got: %v", err)
+		t.Fatalf("Load: %v", err)
 	}
 }
 
@@ -118,10 +115,10 @@ func TestLoadRejectsMissingFile(t *testing.T) {
 
 	_, err := Load(path)
 	if err == nil {
-		t.Fatal("Load should refuse to start when the config file is absent")
+		t.Fatal("Load of a missing file succeeded, want error")
 	}
 	if !strings.Contains(err.Error(), path) {
-		t.Errorf("error should name the missing path, got: %v", err)
+		t.Errorf("error = %v, want it to name the path", err)
 	}
 }
 
@@ -202,36 +199,34 @@ func TestLoadRejectsInvalidInput(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			_, err := Load(writeConfig(t, tt.contents))
 			if err == nil {
-				t.Fatal("Load should have refused this config")
+				t.Fatal("Load succeeded, want error")
 			}
 			if !strings.Contains(err.Error(), tt.wantIn) {
-				t.Errorf("error should mention %q, got: %v", tt.wantIn, err)
+				t.Errorf("want error containing %q, got %v", tt.wantIn, err)
 			}
 		})
 	}
 }
 
-// The example file is what a fresh clone copies, so it must be refused until
-// the token is replaced. Reading the real file keeps PlaceholderToken and
-// config.example.json from drifting apart.
+// A fresh clone copies the example file, so it must be refused until the token
+// is replaced. This also keeps PlaceholderToken and the file in step.
 func TestLoadRejectsTheShippedExampleUntouched(t *testing.T) {
 	_, err := Load(filepath.Join("..", "..", "config.example.json"))
 	if err == nil {
-		t.Fatal("config.example.json loaded as is, so a fresh clone would serve with a public token")
+		t.Fatal("Load of config.example.json succeeded, want error")
 	}
 	if !strings.Contains(err.Error(), "token") {
-		t.Errorf("error should mention the token, got: %v", err)
+		t.Errorf("error = %v, want it to mention the token", err)
 	}
 }
 
 func TestSourceNamesAreSorted(t *testing.T) {
 	cfg, err := Load(writeConfig(t, validConfig))
 	if err != nil {
-		t.Fatalf("Load returned an error: %v", err)
+		t.Fatalf("Load: %v", err)
 	}
 
-	// Map iteration order is random. Stable output matters for logs and for
-	// /health, so the config exposes a sorted name list.
+	// Map order is random, so the names must come back sorted.
 	got := cfg.SourceNames()
 	want := []string{"clock", "telemetry"}
 	if len(got) != len(want) {
@@ -252,7 +247,7 @@ func TestLoadAcceptsAValidAccentColor(t *testing.T) {
   "sources": {}
 }`))
 	if err != nil {
-		t.Fatalf("Load returned an error for a valid accent_color: %v", err)
+		t.Fatalf("Load: %v", err)
 	}
 	if cfg.AccentColor != "#4e9eea" {
 		t.Errorf("AccentColor = %q, want %q", cfg.AccentColor, "#4e9eea")
@@ -262,7 +257,7 @@ func TestLoadAcceptsAValidAccentColor(t *testing.T) {
 func TestLoadAllowsAnAbsentAccentColor(t *testing.T) {
 	cfg, err := Load(writeConfig(t, validConfig))
 	if err != nil {
-		t.Fatalf("Load returned an error: %v", err)
+		t.Fatalf("Load: %v", err)
 	}
 	if cfg.AccentColor != "" {
 		t.Errorf("AccentColor = %q, want empty when unset", cfg.AccentColor)
@@ -279,7 +274,7 @@ func TestLoadRejectsAMalformedAccentColor(t *testing.T) {
   "sources": {}
 }`))
 		if err == nil {
-			t.Errorf("Load accepted invalid accent_color %q, want an error", bad)
+			t.Errorf("Load accent_color %q succeeded, want error", bad)
 		}
 	}
 }
@@ -292,7 +287,7 @@ func TestLoadAcceptsValidHiddenFaces(t *testing.T) {
   "sources": {}
 }`))
 	if err != nil {
-		t.Fatalf("Load returned an error for valid hidden_faces: %v", err)
+		t.Fatalf("Load: %v", err)
 	}
 	if len(cfg.HiddenFaces) != 2 || cfg.HiddenFaces[0] != "calendar" || cfg.HiddenFaces[1] != "telemetry" {
 		t.Errorf("HiddenFaces = %v, want [calendar telemetry]", cfg.HiddenFaces)
@@ -307,7 +302,7 @@ func TestLoadRejectsAnUnknownFaceName(t *testing.T) {
   "sources": {}
 }`))
 	if err == nil {
-		t.Fatal("Load accepted an unknown face name, want an error")
+		t.Fatal("Load with an unknown face succeeded, want error")
 	}
 }
 
@@ -319,7 +314,7 @@ func TestLoadRejectsHidingClock(t *testing.T) {
   "sources": {}
 }`))
 	if err == nil {
-		t.Fatal("Load accepted hiding the clock face, want an error: it is the panel's non-negotiable fallback")
+		t.Fatal("Load hiding the clock face succeeded, want error")
 	}
 }
 
@@ -332,7 +327,7 @@ func TestLoadRejectsHidingEveryFace(t *testing.T) {
   "sources": {}
 }`))
 	if err == nil {
-		t.Fatal("Load accepted hiding every face, want an error: the panel would show nothing")
+		t.Fatal("Load hiding every face succeeded, want error")
 	}
 }
 
@@ -346,7 +341,7 @@ func TestLoadDefaultsClockStyleToDigital(t *testing.T) {
 		t.Fatalf("Load: %v", err)
 	}
 	if cfg.ClockStyle != "digital" {
-		t.Errorf("ClockStyle = %q, want the default of %q", cfg.ClockStyle, "digital")
+		t.Errorf("ClockStyle = %q, want %q", cfg.ClockStyle, "digital")
 	}
 }
 
@@ -358,7 +353,7 @@ func TestLoadAcceptsAnalogueClockStyle(t *testing.T) {
   "sources": {}
 }`))
 	if err != nil {
-		t.Fatalf("Load returned an error for a valid clock_style: %v", err)
+		t.Fatalf("Load: %v", err)
 	}
 	if cfg.ClockStyle != "analogue" {
 		t.Errorf("ClockStyle = %q, want %q", cfg.ClockStyle, "analogue")
@@ -373,7 +368,7 @@ func TestLoadRejectsAnUnknownClockStyle(t *testing.T) {
   "sources": {}
 }`))
 	if err == nil {
-		t.Fatal("Load accepted an unknown clock_style, want an error")
+		t.Fatal("Load with an unknown clock_style succeeded, want error")
 	}
 }
 
@@ -387,7 +382,7 @@ func TestLoadDefaultsHideNextEventToFalse(t *testing.T) {
 		t.Fatalf("Load: %v", err)
 	}
 	if cfg.HideNextEvent {
-		t.Error("HideNextEvent = true, want the default of false")
+		t.Error("HideNextEvent = true, want false")
 	}
 }
 
@@ -399,7 +394,7 @@ func TestLoadAcceptsHideNextEventTrue(t *testing.T) {
   "sources": {}
 }`))
 	if err != nil {
-		t.Fatalf("Load returned an error for a valid hide_next_event: %v", err)
+		t.Fatalf("Load: %v", err)
 	}
 	if !cfg.HideNextEvent {
 		t.Error("HideNextEvent = false, want true")
@@ -426,25 +421,24 @@ func TestSaveRoundTripsEveryFieldIncludingSourceSettings(t *testing.T) {
 		t.Errorf("AccentColor after round trip = %q, want %q", reloaded.AccentColor, "#7c83fd")
 	}
 	if reloaded.Listen != cfg.Listen || reloaded.Token != cfg.Token {
-		t.Errorf("Listen/Token did not round trip: got %+v", reloaded)
+		t.Errorf("Listen/Token after Save: got %+v", reloaded)
 	}
 	clock, ok := reloaded.Sources["clock"]
 	if !ok {
-		t.Fatal(`Save dropped the "clock" source`)
+		t.Fatal(`clock source missing after Save`)
 	}
 	if !clock.Enabled || clock.IntervalMS != 1000 {
-		t.Errorf("clock source did not round trip: %+v", clock)
+		t.Errorf("clock after Save = %+v, want enabled with interval 1000", clock)
 	}
-	// sleep_start/sleep_end are source-specific keys with no field on Source;
-	// they must survive only because Settings is written back verbatim.
+	// sleep_start has no field on Source and survives only in Settings.
 	var clockSettings struct {
 		SleepStart string `json:"sleep_start"`
 	}
 	if err := json.Unmarshal(clock.Settings, &clockSettings); err != nil {
-		t.Fatalf("unmarshalling round-tripped clock settings: %v", err)
+		t.Fatalf("Unmarshal clock settings: %v", err)
 	}
 	if clockSettings.SleepStart != "23:30" {
-		t.Errorf("sleep_start = %q, want %q, source-specific settings did not survive Save", clockSettings.SleepStart, "23:30")
+		t.Errorf("sleep_start = %q, want %q", clockSettings.SleepStart, "23:30")
 	}
 }
 
@@ -459,17 +453,16 @@ func TestSaveWritesAtomically(t *testing.T) {
 	}
 	entries, err := os.ReadDir(filepath.Dir(path))
 	if err != nil {
-		t.Fatalf("reading dir: %v", err)
+		t.Fatalf("ReadDir: %v", err)
 	}
 	for _, e := range entries {
 		if strings.Contains(e.Name(), ".tmp") {
-			t.Errorf("a temp file %q was left behind, Save should clean up on success", e.Name())
+			t.Errorf("leftover temp file %q after Save", e.Name())
 		}
 	}
 }
 
-// A source resolves relative file settings against the directory config.json is
-// in, not the working directory, so it needs to know where that is.
+// A source resolves relative file settings against the config.json directory.
 func TestLoadTellsEverySourceWhereTheConfigLives(t *testing.T) {
 	path := writeConfig(t, `{"token":"s3cret","sources":{"clock":{"enabled":true,"interval_ms":1000},"telemetry":{"enabled":false}}}`)
 
@@ -502,7 +495,7 @@ func TestLoadMakesARelativeConfigPathAbsolute(t *testing.T) {
 
 	got := cfg.Sources["clock"].Dir
 	if !filepath.IsAbs(got) {
-		t.Errorf("Dir = %q, want an absolute path so a later change of working directory cannot move it", got)
+		t.Errorf("Dir = %q, want an absolute path", got)
 	}
 }
 
@@ -519,6 +512,6 @@ func TestSaveDoesNotWriteTheDirBack(t *testing.T) {
 
 	data, _ := os.ReadFile(path)
 	if strings.Contains(string(data), filepath.Dir(path)) || strings.Contains(strings.ToLower(string(data)), `"dir"`) {
-		t.Errorf("the config directory leaked into config.json:\n%s", data)
+		t.Errorf("Dir leaked into config.json:\n%s", data)
 	}
 }

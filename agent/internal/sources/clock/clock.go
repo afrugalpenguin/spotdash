@@ -1,5 +1,5 @@
-// Package clock is the time and date source. It also computes whether the
-// display should be asleep, from a configurable window on a 24 hour clock.
+// Package clock is the time and date source. It also reports whether the
+// display should be asleep, from a configurable 24 hour window.
 package clock
 
 import (
@@ -18,8 +18,8 @@ const Name = "clock"
 type Reading struct {
 	// ISO is the full timestamp, for any client that wants to format it itself.
 	ISO string `json:"iso"`
-	// Time is preformatted as HH:MM, because the display device cannot be
-	// trusted to have the right locale or timezone.
+	// Time is preformatted as HH:MM because the display device may have the
+	// wrong locale or timezone.
 	Time    string `json:"time"`
 	Seconds int    `json:"seconds"`
 	Date    string `json:"date"`
@@ -35,8 +35,7 @@ type settings struct {
 type Source struct {
 	interval time.Duration
 
-	// hasWindow is false when no sleep window is configured, in which case the
-	// panel never blanks itself.
+	// hasWindow is false when no sleep window is configured.
 	hasWindow  bool
 	startMins  int
 	endMins    int
@@ -46,9 +45,8 @@ type Source struct {
 	now func() time.Time
 }
 
-// New builds the clock source from its config block. An unparseable sleep
-// window is an error here rather than on every poll, so a typo stops the agent
-// instead of quietly disabling the feature.
+// New builds the clock source. A bad sleep window fails here and stops the
+// agent, so a typo cannot quietly disable the feature.
 func New(cfg config.Source) (*Source, error) {
 	var s settings
 	if len(cfg.Settings) > 0 {
@@ -65,7 +63,7 @@ func New(cfg config.Source) (*Source, error) {
 
 	switch {
 	case s.SleepStart == "" && s.SleepEnd == "":
-		// No window. Never sleeps.
+		// No window: never sleeps.
 	case s.SleepStart == "":
 		return nil, fmt.Errorf(`"sleep_end" is set but "sleep_start" is missing: a sleep window needs both ends`)
 	case s.SleepEnd == "":
@@ -93,8 +91,7 @@ func (s *Source) Name() string { return Name }
 // Interval is the configured poll period.
 func (s *Source) Interval() time.Duration { return s.interval }
 
-// Poll returns the current time. It cannot fail, which makes it the useful
-// source to check the rest of the pipeline with.
+// Poll returns the current time. It cannot fail.
 func (s *Source) Poll(_ context.Context) (any, error) {
 	now := s.now()
 	return Reading{
@@ -108,8 +105,8 @@ func (s *Source) Poll(_ context.Context) (any, error) {
 
 func (s *Source) sleeping(now time.Time) bool {
 	if !s.hasWindow || s.startMins == s.endMins {
-		// An empty window is treated as never sleeping. Reading it the other
-		// way would blank the panel permanently, which is the worse failure.
+		// An empty window means never sleeping. The other reading would blank
+		// the panel permanently.
 		return false
 	}
 
@@ -117,7 +114,7 @@ func (s *Source) sleeping(now time.Time) bool {
 	if s.startMins < s.endMins {
 		return mins >= s.startMins && mins < s.endMins
 	}
-	// The window crosses midnight, which is the normal case for a sleep window.
+	// The window crosses midnight.
 	return mins >= s.startMins || mins < s.endMins
 }
 
@@ -142,8 +139,8 @@ func parseClockTime(value string) (int, error) {
 	return hour*60 + minute, nil
 }
 
-// normalizeHour strips a leading zero from the hour so that "07:00" and "7:00"
-// compare equal against the reconstructed form.
+// normalizeHour strips a leading zero from the hour, so "07:00" and "7:00"
+// compare equal to the rebuilt form.
 func normalizeHour(value string) string {
 	if len(value) > 1 && value[0] == '0' {
 		return value[1:]
