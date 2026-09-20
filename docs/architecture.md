@@ -68,6 +68,8 @@ Validation is strict and total: missing file, invalid JSON, unknown top-level ke
 
 Log file lives next to the resolved config file.
 
+The agent looks for `config.json` in this order: the `-config` flag, beside the executable, in the working directory, then a `spotdash` folder under the user config directory (`%APPDATA%` on Windows). With no `-config` and no file anywhere, a first run creates the per-user one from `config.example.json` with a generated 32 character token, mode 0700 on the folder. The file is written under a temporary name and hard linked into place. The link fails if the target exists, so two first runs cannot overwrite each other and a crash leaves no truncated file. A config that exists but fails to load is never replaced. A `-config` path is never created.
+
 Relative file paths in a source (spotify `state_file`, mock `art_file`) resolve against the directory `config.json` is in, never the working directory, which the agent does not control when it starts at login. `config.Load` hands each source that directory as `Source.Dir`; it is not written back by `Save`. Absolute paths are used as written.
 
 ### Source settings reference
@@ -207,6 +209,10 @@ State store holds latest value per source (timestamp + status) - single source o
 | `/ws`          | token | Full snapshot on connect, then one message per source update.     |
 | `/` and static | token | Embedded web UI (`embed.FS`).                                     |
 
+`/health` also carries `accent_color`, `hidden_faces`, `clock_style` and `hide_next_event`. They are cosmetic, and the panel needs them before it has anything else confirming the agent is reachable. `now` is the agent's clock in UTC. The device has no battery-backed RTC, so the panel corrects its own clock against it when showing how old a reading is.
+
+Content types for the embedded UI and served files come from a fixed table. `mime.TypeByExtension` reads the Windows registry, where `.js` is often `text/plain`, and browsers refuse a module served that way. Responses are `no-store` because the binary is rebuilt often and the device caches hard. Album art is read from disk on each request, since the file changes with the track.
+
 ### How a browser authenticates
 
 Bearer header works for a programmatic client but not a browser (can't set headers on navigation or asset loads). So the token is accepted three ways, in order:
@@ -218,6 +224,12 @@ Bearer header works for a programmatic client but not a browser (can't set heade
 Cookie is `HttpOnly`, `SameSite=Strict`, no `Expires`/`Max-Age` (session only, never disk). Header auth gets no cookie. `SameSite=Strict` + no state-changing endpoints stands in for CSRF protection.
 
 Token appears once in a URL (proxy/access-log exposure risk, accepted for phase 1); page strips it from the address bar immediately.
+
+There is no loopback exemption. A request from the same machine needs the token like any other, and the tray's Open UI URL works because the agent attaches its own token. Unknown paths answer 401 instead of 404, so an unauthenticated caller cannot map the routes.
+
+The WebSocket authorises itself before the upgrade, outside the token middleware, because its token arrives as a `bearer.<token>` subprotocol value. It also accepts the session cookie and the bearer header, in that order.
+
+A source can register an open route for a caller that cannot carry the token, such as an OAuth redirect into a fresh tab. Open routes live on a separate mux, so registering one cannot expose another pattern, and the handler has to protect itself.
 
 WebSocket message shape:
 
@@ -231,9 +243,11 @@ Connect snapshot is a sequence of the same message shape. A source that's never 
 
 Store fans out without blocking. Each subscriber gets a small buffer. One that fills it is dropped (channel closed) and reconnects to a fresh snapshot. Silently skipping messages would leave it quietly stale. Keeps one wedged panel from stalling every source.
 
+The buffer holds 32 messages, enough for a garbage collection pause or a frame the device spent elsewhere. A client that has stopped reading is dropped.
+
 ### Liveness
 
-Panel only listens, so the server never reads from the connection - meaning close isn't acknowledged and a vanished client isn't noticed, without help. Handler drains/discards incoming frames (fast close ack + peer-gone detection) and pings every 30s to catch silent drops (wifi kiosk disappearing without closing).
+Panel only listens, so the server never reads from the connection - meaning close isn't acknowledged and a vanished client isn't noticed, without help. Handler drains/discards incoming frames (fast close ack + peer-gone detection) and pings every 30s to catch silent drops (wifi kiosk disappearing without closing). Without the ping, a clock source writing every second would be the only liveness signal, and a write to a dead socket can sit buffered for a long time.
 
 `/health` is unauthenticated. It carries status and errors only, never data or the token.
 
@@ -366,6 +380,8 @@ Start/reload/stop live in `internal/app` (tray excluded - needs a desktop sessio
 Reload replaces the whole running config (listen/token/sources can all change) - fail closed like startup, and then some: new config loads and builds sources before touching anything running, so a bad config leaves the agent untouched. If the new config validates but can't be served (e.g. port taken), the previous config is restored.
 
 Shutdown: stop accepting requests, close connections, stop sources, wait for their goroutines. Ctrl+C and tray Quit converge here; a signal also kills the tray.
+
+Saving from the settings page writes `config.json` and answers first, then reloads 200 ms later from a timer. Reload replaces the listener the request arrived on. Called inline, its shutdown would wait for the handler to return while the handler waited for the reload, and only the 5 second grace period would break the deadlock, by closing the connection under the response. The save starts from a fresh read of the file, so a manual edit made since startup is kept.
 
 One agent per config: `internal/instance` takes a named mutex keyed on the config path (Local namespace, so per user session). A second copy logs "another spotdash is already running for this config" and exits 0 - zero so a scheduled task set to restart on failure does not respawn it. A development copy with its own config still runs.
 

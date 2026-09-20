@@ -1,8 +1,6 @@
 // Package autostart turns "start with Windows" on and off for the current user.
-//
-// It is one value under HKCU\Software\Microsoft\Windows\CurrentVersion\Run: no
-// admin rights, nothing machine wide, and removing the value removes it. The
-// value lives behind a Store so the logic can be tested without the registry.
+// It is one value under the HKCU Run key, behind a Store so tests skip the
+// registry.
 package autostart
 
 import (
@@ -11,8 +9,8 @@ import (
 	"strings"
 )
 
-// ValueName is the name of the value under the Run key. Also what someone
-// removes by hand: reg delete HKCU\Software\Microsoft\Windows\CurrentVersion\Run /v spotdash /f
+// ValueName is the name of the value under the Run key. To remove it by hand:
+// reg delete HKCU\Software\Microsoft\Windows\CurrentVersion\Run /v spotdash /f
 const ValueName = "spotdash"
 
 // Store is the one registry value autostart is kept in.
@@ -47,9 +45,8 @@ func New(store Store, exe, tempDir string) *Manager {
 func (m *Manager) Unavailable() string { return m.unavailable }
 
 // Enabled reports whether autostart is on for this executable, read from the
-// registry each time so it reflects what is really there. A value that points at
-// some other path is not this executable being enabled: if the binary has moved
-// the old value launches nothing, and enabling again is what puts it right.
+// registry each time. A value for another path counts as off, since a moved
+// binary leaves a value that launches nothing.
 func (m *Manager) Enabled() (bool, error) {
 	data, exists, err := m.store.Get()
 	if err != nil {
@@ -75,9 +72,8 @@ func (m *Manager) Set(on bool) error {
 	return nil
 }
 
-// inside reports whether path is dir or somewhere below it. Compared as whole
-// path elements, so a sibling directory that merely shares a prefix does not
-// match, and filepath.Rel applies the platform's case rules.
+// inside reports whether path is dir or below it. It compares whole path
+// elements, so a sibling that shares a prefix does not match.
 func inside(dir, path string) bool {
 	if dir == "" || path == "" {
 		return false

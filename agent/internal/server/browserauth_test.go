@@ -7,9 +7,8 @@ import (
 	"testing"
 )
 
-// A browser navigating to the panel cannot set an Authorization header, and the
-// stylesheet and modules it then requests carry neither a header nor a query
-// string. Without a browser path the UI can never load itself.
+// A browser cannot set an Authorization header, and the modules the page then
+// requests carry neither a header nor a query string.
 
 func TestQueryTokenAuthenticatesTheInitialLoad(t *testing.T) {
 	srv, _ := newTestServer(t)
@@ -41,16 +40,16 @@ func TestQueryTokenSetsASessionCookie(t *testing.T) {
 
 	cookie := findCookie(rec.Result().Cookies(), sessionCookieName)
 	if cookie == nil {
-		t.Fatal("no session cookie was set, so the page's own stylesheet and modules would 401")
+		t.Fatal("no session cookie set")
 	}
 	if !cookie.HttpOnly {
-		t.Error("the session cookie must be HttpOnly so page scripts cannot read the token back out")
+		t.Error("cookie HttpOnly = false, want true")
 	}
 	if cookie.SameSite != http.SameSiteStrictMode {
-		t.Error("the session cookie must be SameSite=Strict")
+		t.Error("cookie SameSite is not Strict")
 	}
 	if cookie.MaxAge != 0 || !cookie.Expires.IsZero() {
-		t.Error("the session cookie must expire with the browser session rather than persist to disk")
+		t.Error("cookie has Expires or MaxAge, want a session cookie")
 	}
 	if cookie.Path != "/" {
 		t.Errorf("cookie Path = %q, want /", cookie.Path)
@@ -64,7 +63,7 @@ func TestSessionCookieAuthenticatesSubsequentRequests(t *testing.T) {
 	first := do(t, srv, http.MethodGet, "/?token="+testToken, "")
 	cookie := findCookie(first.Result().Cookies(), sessionCookieName)
 	if cookie == nil {
-		t.Fatal("no session cookie to test with")
+		t.Fatal("no session cookie")
 	}
 
 	req := httptest.NewRequest(http.MethodGet, "/app.js", nil)
@@ -73,7 +72,7 @@ func TestSessionCookieAuthenticatesSubsequentRequests(t *testing.T) {
 	srv.Handler().ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
-		t.Errorf("status = %d, want 200. The page's own modules load with the cookie alone", rec.Code)
+		t.Errorf("status = %d, want 200", rec.Code)
 	}
 }
 
@@ -92,15 +91,14 @@ func TestForgedSessionCookieIsRejected(t *testing.T) {
 }
 
 func TestHeaderAuthDoesNotSetACookie(t *testing.T) {
-	// A programmatic client with the header should not be handed browser state
-	// it never asked for.
+	// A programmatic client gets no browser state.
 	srv, _ := newTestServer(t)
 	srv.HandleStatic()
 
 	rec := do(t, srv, http.MethodGet, "/", "Bearer "+testToken)
 
 	if findCookie(rec.Result().Cookies(), sessionCookieName) != nil {
-		t.Error("a header-authenticated request should not receive a session cookie")
+		t.Error("header auth received a session cookie, want none")
 	}
 }
 
@@ -111,7 +109,7 @@ func TestTokenIsNotReflectedInTheResponse(t *testing.T) {
 	rec := do(t, srv, http.MethodGet, "/?token="+testToken, "")
 
 	if strings.Contains(rec.Body.String(), testToken) {
-		t.Error("the response body echoes the token back")
+		t.Error("response body contains the token")
 	}
 }
 

@@ -20,7 +20,7 @@ func TestParseLevelKnownValues(t *testing.T) {
 	for in, want := range tests {
 		got, err := ParseLevel(in)
 		if err != nil {
-			t.Errorf("ParseLevel(%q) returned an error: %v", in, err)
+			t.Errorf("ParseLevel(%q): %v", in, err)
 			continue
 		}
 		if got != want {
@@ -32,10 +32,10 @@ func TestParseLevelKnownValues(t *testing.T) {
 func TestParseLevelRejectsUnknown(t *testing.T) {
 	_, err := ParseLevel("chatty")
 	if err == nil {
-		t.Fatal("ParseLevel should reject an unknown level")
+		t.Fatal("ParseLevel(chatty) succeeded, want error")
 	}
 	if !strings.Contains(err.Error(), "chatty") {
-		t.Errorf("error should name the bad value, got: %v", err)
+		t.Errorf("error = %v, want it to name chatty", err)
 	}
 }
 
@@ -45,19 +45,19 @@ func TestNewWritesToStderrAndFile(t *testing.T) {
 
 	log, closeFn, err := New(Options{Level: slog.LevelInfo, FilePath: path})
 	if err != nil {
-		t.Fatalf("New returned an error: %v", err)
+		t.Fatalf("New: %v", err)
 	}
 	log.Info("hello from the test", "marker", "log-file-marker")
 	if err := closeFn(); err != nil {
-		t.Fatalf("closing the logger: %v", err)
+		t.Fatalf("close: %v", err)
 	}
 
 	contents, err := os.ReadFile(path)
 	if err != nil {
-		t.Fatalf("the log file should exist next to the binary: %v", err)
+		t.Fatalf("ReadFile: %v", err)
 	}
 	if !strings.Contains(string(contents), "log-file-marker") {
-		t.Errorf("log file does not contain the logged record:\n%s", contents)
+		t.Errorf("log file missing the record:\n%s", contents)
 	}
 }
 
@@ -66,25 +66,24 @@ func TestNewRespectsLevel(t *testing.T) {
 
 	log, closeFn, err := New(Options{Level: slog.LevelWarn, FilePath: path})
 	if err != nil {
-		t.Fatalf("New returned an error: %v", err)
+		t.Fatalf("New: %v", err)
 	}
 	log.Debug("should not appear", "marker", "debug-marker")
 	log.Warn("should appear", "marker", "warn-marker")
 	if err := closeFn(); err != nil {
-		t.Fatalf("closing the logger: %v", err)
+		t.Fatalf("close: %v", err)
 	}
 
 	contents, _ := os.ReadFile(path)
 	if strings.Contains(string(contents), "debug-marker") {
-		t.Error("a debug record was written at warn level")
+		t.Error("debug record written at warn level")
 	}
 	if !strings.Contains(string(contents), "warn-marker") {
-		t.Error("a warn record was not written at warn level")
+		t.Error("warn record missing at warn level")
 	}
 }
 
-// errWriter stands in for the stderr of a process with no console, which is
-// what a windowsgui build has: every write to it fails.
+// errWriter stands in for the stderr of a windowsgui build: every write fails.
 type errWriter struct{}
 
 func (errWriter) Write([]byte) (int, error) { return 0, os.ErrInvalid }
@@ -94,19 +93,19 @@ func TestNewStillWritesTheFileWhenStderrFails(t *testing.T) {
 
 	log, closeFn, err := New(Options{Level: slog.LevelInfo, FilePath: path, Stderr: errWriter{}})
 	if err != nil {
-		t.Fatalf("New returned an error: %v", err)
+		t.Fatalf("New: %v", err)
 	}
 	log.Info("serving", "marker", "no-console-marker")
 	if err := closeFn(); err != nil {
-		t.Fatalf("closing the logger: %v", err)
+		t.Fatalf("close: %v", err)
 	}
 
 	contents, err := os.ReadFile(path)
 	if err != nil {
-		t.Fatalf("the log file should exist: %v", err)
+		t.Fatalf("ReadFile: %v", err)
 	}
 	if !strings.Contains(string(contents), "no-console-marker") {
-		t.Errorf("a dead stderr stopped the record reaching the file:\n%s", contents)
+		t.Errorf("file missing the record when stderr fails:\n%s", contents)
 	}
 }
 
@@ -117,11 +116,11 @@ func TestLogFailureRecordsAnErrorLine(t *testing.T) {
 
 	contents, err := os.ReadFile(path)
 	if err != nil {
-		t.Fatalf("LogFailure should have created the log file: %v", err)
+		t.Fatalf("ReadFile: %v", err)
 	}
 	for _, want := range []string{"level=ERROR", "startup failed", os.ErrPermission.Error()} {
 		if !strings.Contains(string(contents), want) {
-			t.Errorf("log should contain %q:\n%s", want, contents)
+			t.Errorf("log missing %q:\n%s", want, contents)
 		}
 	}
 }

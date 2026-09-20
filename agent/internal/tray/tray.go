@@ -1,9 +1,5 @@
-// Package tray puts the agent in the system tray.
-//
-// It is deliberately thin. Everything it does is a call into the app package,
-// which owns the lifecycle and is testable without a desktop session. This file
-// is the part that cannot be tested automatically, so there is as little of it
-// as possible.
+// Package tray puts the agent in the system tray. It is thin: everything it does
+// is a call into the app package.
 package tray
 
 import (
@@ -47,12 +43,8 @@ func Icon() []byte { return iconICO }
 // as a first run that has just created its config.
 func OpenInBrowser(target string) error { return openInBrowser(target) }
 
-// openInBrowser launches the default browser.
-//
-// Windows needs the shell to resolve the default handler, and "start" is a
-// cmd builtin rather than an executable, hence the indirection. The empty
-// argument is the window title that start would otherwise take from a quoted
-// URL.
+// openInBrowser launches the default browser. On Windows "start" is a cmd
+// builtin, and the empty argument stops it reading the URL as a window title.
 func openInBrowser(target string) error {
 	switch runtime.GOOS {
 	case "windows":
@@ -70,10 +62,8 @@ func openLog(path string) error {
 	return exec.Command(name, args...).Start()
 }
 
-// logCommand is the command that shows path on the given OS.
-//
-// Not the OS default handler, unlike openInBrowser: a .log file often has none
-// on Windows, and start then raises the "Open With" dialog rather than the log.
+// logCommand is the command that shows path on the given OS. It skips the
+// default handler because start on an unassociated .log raises "Open With".
 func logCommand(goos, path string) (string, []string) {
 	switch goos {
 	case "windows":

@@ -8,7 +8,7 @@ func TestASecondAcquireOfTheSameKeyIsRefused(t *testing.T) {
 	key := `C:\test\` + t.Name() + `\config.json`
 	release, ok, err := Acquire(key)
 	if err != nil || !ok {
-		t.Fatalf("first Acquire = ok %v, err %v, want it to succeed", ok, err)
+		t.Fatalf("first Acquire = %v, %v, want true, nil", ok, err)
 	}
 	defer release()
 
@@ -18,7 +18,7 @@ func TestASecondAcquireOfTheSameKeyIsRefused(t *testing.T) {
 		t.Fatalf("second Acquire: %v", err)
 	}
 	if second {
-		t.Error("a second Acquire of a held key succeeded, so two agents could run against one config")
+		t.Error("second Acquire of a held key succeeded, want refusal")
 	}
 }
 
@@ -33,7 +33,7 @@ func TestReleasingLetsTheKeyBeTakenAgain(t *testing.T) {
 	again, ok, err := Acquire(key)
 
 	if err != nil || !ok {
-		t.Fatalf("Acquire after release = ok %v, err %v, want it to succeed", ok, err)
+		t.Fatalf("Acquire after release = %v, %v, want true, nil", ok, err)
 	}
 	again()
 }
@@ -48,7 +48,7 @@ func TestDifferentKeysDoNotBlockEachOther(t *testing.T) {
 	b, ok, err := Acquire(`C:\test\` + t.Name() + `\b\config.json`)
 
 	if err != nil || !ok {
-		t.Fatalf("Acquire of a different key = ok %v, err %v, want it to succeed", ok, err)
+		t.Fatalf("Acquire of a different key = %v, %v, want true, nil", ok, err)
 	}
 	b()
 }

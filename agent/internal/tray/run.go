@@ -8,10 +8,8 @@ import (
 	"fyne.io/systray"
 )
 
-// Run shows the tray icon and blocks until Quit is chosen or Stop is called.
-//
-// systray.Run takes over the calling goroutine and expects to be on the main
-// one, so the caller does this last.
+// Run shows the tray icon and blocks until Quit is chosen or Stop is called. It
+// expects the main goroutine, so call it last.
 func Run(opts Options) {
 	log := opts.Log
 	if log == nil {
@@ -25,8 +23,7 @@ func Run(opts Options) {
 	})
 }
 
-// Stop takes the tray down from anywhere, which is how a Ctrl+C in the console
-// unblocks Run.
+// Stop takes the tray down from anywhere, such as a Ctrl+C handler.
 func Stop() {
 	systray.Quit()
 }
@@ -41,9 +38,8 @@ func onReady(opts Options, log *slog.Logger) {
 	reloadItem := systray.AddMenuItem("Reload config", "Re-read config.json")
 	logItem := systray.AddMenuItem("View log", "Open spotdash.log")
 
-	// Start with Windows. There is no menu-open event on Windows to refresh on,
-	// so the tick is read at start, on every click, and on a slow timer, which
-	// is enough to stay true if someone edits the registry by hand.
+	// Windows has no menu-open event, so the tick is read at start, on every
+	// click and on a slow timer.
 	var autoItem *systray.MenuItem
 	var autoClicked chan struct{}
 	var autoTick <-chan time.Time
@@ -87,9 +83,7 @@ func onReady(opts Options, log *slog.Logger) {
 				}
 
 			case <-reloadItem.ClickedCh:
-				// A failed reload is reported and the agent carries on with the
-				// configuration it already has, so there is nothing to do here
-				// but say so.
+				// A failed reload leaves the agent on its previous configuration.
 				if err := opts.Controller.Reload(); err != nil {
 					log.Error("reload failed, still running the previous configuration", "error", err)
 					continue

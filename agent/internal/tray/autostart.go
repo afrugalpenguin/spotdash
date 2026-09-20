@@ -17,9 +17,8 @@ type Autostart interface {
 
 const autostartLabel = "Start with Windows"
 
-// autostartTitle is the menu text. When the setting is unavailable the reason
-// is in the title, because a disabled item with a silent tooltip would leave
-// someone wondering why it is greyed out.
+// autostartTitle is the menu text. An unavailable setting carries its reason in
+// the title so a greyed-out item explains itself.
 func autostartTitle(unavailable string) string {
 	if unavailable == "" {
 		return autostartLabel
@@ -41,8 +40,8 @@ func syncAutostart(item *systray.MenuItem, a Autostart, log *slog.Logger) {
 	}
 }
 
-// toggleAutostart flips the setting. It reads the current state itself rather
-// than trusting the tick, which the platform may already have flipped.
+// toggleAutostart flips the setting. It reads the current state itself because
+// the platform may already have flipped the tick.
 func toggleAutostart(item *systray.MenuItem, a Autostart, log *slog.Logger) {
 	enabled, err := a.Enabled()
 	if err != nil {

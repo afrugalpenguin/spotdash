@@ -13,7 +13,7 @@ func TestStaticFilesRequireTheToken(t *testing.T) {
 	rec := do(t, srv, http.MethodGet, "/", "")
 
 	if rec.Code != http.StatusUnauthorized {
-		t.Errorf("status = %d, want 401. The UI carries the token, so it must be behind it", rec.Code)
+		t.Errorf("status = %d, want 401", rec.Code)
 	}
 }
 
@@ -28,7 +28,7 @@ func TestRootServesTheIndexPage(t *testing.T) {
 	}
 	body := rec.Body.String()
 	if !strings.Contains(body, `id="panel"`) {
-		t.Errorf("body does not look like the panel page:\n%s", truncate(body))
+		t.Errorf("body is not the panel page:\n%s", truncate(body))
 	}
 }
 
@@ -39,14 +39,13 @@ func TestStaticServesTheFaceModules(t *testing.T) {
 	for _, path := range []string{"/app.js", "/style.css", "/faces/clock.js", "/faces/status.js", "/faces/telemetry.js", "/faces/rim.js", "/dev.html", "/settings.html", "/settings.js"} {
 		rec := do(t, srv, http.MethodGet, path, "Bearer "+testToken)
 		if rec.Code != http.StatusOK {
-			t.Errorf("GET %s returned %d, want 200", path, rec.Code)
+			t.Errorf("GET %s = %d, want 200", path, rec.Code)
 		}
 	}
 }
 
 func TestJavaScriptIsServedWithAUsableContentType(t *testing.T) {
-	// A module served as text/plain is refused by the browser, and the panel
-	// then renders nothing with no obvious cause.
+	// A module served as text/plain is refused by the browser.
 	srv, _ := newTestServer(t)
 	srv.HandleStatic()
 
@@ -76,7 +75,7 @@ func TestStaticDoesNotServeFilesOutsideWeb(t *testing.T) {
 	for _, path := range []string{"/../config.json", "/../go.mod"} {
 		rec := do(t, srv, http.MethodGet, path, "Bearer "+testToken)
 		if rec.Code == http.StatusOK {
-			t.Errorf("GET %s returned 200, the static handler is escaping the web directory", path)
+			t.Errorf("GET %s = 200, want 404", path)
 		}
 	}
 }
