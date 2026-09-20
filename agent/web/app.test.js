@@ -17,6 +17,7 @@ import {
   jittered,
   nextBackoff,
   readToken,
+  reportFaceError,
   state,
   visibleFaces,
 } from "./app.js";
@@ -349,4 +350,15 @@ test("relative age ignores a device clock that is behind", () => {
   const stamp = new Date(Date.now() - offset - 5000).toISOString();
 
   assert.equal(relativeAge(stamp, offset), "5s");
+});
+
+// A caught face failure is drawn on screen, which nobody sees on a wall panel.
+// It also has to reach the console so it lands in logcat.
+test("a face failure is written to the console as well as the screen", (t) => {
+  const errors = t.mock.method(console, "error", () => {});
+
+  reportFaceError(new Error("boom"));
+
+  assert.equal(errors.mock.callCount(), 1);
+  assert.match(String(errors.mock.calls[0].arguments[0]), /face failed: boom/);
 });

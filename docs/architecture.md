@@ -268,6 +268,12 @@ WebView load failure, an HTTP error on the panel page (a 401 or 403 says the tok
 
 30s delay is deliberate - a restarting agent is usually back in a second or two, and flashing a fallback on every restart would be worse than a briefly stale dashboard.
 
+### Debugging the panel
+
+The panel's `console.*` output goes to logcat under the `spotdash` tag (`adb logcat -s spotdash`), at the matching level. A face that throws is drawn on screen and also logged with `console.error`. `?token=` and `bearer.` values are redacted, since anyone with adb can read logcat.
+
+A debuggable build also turns on WebView remote debugging, so the panel shows up under chrome://inspect/#devices. A release build doesn't ask for it, but Chromium's WebView enables it by itself on a `userdebug` system image, which is what LineageOS builds usually are, so don't rely on it being off there.
+
 ### Scaling
 
 480 CSS px fixed layout; shell computes initial scale from real display width so it fits whatever density it lands on (Spot's density need not match the emulator's).

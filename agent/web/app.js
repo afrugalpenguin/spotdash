@@ -217,8 +217,10 @@ function handleCalendarUrgency(data) {
 }
 
 // reportFaceError contains a broken face rather than letting it take the panel
-// down. The message goes on screen because there is no console on the device.
-function reportFaceError(err) {
+// down. The message goes on screen because there is nobody at the device to
+// read a console, and to the console too, which the shell forwards to logcat.
+export function reportFaceError(err) {
+  console.error(`face failed: ${err && err.message ? err.message : err}`);
   if (!faceHost) {
     return;
   }
