@@ -36,6 +36,14 @@ func ParseLevel(name string) (slog.Level, error) {
 	}
 }
 
+// tolerant hides a writer's errors, for output that is best effort.
+type tolerant struct{ w io.Writer }
+
+func (t tolerant) Write(p []byte) (int, error) {
+	_, _ = t.w.Write(p)
+	return len(p), nil
+}
+
 // New returns a logger writing to stderr and to a rotating file, along with a
 // function that flushes and closes the file.
 func New(opts Options) (*slog.Logger, func() error, error) {
@@ -44,7 +52,11 @@ func New(opts Options) (*slog.Logger, func() error, error) {
 		stderr = os.Stderr
 	}
 
-	writers := []io.Writer{stderr}
+	// A process built for the windows GUI subsystem has no console, so its
+	// stderr is not a valid handle and every write to it fails. io.MultiWriter
+	// stops at the first failing writer, so an untolerated stderr would starve
+	// the log file, which is then the only place anything is recorded.
+	writers := []io.Writer{tolerant{stderr}}
 	closeFn := func() error { return nil }
 
 	if opts.FilePath != "" {
@@ -63,4 +75,18 @@ func New(opts Options) (*slog.Logger, func() error, error) {
 		Level: opts.Level,
 	})
 	return slog.New(handler), closeFn, nil
+}
+
+// LogFailure records why the agent could not start, in the log file at path.
+//
+// Startup errors are otherwise only printed to stderr, which a build with no
+// console does not have, so a bad config or a busy port would leave nothing
+// behind to explain why the agent never appeared.
+func LogFailure(path string, err error) {
+	log, closeLog, newErr := New(Options{Level: slog.LevelInfo, FilePath: path})
+	if newErr != nil {
+		return
+	}
+	defer closeLog()
+	log.Error("startup failed", "error", err)
 }
