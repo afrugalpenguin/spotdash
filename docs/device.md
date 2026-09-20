@@ -98,6 +98,8 @@ No native code in the APK, so the emulator (x86_64) build runs unchanged.
 
 ## 3. Configure it
 
+`tools\provision.ps1` does steps 2, 3, 5 and 6 and the timezone from step 1 in one command, and checks the result; see the README. What follows is the same work by hand.
+
 Long-press the display 3s, enter `http://<desktop-ip>:8765` and the token from `config.json`. On-screen keyboard is painful on a 480px circle; type through adb instead:
 
 ```bat

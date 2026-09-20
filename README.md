@@ -135,6 +135,16 @@ Both sources have a `mock` mode for testing and a real mode:
 
 Full config keys and setup steps are in `docs/architecture.md`.
 
+## Setting up the Echo Spot
+
+With the agent running, the Spot flashed (see `docs/device.md`) and connected by USB with USB debugging on, one command does the rest:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File tools\provision.ps1
+```
+
+It installs the shell APK, hands the shell the agent address and token, makes the shell the home app, sets the timezone from this PC, sets brightness, adds a Windows Firewall rule for the agent port that only the Spot can use, and checks that the panel loads. Each step prints `[PASS]`, `[SKIP]` or `[FAIL]` and the run stops at the first failure with what to do next. Running it again is safe. It needs adb (Android platform-tools) on `PATH`, a Spot that allows `adb root`, and an elevated PowerShell for the firewall step (add `-SkipFirewall` to leave that step out). The token is never printed. A transcript goes to `provision-<time>.log` next to the script. `Get-Help .\tools\provision.ps1 -Full` lists the options.
+
 ## Running it automatically
 
 Build the everyday binary. It has no console window, which is what you want
