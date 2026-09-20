@@ -4,6 +4,8 @@
 
     <string name="fallback_title">Cannot reach the agent</string>
     <string name="fallback_title_unconfigured">Not set up yet</string>
+    <string name="fallback_title_rejected">The agent rejected the token</string>
+    <string name="fallback_hint">Long-press for 3 seconds for settings</string>
     <string name="fallback_settings">Settings</string>
     <string name="not_configured">Press and hold the display for three seconds to enter the agent address.</string>
     <string name="no_url">no agent URL set</string>
