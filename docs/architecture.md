@@ -298,6 +298,30 @@ Single Activity, minSdk/targetSdk 30. Fullscreen immersive, screen on, no bars. 
 
 Agent URL and token live in `EncryptedSharedPreferences`, entered via a 3s long-press settings screen (the only UI besides the WebView - no other input on the device). That screen also has a "Wi-Fi networks" button that opens Android's own Wi-Fi settings, since the shell is the launcher and there is otherwise no way to them without adb. A deep link rather than a screen of our own: on API 30 `WifiManager.addNetwork` is ignored for apps targeting API 29+, and a network request only connects this process. Coming back from it retries the panel at once. Token injected as a query param on initial load only; the page holds it afterward.
 
+### Provisioning from adb
+
+Typing a URL and a long token on the 480px circle is the worst step of setup, so the shell can also take both from a file pushed with adb (`Provisioning.kt`, applied from `PanelActivity`). The long-press settings screen stays as the manual route.
+
+Three ways to hand the shell a secret without typing it were compared:
+
+| | Where it goes | What is wrong with it |
+| --- | --- | --- |
+| File in the app's own external files directory | `Android/data/dev.spotdash.shell/files/provision.json`, read once, then deleted | Needs root adb on API 30 (below). The token sits on storage until consumed, so whatever pushes it must remove it on failure |
+| Intent extras on the launcher | `adb shell am start --es ...` | The launcher activity has to stay `exported`, so any other app on the device can send the same intent and re-point the panel. The shell appends the token to whatever URL it holds, so that hands the token to the sender's host. Only tolerable if limited to the unconfigured state |
+| File in `/data/local/tmp` | world-readable scratch space | Rejected: readable by every app while it sits there, and the app cannot delete it |
+
+Threat model, for a single-purpose device with SELinux permissive and adb already implying full control: the exposures that matter are a token left lying on shared storage, another app re-pointing the panel, and half-applied or malformed input. The file route adds no exported surface, so it has none of the second. Chosen: the file.
+
+Rules, all fail closed:
+
+- One flat JSON object, `{"version":1,"agent_url":"...","token":"..."}`. A repeated or unknown key, a wrong type, a wrong version, a missing field, trailing text or a truncated file rejects the whole payload. Read by a small strict parser rather than `org.json`, which is stubbed out in JVM unit tests.
+- The address must be `http` or `https` with a host, no credentials, a port of 1 to 65535 if any, and no path, query or fragment. The token must be non-empty printable ASCII, at most 256 characters, no whitespace. There is no minimum length: the agent decides what a token has to be.
+- The address and token are stored in one commit, or not at all. A rejected payload changes nothing and logs `provisioning ignored: <reason>`. The reason never contains a value from the payload, so the token is never in logcat. A good one logs `provisioning applied for <host>`.
+- The file is deleted in every case, valid or not, and at most 4 KiB is read. A leading byte order mark is tolerated, since Windows PowerShell 5.1 writes one.
+- The file is looked at when the panel comes to the front and again from `onNewIntent`, because `am start` on an activity that is already in front only delivers an intent and does not pause and resume it.
+
+Verified on an API 30 emulator (userdebug, SELinux enforcing), not yet on the Spot. There, the shell user cannot write to `Android/data/<package>` at all, since the directory belongs to the app and the group `ext_data_rw`, which `shell` is not in. A root push through the normal `/sdcard` path lands with the wrong security label (`storage_file`) and the app gets `EACCES`. What works is `adb root` and pushing straight to the underlying path `/data/media/0/Android/data/dev.spotdash.shell/files/`, where the file gets the right label and the app can read and delete it. The directory is created when the shell first starts, so start it once before pushing. `docs/device.md` already relies on `adb root` for this ROM (Wi-Fi join, timezone). Not tried: whether `/data/media/0` is the right path on the Spot's ROM.
+
 ### JavaScript bridge
 
 `window.shell` exposes four methods:
