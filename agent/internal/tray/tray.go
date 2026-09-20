@@ -29,6 +29,9 @@ type Options struct {
 	Controller Controller
 	Version    string
 	Log        *slog.Logger
+	// Autostart backs the "Start with Windows" item. Nil leaves the item out,
+	// for a platform with nothing to offer.
+	Autostart Autostart
 	// LogPath is the agent's log file, opened by the "View log" item. Empty
 	// means there is no file to show.
 	LogPath string

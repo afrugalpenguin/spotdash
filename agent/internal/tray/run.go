@@ -3,6 +3,7 @@ package tray
 import (
 	"log/slog"
 	"os"
+	"time"
 
 	"fyne.io/systray"
 )
@@ -39,6 +40,26 @@ func onReady(opts Options, log *slog.Logger) {
 	optionsItem := systray.AddMenuItem("Options", "Change panel settings, such as the accent colour")
 	reloadItem := systray.AddMenuItem("Reload config", "Re-read config.json")
 	logItem := systray.AddMenuItem("View log", "Open spotdash.log")
+
+	// Start with Windows. There is no menu-open event on Windows to refresh on,
+	// so the tick is read at start, on every click, and on a slow timer, which
+	// is enough to stay true if someone edits the registry by hand.
+	var autoItem *systray.MenuItem
+	var autoClicked chan struct{}
+	var autoTick <-chan time.Time
+	if opts.Autostart != nil {
+		reason := opts.Autostart.Unavailable()
+		autoItem = systray.AddMenuItemCheckbox(autostartTitle(reason), "Start the agent when you sign in to Windows", false)
+		if reason != "" {
+			autoItem.Disable()
+			autoItem.SetTooltip(reason)
+			log.Warn("start with Windows is unavailable", "reason", reason)
+		} else {
+			syncAutostart(autoItem, opts.Autostart, log)
+			autoTick = time.NewTicker(5 * time.Second).C
+		}
+		autoClicked = autoItem.ClickedCh
+	}
 	systray.AddSeparator()
 	quitItem := systray.AddMenuItem("Quit", "Stop the agent")
 
@@ -87,6 +108,12 @@ func onReady(opts Options, log *slog.Logger) {
 				if err := openLog(opts.LogPath); err != nil {
 					log.Error("could not open the log", "path", opts.LogPath, "error", err)
 				}
+
+			case <-autoClicked:
+				toggleAutostart(autoItem, opts.Autostart, log)
+
+			case <-autoTick:
+				syncAutostart(autoItem, opts.Autostart, log)
 
 			case <-quitItem.ClickedCh:
 				log.Info("quit chosen from the tray")
