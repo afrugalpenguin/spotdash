@@ -26,6 +26,22 @@ class Settings(context: Context) {
         get() = prefs.getString(KEY_TOKEN, "").orEmpty()
         set(value) = prefs.edit().putString(KEY_TOKEN, value.trim()).apply()
 
+    /**
+     * Stores an address and token together, in one commit, and says whether it
+     * worked.
+     *
+     * The two setters above are for the settings screen, where a person edits
+     * one box at a time. A provisioning payload has to land whole or not at all,
+     * because an address with the old token is a panel that loads and is
+     * rejected, and a new token sent to the old address is a secret going
+     * somewhere it was not meant to.
+     */
+    fun provision(agentUrl: String, token: String): Boolean =
+        prefs.edit()
+            .putString(KEY_URL, agentUrl.trim())
+            .putString(KEY_TOKEN, token.trim())
+            .commit()
+
     /** True when there is enough configuration to try loading the panel. */
     val isConfigured: Boolean
         get() = agentUrl.isNotBlank()

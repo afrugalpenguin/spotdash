@@ -108,6 +108,28 @@ adb shell ime enable com.android.inputmethod.latin/.LatinIME
 
 Use an alphanumeric token (letters and digits only). `adb shell input text` goes through the device shell, which mangles most punctuation, and a mangled token is a silent 401.
 
+### Without typing: a provisioning file
+
+The shell can take the address and token from a file instead. Save this as `provision.json` on the PC, with your own values (and no byte order mark is needed, but one is tolerated):
+
+```json
+{"version":1,"agent_url":"http://<desktop-ip>:8765","token":"<token>"}
+```
+
+Then, with the shell installed:
+
+```bat
+adb root
+adb shell am start -n dev.spotdash.shell/.PanelActivity
+adb push provision.json /data/media/0/Android/data/dev.spotdash.shell/files/provision.json
+adb shell am start -n dev.spotdash.shell/.PanelActivity
+adb logcat -d -s spotdash
+```
+
+The first `am start` makes the shell create its folder. The log should say `provisioning applied for <desktop-ip>` and then `page loaded`, and the file is deleted as soon as it is read, whether or not it was any good. A bad file changes nothing and the log says why (`provisioning ignored: ...`); the log never contains the token. Delete `provision.json` from the PC afterwards, it holds the token.
+
+The push has to be as root and to that underlying path: as the plain `shell` user, `Android/data/<package>` is not writable on Android 11. See "Provisioning from adb" in `architecture.md`.
+
 An open on-screen keyboard pushes the panel off-centre. Dismiss it:
 
 ```bat

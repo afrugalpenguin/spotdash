@@ -27,6 +27,7 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import java.io.File
 
 /**
  * The whole shell.
@@ -64,6 +65,9 @@ class PanelActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
 
         settings = Settings(this)
+        // Asking for the directory is what creates it, so it is there for
+        // `adb push` to write a provisioning file into on a freshly installed shell.
+        getExternalFilesDir(null)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
         root = FrameLayout(this).apply { setBackgroundColor(Color.BLACK) }
@@ -119,10 +123,14 @@ class PanelActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         goFullscreen()
+        val provisioned = applyProvisioning()
         if (settings.isConfigured) {
             watcher.start()
         }
-        if (wifiOpened) {
+        if (provisioned) {
+            wifiOpened = false
+            hideFallbackAndReload()
+        } else if (wifiOpened) {
             wifiOpened = false
             if (settings.isConfigured && fallback.visibility == View.VISIBLE) {
                 Log.i(TAG, "back from the wifi settings, retrying the panel")
@@ -135,6 +143,50 @@ class PanelActivity : AppCompatActivity() {
     override fun onPause() {
         super.onPause()
         watcher.stop()
+    }
+
+    /**
+     * Launching an activity that is already in front does not pause and resume
+     * it, it only delivers the intent here. That is exactly what `adb shell am
+     * start` does after a provisioning file has been pushed, so look again.
+     */
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        if (applyProvisioning()) {
+            hideFallbackAndReload()
+        }
+    }
+
+    /**
+     * Takes a provisioning file left by adb, if there is one, and applies it.
+     * True when the address and token were changed and the panel should reload.
+     *
+     * Nothing is logged that came from the file: logcat is readable by anyone
+     * with adb, and the token is in it. The host alone is safe and is what tells
+     * someone the right payload arrived.
+     */
+    private fun applyProvisioning(): Boolean {
+        val directory = getExternalFilesDir(null) ?: return false
+        val consumed = consumeProvisioning(File(directory, PROVISIONING_FILE_NAME)) ?: return false
+
+        if (!consumed.deleted) {
+            Log.w(TAG, "the provisioning file could not be deleted and is still on the device")
+        }
+        return when (val result = consumed.result) {
+            is ProvisioningResult.Rejected -> {
+                Log.w(TAG, "provisioning ignored: ${result.reason}")
+                false
+            }
+            is ProvisioningResult.Valid -> {
+                if (settings.provision(result.agentUrl, result.token)) {
+                    Log.i(TAG, "provisioning applied for ${provisioningHost(result.agentUrl)}")
+                    true
+                } else {
+                    Log.w(TAG, "provisioning ignored: the settings could not be saved")
+                    false
+                }
+            }
+        }
     }
 
     override fun onDestroy() {
