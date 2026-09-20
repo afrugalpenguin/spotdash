@@ -62,6 +62,11 @@ export const state = {
   hiddenFaces: [],
   clockStyle: "digital",
   hideNextEvent: false,
+  // How far the device clock is ahead of the agent's, in ms (negative when it
+  // is behind). Worked out from /health; subtracted from Date.now() before an
+  // age is shown, so a skewed device clock does not make healthy sources look
+  // stale. Zero until the agent has reported its time.
+  clockOffsetMs: 0,
   sources: {},
   lastError: "",
 };
@@ -262,9 +267,17 @@ export function applyMessage(message) {
 // Status, uptime, and last error come from /health rather than the socket,
 // because /health needs no auth and keeps answering when the socket is down.
 // That is exactly when the status face has to be truthful.
-export function applyHealth(health) {
+//
+// receivedAtMs is the device clock when the response arrived. The offset it
+// gives includes the response's travel time, which is milliseconds on a LAN
+// and well under the whole seconds ages are shown in.
+export function applyHealth(health, receivedAtMs = Date.now()) {
   if (!health) {
     return;
+  }
+  const agentNow = Date.parse(health.now || "");
+  if (!Number.isNaN(agentNow)) {
+    state.clockOffsetMs = receivedAtMs - agentNow;
   }
   state.uptimeSeconds = health.uptime_seconds || 0;
   state.version = health.version || "";

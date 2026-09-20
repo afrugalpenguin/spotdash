@@ -286,3 +286,49 @@ func TestUnknownPathRequiresAuth(t *testing.T) {
 		t.Errorf("status = %d, want 401 rather than a 404 that confirms the route is absent", rec.Code)
 	}
 }
+
+// The panel cannot trust its own clock, so /health carries the agent's and the
+// panel works out the difference itself.
+func TestHealthReportsTheAgentsCurrentTime(t *testing.T) {
+	fixed := time.Date(2026, 9, 14, 10, 30, 0, 0, time.FixedZone("BST", 3600))
+	srv := New(Options{
+		Token:   testToken,
+		Version: "test-version",
+		Started: fixed.Add(-90 * time.Second),
+		Store:   state.New(),
+		Now:     func() time.Time { return fixed },
+	})
+
+	rec := do(t, srv, http.MethodGet, "/health", "")
+
+	var body struct {
+		Now string `json:"now"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decoding /health body: %v\nbody: %s", err, rec.Body.String())
+	}
+	if want := "2026-09-14T09:30:00Z"; body.Now != want {
+		t.Errorf("now = %q, want %q (UTC, so the panel needs no timezone handling)", body.Now, want)
+	}
+}
+
+func TestHealthTimeDefaultsToTheRealClock(t *testing.T) {
+	srv, _ := newTestServer(t)
+	before := time.Now().Add(-time.Second)
+
+	rec := do(t, srv, http.MethodGet, "/health", "")
+
+	var body struct {
+		Now string `json:"now"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decoding /health body: %v", err)
+	}
+	got, err := time.Parse(time.RFC3339, body.Now)
+	if err != nil {
+		t.Fatalf("now = %q is not RFC 3339: %v", body.Now, err)
+	}
+	if got.Before(before) || got.After(time.Now().Add(time.Second)) {
+		t.Errorf("now = %v, want about the current time", got)
+	}
+}

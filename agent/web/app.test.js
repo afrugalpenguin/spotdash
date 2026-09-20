@@ -32,6 +32,7 @@ function resetState() {
   state.clockStyle = "digital";
   state.connection = "connecting";
   state.lastError = "";
+  state.clockOffsetMs = 0;
 }
 
 // fakeHistory records what readToken rewrites the URL to.
@@ -303,4 +304,49 @@ test("the rim geometry matches the drawn radius", () => {
     Math.abs(RIM_CIRCUMFERENCE - 2 * Math.PI * 232) < 0.001,
     "rim circumference must match the radius the SVG is drawn with"
   );
+});
+
+test("applyHealth works out how far the device clock is from the agent's", () => {
+  resetState();
+  const agentNow = "2026-09-14T10:00:00Z";
+  const deviceIsAnHourAhead = Date.parse(agentNow) + 3600000;
+
+  applyHealth({ now: agentNow, sources: {} }, deviceIsAnHourAhead);
+
+  assert.equal(state.clockOffsetMs, 3600000);
+});
+
+test("applyHealth reads a device clock that is behind as a negative offset", () => {
+  resetState();
+  const agentNow = "2026-09-14T10:00:00Z";
+
+  applyHealth({ now: agentNow, sources: {} }, Date.parse(agentNow) - 120000);
+
+  assert.equal(state.clockOffsetMs, -120000);
+});
+
+test("applyHealth keeps no offset when the agent sends no usable time", () => {
+  resetState();
+
+  applyHealth({ sources: {} }, Date.now());
+  assert.equal(state.clockOffsetMs, 0);
+
+  applyHealth({ now: "not a timestamp", sources: {} }, Date.now());
+  assert.equal(state.clockOffsetMs, 0);
+});
+
+test("relative age ignores a device clock that is an hour ahead", () => {
+  const offset = 3600000;
+  // Five seconds old on the agent's clock, which the device sees an hour late.
+  const stamp = new Date(Date.now() - offset - 5000).toISOString();
+
+  assert.equal(relativeAge(stamp, offset), "5s");
+  assert.equal(relativeAge(stamp), "1h", "without the offset the skew shows up as age");
+});
+
+test("relative age ignores a device clock that is behind", () => {
+  const offset = -120000;
+  const stamp = new Date(Date.now() - offset - 5000).toISOString();
+
+  assert.equal(relativeAge(stamp, offset), "5s");
 });

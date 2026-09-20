@@ -88,13 +88,13 @@ adb logcat -d | Select-String "setBrightness"
 
 ## 7. Check the clock
 
-Issue 12. Status face shows source age as device clock minus agent timestamp. No battery-backed RTC, so after a power cut it's wrong until NTP settles.
+No battery-backed RTC, so after a power cut the clock is wrong until NTP settles. Status face ages don't depend on it: `/health` carries the agent's time and the panel subtracts the difference (issue 12). Other faces count elapsed time from when data arrived, so they don't either.
 
 ```powershell
 adb shell date
 ```
 
-Off by more than a second or two vs the desktop -> ages will be wrong by that much; fix is issue 12 (agent reports its own time, panel corrects for the offset).
+To see it work, note how far `adb shell date` is from the desktop, then check the ages on the status face read a few seconds, not that difference.
 
 ## 8. Sleep window
 
@@ -103,6 +103,5 @@ Set `sleep_start`/`sleep_end` in `config.json`, reload from the tray, wait for t
 ## What is likely to need a change
 
 1. **Type sizes** - sized for 60cm viewing distance on a simulated panel; only the real thing judges it. `agent/web/style.css`.
-2. **Clock skew** if the Spot's clock drifts. Issue 12.
-3. **Brightness at night** if too bright even dimmed - bridge can set it, could drive from the sleep window.
-4. **Touch accuracy** on the tap zones (half the panel each) - real digitiser isn't the emulator's.
+2. **Brightness at night** if too bright even dimmed - bridge can set it, could drive from the sleep window.
+3. **Touch accuracy** on the tap zones (half the panel each) - real digitiser isn't the emulator's.

@@ -154,7 +154,7 @@ State store holds latest value per source (timestamp + status) - single source o
 
 | Endpoint       | Auth  | Behaviour                                                        |
 | -------------- | ----- | ---------------------------------------------------------------- |
-| `/health`      | none  | JSON: uptime, version, per-source status, last update, last error. |
+| `/health`      | none  | JSON: agent time (`now`, UTC), uptime, version, per-source status, last update, last error. |
 | `/ws`          | token | Full snapshot on connect, then one message per source update.     |
 | `/` and static | token | Embedded web UI (`embed.FS`).                                     |
 

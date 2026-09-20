@@ -42,6 +42,9 @@ type Options struct {
 	// HideNextEvent is the configured hide_next_event. Same reasoning as
 	// ClockStyle.
 	HideNextEvent bool
+	// Now is the clock /health reports. Defaults to time.Now; tests override
+	// it.
+	Now func() time.Time
 }
 
 // Server routes HTTP requests for the agent.
@@ -65,6 +68,9 @@ func New(opts Options) *Server {
 	log := opts.Logger
 	if log == nil {
 		log = slog.Default()
+	}
+	if opts.Now == nil {
+		opts.Now = time.Now
 	}
 	return &Server{
 		opts:      opts,
@@ -125,8 +131,12 @@ type healthSource struct {
 }
 
 type healthResponse struct {
-	Version       string                  `json:"version"`
-	UptimeSeconds float64                 `json:"uptime_seconds"`
+	Version       string  `json:"version"`
+	UptimeSeconds float64 `json:"uptime_seconds"`
+	// Now is the agent's clock, RFC 3339 in UTC. The panel's own clock can be
+	// wrong (the device has no battery-backed RTC), so it subtracts the
+	// difference from this before showing how old a reading is.
+	Now           string                  `json:"now"`
 	AccentColor   string                  `json:"accent_color,omitempty"`
 	HiddenFaces   []string                `json:"hidden_faces,omitempty"`
 	ClockStyle    string                  `json:"clock_style,omitempty"`
@@ -138,6 +148,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	resp := healthResponse{
 		Version:       s.opts.Version,
 		UptimeSeconds: time.Since(s.opts.Started).Seconds(),
+		Now:           s.opts.Now().UTC().Format(time.RFC3339),
 		AccentColor:   s.opts.AccentColor,
 		HiddenFaces:   s.opts.HiddenFaces,
 		ClockStyle:    s.opts.ClockStyle,
