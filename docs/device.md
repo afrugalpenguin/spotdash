@@ -1,6 +1,6 @@
 # Bringing up the Echo Spot
 
-Written against an emulator matching the device (Android 11, API 30, 480x480, circular, 1GB), then run on a real Echo Spot 2017 (`rook`) on unofficial LineageOS 18.1: 480x480 at density 160, `ro.config.low_ram=true`. This is what only the real hardware can settle, in order. Spot on the desk, USB attached. No agent rebuild needed.
+Written against an emulator matching the device (Android 11, API 30, 480x480, circular, 1024 MB), then run on a real Echo Spot 2017 (`rook`) on unofficial LineageOS 18.1: 480x480 at density 160, about 2 GB RAM (`MemTotal` 1958192 kB), `ro.config.low_ram=true`. This is what only the real hardware can settle, in order. Spot on the desk, USB attached. No agent rebuild needed.
 
 Command blocks below are for cmd on Windows unless they say PowerShell.
 
