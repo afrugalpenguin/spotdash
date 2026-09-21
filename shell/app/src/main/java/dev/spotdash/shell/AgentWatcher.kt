@@ -7,11 +7,15 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.util.concurrent.Executors
 
-/** Polls the agent's `/health` and reports when it has been unreachable too long. It needs no token. */
+/**
+ * Polls the agent's `/health` and reports when it has been unreachable too long. It needs no token.
+ * [onProtocol] gets the agent's protocol version from every answer, or null when the body has none.
+ */
 class AgentWatcher(
     private val healthUrl: () -> String,
     private val onDown: (String) -> Unit,
     private val onUp: () -> Unit,
+    private val onProtocol: (Int?) -> Unit = {},
 ) {
 
     private val main = Handler(Looper.getMainLooper())
@@ -58,12 +62,12 @@ class AgentWatcher(
         if (url.isBlank()) return
 
         pool.execute {
-            val failure = probe(url)
-            main.post { record(failure) }
+            val probe = probe(url)
+            main.post { record(probe.failure, probe.protocol) }
         }
     }
 
-    private fun record(failure: String?) {
+    private fun record(failure: String?, protocol: Int?) {
         if (!running) return
 
         if (failure == null) {
@@ -73,6 +77,7 @@ class AgentWatcher(
             }
             firstFailureAt = 0L
             reportedDown = false
+            onProtocol(protocol)
             return
         }
 
@@ -91,8 +96,10 @@ class AgentWatcher(
         }
     }
 
-    /** Returns null when the agent answered, or a reason when it did not. */
-    private fun probe(url: String): String? {
+    /** A reason when the agent did not answer, null when it did, and the protocol version it reported. */
+    private class Probe(val failure: String?, val protocol: Int? = null)
+
+    private fun probe(url: String): Probe {
         var connection: HttpURLConnection? = null
         return try {
             connection = (URL(url).openConnection() as HttpURLConnection).apply {
@@ -101,17 +108,35 @@ class AgentWatcher(
                 requestMethod = "GET"
             }
             val code = connection.responseCode
-            if (code in 200..299) null else "agent returned HTTP $code"
+            if (code in 200..299) {
+                Probe(null, agentProtocol(readBody(connection)))
+            } else {
+                Probe("agent returned HTTP $code")
+            }
         } catch (error: Exception) {
-            error.message ?: error.javaClass.simpleName
+            Probe(error.message ?: error.javaClass.simpleName)
         } finally {
             connection?.disconnect()
         }
     }
 
+    /** The start of the body. A real `/health` is well under the limit. */
+    private fun readBody(connection: HttpURLConnection): String =
+        connection.inputStream.use { input ->
+            val buffer = ByteArray(MAX_BODY_BYTES)
+            var length = 0
+            while (length < buffer.size) {
+                val read = input.read(buffer, length, buffer.size - length)
+                if (read < 0) break
+                length += read
+            }
+            String(buffer, 0, length, Charsets.UTF_8)
+        }
+
     private companion object {
         const val POLL_INTERVAL_MS = 5_000L
         const val DOWN_AFTER_MS = 30_000L
         const val TIMEOUT_MS = 4_000
+        const val MAX_BODY_BYTES = 16 * 1024
     }
 }

@@ -207,8 +207,8 @@ State store holds latest value per source (timestamp + status) - single source o
 
 | Endpoint       | Auth  | Behaviour                                                        |
 | -------------- | ----- | ---------------------------------------------------------------- |
-| `/health`      | none  | JSON: agent time (`now`, UTC), uptime, version, per-source status, last update, last error. |
-| `/ws`          | token | Full snapshot on connect, then one message per source update.     |
+| `/health`      | none  | JSON: agent time (`now`, UTC), uptime, version, protocol version, per-source status, last update, last error. |
+| `/ws`          | token | Hello frame, then a full snapshot on connect, then one message per source update. |
 | `/` and static | token | Embedded web UI (`embed.FS`).                                     |
 
 `/health` also carries `accent_color`, `hidden_faces`, `clock_style` and `hide_next_event`. They are cosmetic, and the panel needs them before it has anything else confirming the agent is reachable. `now` is the agent's clock in UTC. The device has no battery-backed RTC, so the panel corrects its own clock against it when showing how old a reading is.
@@ -240,6 +240,25 @@ WebSocket message shape:
 ```
 
 Connect snapshot is a sequence of the same message shape. A source that's never polled is left out (no blank-reading render). Only successful polls broadcast; a failure just changes status via `/health`, last good reading stays.
+
+The first frame on every connection is the hello, `{"source":"protocol","ts":"...","data":{"protocol":1,"agent":"v0.1.0"}}`. It is written straight to the socket and never enters the store, so it is not a snapshot entry, not in `/health` `sources`, and the panel keeps it out of its source list.
+
+### Protocol version
+
+The agent and the shell ship as separate downloads, so they can drift. `ProtocolVersion` (`agent/internal/server/protocol.go`) is one integer for what they must agree on: the JavaScript bridge methods and the provisioning payload. The shell has its own copy, `PROTOCOL_VERSION` (`shell/app/src/main/java/dev/spotdash/shell/Protocol.kt`). It starts at 1. Bump the side that changed, and only for an incompatible change: a removed or renamed bridge method, a changed method contract, or a provisioning payload the other side would reject. Adding a method or an optional field does not need a bump. The panel is embedded in the agent, so panel and agent cannot drift.
+
+Each side announces it:
+
+- The agent reports `protocol` on `/health` and in the hello frame.
+- The shell appends `spotdash-shell/<versionName> proto/<n>` to the WebView user agent. This adds no bridge method.
+
+Each side checks the other:
+
+- The agent reads the token from the user agent on every WebSocket handshake and logs one warning naming both versions when `n` differs. A browser has no token and is not checked.
+- The panel compares the shell token in `navigator.userAgent` with the agent's protocol and shows "Update the shell" when the shell is lower, "Update the agent" when it is higher. No token or an equal value shows nothing.
+- The shell reads `protocol` from every `/health` answer. On a difference it raises the native fallback with the same wording, which works when the web layer does not. It clears once the values agree. An agent that reports no `protocol` is an older build and is not treated as a mismatch.
+
+The status face footer shows the agent and shell versions. The tray tooltip is `spotdash <version>`.
 
 ### Backpressure
 

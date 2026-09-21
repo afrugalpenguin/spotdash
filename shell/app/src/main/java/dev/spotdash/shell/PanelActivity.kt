@@ -3,6 +3,7 @@ package dev.spotdash.shell
 import android.annotation.SuppressLint
 import android.content.ActivityNotFoundException
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.graphics.Color
 import android.os.Build
 import android.os.Bundle
@@ -47,6 +48,9 @@ class PanelActivity : AppCompatActivity() {
     // WebView calls onPageFinished after a failed load too. This keeps it from
     // hiding the error. See docs/architecture.md, "Failure behaviour".
     private var pageFailed = false
+
+    // Which side is behind, from the agent's last /health. NONE until it answers.
+    private var mismatch = ProtocolMismatch.NONE
 
     // Set when the Wi-Fi settings were opened, so coming back retries at once
     // and skips the backoff built up while the network was down.
@@ -99,6 +103,7 @@ class PanelActivity : AppCompatActivity() {
             healthUrl = { settings.healthUrl() },
             onDown = { reason -> showFallback(reason) },
             onUp = { hideFallbackAndReload() },
+            onProtocol = { agent -> checkProtocol(agent) },
         )
 
         if (settings.isConfigured) {
@@ -208,6 +213,8 @@ class PanelActivity : AppCompatActivity() {
             // is hard to diagnose.
             cacheMode = android.webkit.WebSettings.LOAD_NO_CACHE
             mediaPlaybackRequiresUserGesture = false
+            // The agent and the panel read the version off this. The bridge stays four methods.
+            userAgentString = shellUserAgent(userAgentString, shellVersionName())
         }
 
         // Fits the fixed 480 CSS pixel layout to this display. See
@@ -272,7 +279,7 @@ class PanelActivity : AppCompatActivity() {
             }
 
             override fun onPageFinished(view: WebView?, url: String?) {
-                if (!finishedPageClearsFallback(pageFailed, watcher.isDown)) {
+                if (!finishedPageClearsFallback(pageFailed, watcher.isDown, mismatch != ProtocolMismatch.NONE)) {
                     Log.i(TAG, "page finished without a working panel, keeping the error up")
                     return
                 }
@@ -304,6 +311,8 @@ class PanelActivity : AppCompatActivity() {
         // agent, so each gets its own title.
         val title = when {
             !settings.isConfigured -> getString(R.string.fallback_title_unconfigured)
+            mismatch == ProtocolMismatch.UPDATE_SHELL -> getString(R.string.fallback_title_update_shell)
+            mismatch == ProtocolMismatch.UPDATE_AGENT -> getString(R.string.fallback_title_update_agent)
             rejected -> getString(R.string.fallback_title_rejected)
             else -> getString(R.string.fallback_title)
         }
@@ -315,6 +324,31 @@ class PanelActivity : AppCompatActivity() {
         )
         fallback.visibility = View.VISIBLE
         scheduleRetry()
+    }
+
+    /** Shows the mismatch screen when the agent's protocol differs, and clears it once they agree. */
+    private fun checkProtocol(agent: Int?) {
+        val next = protocolMismatch(PROTOCOL_VERSION, agent)
+        val changed = next != mismatch
+        mismatch = next
+        when {
+            next != ProtocolMismatch.NONE -> {
+                if (changed || fallback.visibility != View.VISIBLE) {
+                    Log.w(TAG, "protocol mismatch: the agent speaks $agent, this shell speaks $PROTOCOL_VERSION")
+                    showFallback(getString(R.string.protocol_mismatch, agent, PROTOCOL_VERSION))
+                }
+            }
+            changed -> {
+                Log.i(TAG, "agent and shell protocols agree again")
+                hideFallbackAndReload()
+            }
+        }
+    }
+
+    private fun shellVersionName(): String = try {
+        packageManager.getPackageInfo(packageName, 0).versionName ?: "unknown"
+    } catch (error: PackageManager.NameNotFoundException) {
+        "unknown"
     }
 
     private fun hideFallback() {

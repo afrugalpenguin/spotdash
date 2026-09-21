@@ -69,6 +69,25 @@ func TestHealthReportsVersionAndUptime(t *testing.T) {
 	}
 }
 
+func TestProtocolHealthReportsTheVersion(t *testing.T) {
+	srv, _ := newTestServer(t)
+
+	rec := do(t, srv, http.MethodGet, "/health", "")
+
+	var body struct {
+		Protocol *int `json:"protocol"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode /health: %v\nbody: %s", err, rec.Body.String())
+	}
+	if body.Protocol == nil {
+		t.Fatalf("/health has no protocol\nbody: %s", rec.Body.String())
+	}
+	if *body.Protocol != ProtocolVersion {
+		t.Errorf("protocol = %d, want %d", *body.Protocol, ProtocolVersion)
+	}
+}
+
 func TestHealthReportsEverySourceStatus(t *testing.T) {
 	srv, store := newTestServer(t)
 	store.Register("clock", state.StatusDegraded, "awaiting first poll")

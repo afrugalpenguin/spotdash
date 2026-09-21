@@ -5,6 +5,9 @@
     <string name="fallback_title">Cannot reach the agent</string>
     <string name="fallback_title_unconfigured">Not set up yet</string>
     <string name="fallback_title_rejected">The agent rejected the token</string>
+    <string name="fallback_title_update_shell">Update the shell</string>
+    <string name="fallback_title_update_agent">Update the agent</string>
+    <string name="protocol_mismatch">The agent speaks protocol %1$d and this shell speaks %2$d.</string>
     <string name="fallback_hint">Long-press for 3 seconds for settings</string>
     <string name="fallback_settings">Settings</string>
     <string name="not_configured">Press and hold the display for three seconds to enter the agent address.</string>

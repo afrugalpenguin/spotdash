@@ -28,10 +28,15 @@ func Stop() {
 	systray.Quit()
 }
 
+// tooltip is the hover text over the tray icon.
+func tooltip(version string) string {
+	return "spotdash " + version
+}
+
 func onReady(opts Options, log *slog.Logger) {
 	systray.SetIcon(iconICO)
 	systray.SetTitle("spotdash")
-	systray.SetTooltip("spotdash " + opts.Version)
+	systray.SetTooltip(tooltip(opts.Version))
 
 	openItem := systray.AddMenuItem("Open UI", "Open the dashboard in your browser")
 	optionsItem := systray.AddMenuItem("Options", "Change panel settings, such as the accent colour")
