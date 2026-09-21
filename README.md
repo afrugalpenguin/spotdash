@@ -196,6 +196,28 @@ The exe is not code signed: this is a one-person desk toy and a signing
 certificate is not worth the cost. SmartScreen will flag it as an unrecognised
 publisher on first run ("More info", then "Run anyway"); that's expected.
 
+## Verify your download
+
+Every release has a `SHA256SUMS` file and a build attestation for the zip and
+the APK. In a folder with the downloads, check a file against its line in
+`SHA256SUMS` (Windows, then Git Bash):
+
+```
+certutil -hashfile spotdash-<tag>-windows-amd64.zip SHA256
+sha256sum -c SHA256SUMS
+```
+
+To check that a file was built by this repository's release workflow from the
+tagged commit:
+
+```
+gh attestation verify spotdash-<tag>-windows-amd64.zip --repo afrugalpenguin/spotdash
+gh attestation verify spotdash-shell-<tag>.apk --repo afrugalpenguin/spotdash
+```
+
+These prove where a file came from, not that it is free of bugs. The exe stays
+unsigned, so SmartScreen still warns as described under "Releases".
+
 ## Security
 
 Shared bearer token over plain HTTP on a trusted LAN, no TLS. That's a
