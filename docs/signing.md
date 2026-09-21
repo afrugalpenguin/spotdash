@@ -58,6 +58,8 @@ The certificate SHA-256 digest must match the one below. `badging` should show t
 
 ## Certificate digest
 
-| Key      | SHA-256                                   |
-|----------|-------------------------------------------|
-| spotdash | (record after generating the keystore)    |
+`apksigner` prints the digest in lowercase without colons. `keytool` prints the same value in uppercase with colons.
+
+| Key      | SHA-256                                                          |
+|----------|------------------------------------------------------------------|
+| spotdash | `3fd250efb85e9126e65540f45b99f3a9b1715bed949be8e30d50b05f58097b3f` |
