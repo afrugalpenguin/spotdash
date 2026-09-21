@@ -1,7 +1,7 @@
 # spotdash
 
 [![Release](https://img.shields.io/github/v/release/afrugalpenguin/spotdash?include_prereleases)](https://github.com/afrugalpenguin/spotdash/releases)
-[![Last commit](https://img.shields.io/github/last-commit/afrugalpenguin/spotdash)](https://github.com/afrugalpenguin/spotdash/commits/main)
+[![Test](https://github.com/afrugalpenguin/spotdash/actions/workflows/test.yml/badge.svg)](https://github.com/afrugalpenguin/spotdash/actions/workflows/test.yml)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Android%2011-blue)](#use-it)
 [![Go version](https://img.shields.io/badge/Go-1.26%2B-00ADD8?logo=go&logoColor=white)](agent/go.mod)
 [![License: MIT](https://img.shields.io/github/license/afrugalpenguin/spotdash)](LICENSE)

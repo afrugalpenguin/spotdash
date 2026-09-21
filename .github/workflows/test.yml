@@ -1,0 +1,83 @@
+name: test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: test-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  agent:
+    # Windows: the autostart and single-instance tests only run there.
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+        working-directory: agent
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: agent/go.mod
+          cache-dependency-path: agent/go.sum
+
+      - run: go vet ./...
+
+      - name: gofmt
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "::error::gofmt needed on: $unformatted"
+            exit 1
+          fi
+
+      - run: go test -race -count=1 ./...
+
+  panel:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - run: node --test "agent/web/*.test.js"
+
+  shell:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Unit tests and debug build
+        working-directory: shell
+        run: ./gradlew testDebugUnitTest assembleDebug
+
+  scripts:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: apk-version
+        shell: bash
+        run: .github/scripts/apk-version.sh --self-test
+
+      - name: provision.ps1
+        shell: powershell
+        run: .\tools\tests\test-provision.ps1
+
+      - name: spot-backup.ps1
+        shell: powershell
+        run: .\tools\tests\test-spot-backup.ps1
