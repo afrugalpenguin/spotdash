@@ -188,6 +188,10 @@ config with a generated token (see "Getting it running") and opens the panel.
 `config.example.json` is there as a reference for the settings. A tag with a
 hyphen, such as `v0.2.0-rc1`, is marked as a pre-release.
 
+The release also carries a signed shell APK, `spotdash-shell-<tag>.apk`, and the
+zip has a copy under `shell\` for the provision command. Signing is described
+in [`docs/signing.md`](docs/signing.md).
+
 The exe is not code signed: this is a one-person desk toy and a signing
 certificate is not worth the cost. SmartScreen will flag it as an unrecognised
 publisher on first run ("More info", then "Run anyway"); that's expected.

@@ -35,6 +35,8 @@ shell/captures/
 *.aab
 *.keystore
 *.jks
+*.p12
+keystore.properties
 
 # Git worktrees used for isolated feature work
 .worktrees/
