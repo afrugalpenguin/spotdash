@@ -66,7 +66,7 @@ Each has a recommendation.
 
 ## What is unverified
 
-Statements about the agent, panel and shell were checked against the code in this repository. Nothing was tried on the Spot, so its microphone and audio capture are untested. No recogniser has run on the PC, so accuracy, latency, idle CPU and whether the Windows recogniser sends audio anywhere are unmeasured. The XDA thread returned HTTP 403, so the mute switch statement comes from the owner's brief, and the Android pages for `RECORD_AUDIO` and `PermissionRequest` returned no content. The measured `MemTotal` of 1958192 kB disagrees with the 1GB in `docs/device.md`.
+Statements about the agent, panel and shell were checked against the code in this repository. Nothing was tried on the Spot, so its microphone and audio capture are untested. No recogniser has run on the PC, so accuracy, latency, idle CPU and whether the Windows recogniser sends audio anywhere are unmeasured. The XDA thread returned HTTP 403, so the mute switch statement comes from the owner's brief, and the Android pages for `RECORD_AUDIO` and `PermissionRequest` returned no content. The measured `MemTotal` on the device is 1958192 kB, about 2 GB.
 
 ## Sources
 
