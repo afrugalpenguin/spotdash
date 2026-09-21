@@ -146,8 +146,28 @@ function drawFooter() {
   linkValue.textContent = currentState.connection || "down";
   link.appendChild(linkValue);
 
-  footerEl.appendChild(uptime);
-  footerEl.appendChild(link);
+  const firstRow = document.createElement("div");
+  firstRow.className = "status-footer-row";
+  firstRow.appendChild(uptime);
+  firstRow.appendChild(link);
+
+  const versionRow = document.createElement("div");
+  versionRow.className = "status-footer-row";
+  versionRow.appendChild(versionSpan("agent", currentState.version, "unknown"));
+  // A browser has no shell.
+  versionRow.appendChild(versionSpan("shell", currentState.shellVersion, "n/a"));
+
+  footerEl.appendChild(firstRow);
+  footerEl.appendChild(versionRow);
+}
+
+function versionSpan(label, version, fallback) {
+  const span = document.createElement("span");
+  span.textContent = `${label} `;
+  const value = document.createElement("strong");
+  value.textContent = version || fallback;
+  span.appendChild(value);
+  return span;
 }
 
 // relativeAge is how long ago an agent timestamp was. offsetMs is

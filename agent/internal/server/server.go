@@ -107,7 +107,10 @@ type healthSource struct {
 }
 
 type healthResponse struct {
-	Version       string  `json:"version"`
+	Version string `json:"version"`
+	// Protocol is ProtocolVersion, so the shell can compare it without the
+	// web layer.
+	Protocol      int     `json:"protocol"`
 	UptimeSeconds float64 `json:"uptime_seconds"`
 	// Now is the agent's clock, RFC 3339 in UTC. The device has no
 	// battery-backed RTC, so the panel corrects its own clock against this.
@@ -122,6 +125,7 @@ type healthResponse struct {
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	resp := healthResponse{
 		Version:       s.opts.Version,
+		Protocol:      ProtocolVersion,
 		UptimeSeconds: time.Since(s.opts.Started).Seconds(),
 		Now:           s.opts.Now().UTC().Format(time.RFC3339),
 		AccentColor:   s.opts.AccentColor,

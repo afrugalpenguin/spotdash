@@ -165,6 +165,24 @@ body {
   background: var(--alert);
 }
 
+/* Shell and agent disagree on the protocol version. Empty means no notice.
+ * Near the top, where the circle is still wide enough for one short line. */
+#notice {
+  position: absolute;
+  left: 50%;
+  top: 44px;
+  transform: translateX(-50%);
+  color: var(--warn);
+  font-size: 16px;
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 3;
+}
+
+#notice:empty {
+  display: none;
+}
+
 /* Clock face */
 .clock-time {
   font-size: 120px;
@@ -345,7 +363,8 @@ body {
 #panel[data-sleep="true"] .clock-analogue-info,
 #panel[data-sleep="true"] .clock-next,
 #panel[data-sleep="true"] .rim,
-#panel[data-sleep="true"] #connection {
+#panel[data-sleep="true"] #connection,
+#panel[data-sleep="true"] #notice {
   display: none;
 }
 
@@ -432,13 +451,20 @@ body {
 }
 
 .status-footer {
-  display: flex;
-  justify-content: space-between;
-  /* No gap needed: space-between separates the two items. */
   color: var(--muted);
   font-size: 14px;
   border-top: 1px solid var(--track);
   padding-top: 8px;
+}
+
+/* Uptime and link on one line, the two versions on the next. */
+.status-footer-row {
+  display: flex;
+  justify-content: space-between;
+}
+
+.status-footer-row + .status-footer-row {
+  margin-top: 2px;
 }
 
 .status-footer strong {

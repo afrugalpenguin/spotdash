@@ -121,6 +121,10 @@ func TestDegradedReadingStillCarriesTheMachineOverTheSocket(t *testing.T) {
 	}
 	defer conn.Close(websocket.StatusNormalClosure, "done")
 
+	// The first frame is the protocol hello. The reading follows.
+	if _, _, err := conn.Read(ctx); err != nil {
+		t.Fatalf("Read hello: %v", err)
+	}
 	_, raw, err := conn.Read(ctx)
 	if err != nil {
 		t.Fatalf("Read: %v", err)

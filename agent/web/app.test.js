@@ -6,11 +6,14 @@ import { test } from "node:test";
 
 import {
   applyHealth,
+  applyHello,
   applyMessage,
   faceIndexFromQuery,
   isStale,
   jittered,
   nextBackoff,
+  parseShellToken,
+  protocolNotice,
   readToken,
   reportFaceError,
   state,
@@ -29,6 +32,8 @@ function resetState() {
   state.connection = "connecting";
   state.lastError = "";
   state.clockOffsetMs = 0;
+  state.protocol = 0;
+  state.shellVersion = "";
 }
 
 // fakeHistory records what readToken rewrites the URL to.
@@ -352,4 +357,72 @@ test("a face failure is written to the console as well as the screen", (t) => {
 
   assert.equal(errors.mock.callCount(), 1);
   assert.match(String(errors.mock.calls[0].arguments[0]), /face failed: boom/);
+});
+
+const SHELL_UA = (n) =>
+  `Mozilla/5.0 (Linux; Android 11) AppleWebKit/537.36 spotdash-shell/0.1.0 proto/${n}`;
+
+test("the shell token is read from the user agent", () => {
+  assert.deepEqual(parseShellToken(SHELL_UA(3)), { version: "0.1.0", protocol: 3 });
+});
+
+test("a user agent with no shell token gives null", () => {
+  assert.equal(parseShellToken("Mozilla/5.0 (Windows NT 10.0) Chrome/120"), null);
+  assert.equal(parseShellToken(""), null);
+  assert.equal(parseShellToken(undefined), null);
+  assert.equal(parseShellToken("spotdash-shell/0.1.0 proto/x"), null);
+});
+
+test("a shell on a lower protocol is told to update the shell", () => {
+  assert.match(protocolNotice(SHELL_UA(1), 2), /update the shell/i);
+});
+
+test("a shell on a higher protocol is told to update the agent", () => {
+  assert.match(protocolNotice(SHELL_UA(3), 2), /update the agent/i);
+});
+
+test("matching protocols show no notice", () => {
+  assert.equal(protocolNotice(SHELL_UA(2), 2), "");
+});
+
+test("a browser with no shell token shows no notice", () => {
+  assert.equal(protocolNotice("Mozilla/5.0 Chrome/120", 2), "");
+});
+
+test("no notice until the agent has reported a protocol", () => {
+  assert.equal(protocolNotice(SHELL_UA(1), 0), "");
+});
+
+test("the hello frame sets the agent protocol", () => {
+  resetState();
+
+  applyHello({ protocol: 4, agent: "v0.2.0" });
+
+  assert.equal(state.protocol, 4);
+});
+
+test("a malformed hello leaves the protocol alone", () => {
+  resetState();
+  state.protocol = 2;
+
+  applyHello(null);
+  applyHello({ protocol: "x" });
+
+  assert.equal(state.protocol, 2);
+});
+
+test("health also reports the agent protocol", () => {
+  resetState();
+
+  applyHealth({ version: "v0.1.0", protocol: 1, sources: {} }, Date.now());
+
+  assert.equal(state.protocol, 1);
+});
+
+test("the hello frame is not a data source", () => {
+  resetState();
+
+  applyMessage({ source: "protocol", ts: "2026-01-01T00:00:00Z", data: { protocol: 1 } });
+
+  assert.deepEqual(state.sources, {});
 });

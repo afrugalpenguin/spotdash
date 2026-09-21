@@ -39,6 +39,10 @@ export const state = {
   connection: "connecting",
   uptimeSeconds: 0,
   version: "",
+  // Protocol version the agent reported, 0 until it has. shellVersion is the
+  // shell's own, read from the user agent, empty in a browser.
+  protocol: 0,
+  shellVersion: "",
   accentColor: "",
   hiddenFaces: [],
   clockStyle: "digital",
@@ -56,6 +60,7 @@ let currentIndex = 0;
 let panel = null;
 let faceHost = null;
 let connectionEl = null;
+let noticeEl = null;
 let socket = null;
 let backoffMs = BACKOFF_MIN_MS;
 let reconnectTimer = null;
@@ -209,9 +214,46 @@ function setConnection(next) {
   notifyFace("connection", { state: next });
 }
 
+// parseShellToken reads the token the shell appends to its user agent, for
+// example "spotdash-shell/0.1.0 proto/1". It gives null for a browser.
+export function parseShellToken(userAgent) {
+  const match = /(?:^|\s)spotdash-shell\/(\S+) proto\/(\d+)(?:\s|$)/.exec(userAgent || "");
+  if (!match) {
+    return null;
+  }
+  return { version: match[1], protocol: Number(match[2]) };
+}
+
+// protocolNotice says which side to update when the shell and the agent
+// disagree. It is empty when they match, when this is not the shell, and
+// before the agent has reported. See docs/architecture.md, "Protocol version".
+export function protocolNotice(userAgent, agentProtocol) {
+  const shell = parseShellToken(userAgent);
+  if (!shell || !agentProtocol || shell.protocol === agentProtocol) {
+    return "";
+  }
+  return shell.protocol < agentProtocol ? "Update the shell" : "Update the agent";
+}
+
+// applyHello takes the agent's protocol from the first frame on the socket.
+export function applyHello(data) {
+  if (data && Number.isInteger(data.protocol)) {
+    state.protocol = data.protocol;
+  }
+}
+
+// showProtocolNotice is the only place the notice touches the DOM.
+function showProtocolNotice() {
+  if (!noticeEl) {
+    return;
+  }
+  noticeEl.textContent = protocolNotice(navigator.userAgent, state.protocol);
+}
+
 // applyMessage folds one live message into the state object.
 export function applyMessage(message) {
-  if (!message || !message.source) {
+  // The hello frame is not a source and must not reach the status list.
+  if (!message || !message.source || message.source === "protocol") {
     return;
   }
   const existing = state.sources[message.source] || {};
@@ -236,6 +278,9 @@ export function applyHealth(health, receivedAtMs = Date.now()) {
   }
   state.uptimeSeconds = health.uptime_seconds || 0;
   state.version = health.version || "";
+  if (Number.isInteger(health.protocol)) {
+    state.protocol = health.protocol;
+  }
   state.accentColor = health.accent_color || "";
   state.hiddenFaces = health.hidden_faces || [];
   state.clockStyle = health.clock_style || "digital";
@@ -305,6 +350,7 @@ async function pollHealth() {
       throw new Error(`health returned ${response.status}`);
     }
     applyHealth(await response.json());
+    showProtocolNotice();
     applyAccentColor();
     syncFaces();
     syncClockSettings();
@@ -344,6 +390,12 @@ function connect() {
       message = JSON.parse(event.data);
     } catch (err) {
       state.lastError = "received a message that was not JSON";
+      return;
+    }
+    if (message.source === "protocol") {
+      applyHello(message.data);
+      showProtocolNotice();
+      notifyFace("health", null);
       return;
     }
     applyMessage(message);
@@ -424,6 +476,10 @@ export function start() {
   panel = document.getElementById("panel");
   faceHost = document.getElementById("faces");
   connectionEl = document.getElementById("connection");
+  noticeEl = document.getElementById("notice");
+
+  const shell = parseShellToken(navigator.userAgent);
+  state.shellVersion = shell ? shell.version : "";
 
   token = readToken(window.location, window.history);
   wireInput();

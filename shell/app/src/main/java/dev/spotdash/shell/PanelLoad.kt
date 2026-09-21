@@ -11,9 +11,15 @@ internal fun httpFailureReason(status: Int, phrase: String?): String {
     return if (text.isEmpty()) "HTTP $status" else "HTTP $status $text"
 }
 
-/** Whether a finished page should hide the fallback. See docs/architecture.md, "Failure behaviour". */
-internal fun finishedPageClearsFallback(pageFailed: Boolean, agentDown: Boolean): Boolean =
-    !pageFailed && !agentDown
+/**
+ * Whether a finished page should hide the fallback. A protocol mismatch keeps it up, since the page
+ * loads fine from an agent the shell cannot work with. See docs/architecture.md, "Failure behaviour".
+ */
+internal fun finishedPageClearsFallback(
+    pageFailed: Boolean,
+    agentDown: Boolean,
+    protocolMismatched: Boolean = false,
+): Boolean = !pageFailed && !agentDown && !protocolMismatched
 
 /** The delay before the next load attempt: short first, doubling to a ceiling. */
 internal class RetryBackoff(

@@ -64,6 +64,11 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	events, cancel := s.opts.Store.Subscribe()
 	defer cancel()
 
+	s.checkShellProtocol(r)
+	if err := s.sendHello(ctx, conn); err != nil {
+		s.log.Debug("websocket hello failed", "error", err)
+		return
+	}
 	if err := s.sendSnapshot(ctx, conn); err != nil {
 		s.log.Debug("websocket snapshot failed", "error", err)
 		return
@@ -102,6 +107,38 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+}
+
+// sendHello writes the first frame on every connection: the protocol version
+// and the agent version.
+func (s *Server) sendHello(ctx context.Context, conn *websocket.Conn) error {
+	payload, err := json.Marshal(Message{
+		Source: protocolSource,
+		TS:     s.opts.Now().UTC().Format(time.RFC3339),
+		Data: map[string]any{
+			"protocol": ProtocolVersion,
+			"agent":    s.opts.Version,
+		},
+	})
+	if err != nil {
+		return err
+	}
+
+	writeCtx, cancel := context.WithTimeout(ctx, writeTimeout)
+	defer cancel()
+	return conn.Write(writeCtx, websocket.MessageText, payload)
+}
+
+// checkShellProtocol logs one warning when the shell's user agent names a
+// different protocol. A browser has no token and is not checked.
+func (s *Server) checkShellProtocol(r *http.Request) {
+	version, protocol, ok := shellToken(r.UserAgent())
+	if !ok || protocol == ProtocolVersion {
+		return
+	}
+	s.log.Warn("shell and agent protocol versions differ",
+		"shell_version", version, "shell_protocol", protocol,
+		"agent_version", s.opts.Version, "agent_protocol", ProtocolVersion)
 }
 
 // sendSnapshot writes the current reading of every source that has one, in the
