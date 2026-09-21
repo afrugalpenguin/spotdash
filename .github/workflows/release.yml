@@ -110,6 +110,8 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      id-token: write
+      attestations: write
     steps:
       - uses: actions/download-artifact@v4
         with:
@@ -121,15 +123,32 @@ jobs:
           name: apk
           path: dist/shell
 
-      - name: Package release zip
-        run: cd dist && zip -r ../spotdash-${GITHUB_REF_NAME}-windows-amd64.zip .
+      - name: Package release assets
+        run: |
+          mkdir release
+          (cd dist && zip -r "../release/spotdash-${GITHUB_REF_NAME}-windows-amd64.zip" .)
+          cp "dist/shell/spotdash-shell-${GITHUB_REF_NAME}.apk" release/
+
+      - name: Write SHA256SUMS
+        working-directory: release
+        run: |
+          sha256sum * > SHA256SUMS
+          [ -s SHA256SUMS ] || { echo "::error::SHA256SUMS is empty"; exit 1; }
+          for f in "spotdash-${GITHUB_REF_NAME}-windows-amd64.zip" "spotdash-shell-${GITHUB_REF_NAME}.apk"; do
+            awk -v f="$f" '{ sub(/^\*/, "", $2) } $2 == f { found = 1 } END { exit !found }' SHA256SUMS || { echo "::error::$f is missing from SHA256SUMS"; exit 1; }
+          done
+          cat SHA256SUMS
+
+      - uses: actions/attest-build-provenance@v4
+        with:
+          subject-path: |
+            release/*.zip
+            release/*.apk
 
       - name: Create release
         uses: softprops/action-gh-release@v2
         with:
-          files: |
-            spotdash-${{ github.ref_name }}-windows-amd64.zip
-            dist/shell/spotdash-shell-${{ github.ref_name }}.apk
+          files: release/*
           generate_release_notes: true
           # A tag such as v0.2.0-rc1 is a pre-release, not the latest.
           prerelease: ${{ contains(github.ref_name, '-') }}
