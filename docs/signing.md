@@ -28,7 +28,15 @@ The keystore goes in as base64. Run these from the directory holding the keystor
 base64 -w0 spotdash-release.keystore | gh secret set SPOTDASH_KEYSTORE_B64
 ```
 
-`gh secret set` prompts for the other three, or takes them on stdin:
+Set the other three by name. Each command prompts for the value (typed input is hidden):
+
+```
+gh secret set SPOTDASH_KEYSTORE_PASSWORD
+gh secret set SPOTDASH_KEY_ALIAS
+gh secret set SPOTDASH_KEY_PASSWORD
+```
+
+The four secrets:
 
 | Secret                       | Value                          |
 |------------------------------|--------------------------------|
